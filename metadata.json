@@ -1,0 +1,6 @@
+{
+  "name": "PulseVanguard - Website Health & Uptime Monitoring",
+  "description": "Enterprise-grade international SaaS platform for website health monitoring, uptime tracking, SSL auditing, security checks, and agency white-label reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
