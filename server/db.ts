@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import type { ScanResult } from './scanner.js';
+import type { ScanResult } from './scanner.ts';
 
 export interface User {
   id: string;
@@ -286,7 +286,7 @@ class Database {
         passwordHash: hashPassword('admin123'),
         role: 'super_admin',
         orgId: orgIdAdmin,
-        avatarUrl: '/src/assets/images/avatar_alex_founder_1790355374736.jpg',
+        avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
         emailVerified: true,
         createdAt: '2026-01-10T08:00:00.000Z',
       },
@@ -297,7 +297,7 @@ class Database {
         passwordHash: hashPassword('agency123'),
         role: 'agency_admin',
         orgId: orgIdAgency,
-        avatarUrl: '/src/assets/images/avatar_sarah_ops_1790355385524.jpg',
+        avatarUrl: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=256&q=80',
         emailVerified: true,
         createdAt: '2026-02-14T10:30:00.000Z',
       },

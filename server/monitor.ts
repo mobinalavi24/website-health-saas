@@ -1,5 +1,5 @@
-import { db, Website, MetricPoint, Incident, AlertNotification } from './db.js';
-import { performWebsiteScan } from './scanner.js';
+import { db, type Website, type MetricPoint, type Incident, type AlertNotification } from './db.ts';
+import { performWebsiteScan } from './scanner.ts';
 
 interface WorkerStats {
   running: boolean;

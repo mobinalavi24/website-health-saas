@@ -2,9 +2,9 @@ import { IncomingMessage, ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import crypto from 'node:crypto';
 import dns from 'node:dns/promises';
-import { db, hashPassword, verifyPassword, User, Website, Organization, AlertNotification, ReportItem, SupportTicket, ApiKey } from './db.js';
-import { performWebsiteScan, normalizeInputUrl, validateTargetSecurity } from './scanner.js';
-import { monitorEngine } from './monitor.js';
+import { db, hashPassword, verifyPassword, type User, type Website, type Organization, type AlertNotification, type ReportItem, type SupportTicket, type ApiKey } from './db.ts';
+import { performWebsiteScan, normalizeInputUrl, validateTargetSecurity } from './scanner.ts';
+import { monitorEngine } from './monitor.ts';
 
 // Simple token mechanism for authenticated sessions
 const sessionStore = new Map<string, { userId: string; orgId: string; expiresAt: number }>();

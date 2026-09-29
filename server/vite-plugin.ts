@@ -1,6 +1,6 @@
 import type { Plugin } from 'vite';
-import { handleApiRoute } from './api.js';
-import { monitorEngine } from './monitor.js';
+import { handleApiRoute } from './api.ts';
+import { monitorEngine } from './monitor.ts';
 
 export function pulseVanguardApiPlugin(): Plugin {
   const setupMiddleware = (server: any) => {
