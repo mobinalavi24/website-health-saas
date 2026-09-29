@@ -241,11 +241,84 @@ class Database {
     this.data = this.loadOrInit();
   }
 
+  public generatePlans(): SubscriptionPlan[] {
+    return [
+      {
+        id: 'free',
+        name: 'Free',
+        badge: '24-Hour Trial',
+        targetAudience: '24 hour trial only, one time per account',
+        pricing: {
+          USD: { monthly: 0, annual: 0 },
+          EUR: { monthly: 0, annual: 0 },
+          GBP: { monthly: 0, annual: 0 },
+        },
+        limits: {
+          maxWebsites: 1,
+          minIntervalMinutes: 5,
+          dataRetentionDays: 1,
+          teamMembersLimit: 1,
+          whiteLabel: false,
+          apiAccess: false,
+          prioritySupport: false,
+        },
+        features: [
+          '24 hour trial only, one time per account',
+          'Instant health diagnostics & response scan',
+          '1 website monitored during trial window',
+          'DNS, SSL & basic port checks',
+          'Real-time uptime simulator',
+          'Exportable health audit summary',
+        ],
+      },
+      {
+        id: 'pro',
+        name: 'Pro',
+        badge: 'Recommended',
+        targetAudience: '$5/month · Can scan 5 websites',
+        pricing: {
+          USD: { monthly: 5, annual: 50 },
+          EUR: { monthly: 5, annual: 50 },
+          GBP: { monthly: 4, annual: 40 },
+        },
+        limits: {
+          maxWebsites: 5,
+          minIntervalMinutes: 1,
+          dataRetentionDays: 180,
+          teamMembersLimit: 5,
+          whiteLabel: true,
+          apiAccess: true,
+          prioritySupport: true,
+        },
+        features: [
+          'Can scan 5 websites',
+          '$5 / month transparent pricing',
+          '1-minute rapid monitoring checks',
+          'Continuous SSL & TLS certificate expiry alarms',
+          'DNS, security headers & SEO health auditing',
+          'Instant email & webhook downtime alerts',
+          'REST API access with scoped keys',
+          'White-label executive client reports',
+          'Priority 24/7 technical support',
+        ],
+      },
+    ];
+  }
+
   private loadOrInit(): DatabaseSchema {
     try {
       if (fs.existsSync(DB_FILE)) {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
-        return JSON.parse(raw);
+        const parsed: DatabaseSchema = JSON.parse(raw);
+        parsed.plans = this.generatePlans();
+        if (parsed.organizations) {
+          for (const org of parsed.organizations) {
+            if (org.planId !== 'free' && org.planId !== 'pro') {
+              org.planId = 'pro';
+            }
+          }
+        }
+        return parsed;
       }
     } catch (e) {
       console.error('[DB] Failed to read db file, re-initializing', e);
@@ -307,7 +380,7 @@ class Database {
       {
         id: orgIdAdmin,
         name: 'PulseVanguard Systems',
-        planId: 'enterprise',
+        planId: 'pro',
         billingInterval: 'annual',
         currency: 'USD',
         ownerId: 'usr_admin',
@@ -324,7 +397,7 @@ class Database {
       {
         id: orgIdAgency,
         name: 'Acme Digital Agency',
-        planId: 'agency',
+        planId: 'free',
         billingInterval: 'monthly',
         currency: 'USD',
         ownerId: 'usr_agency',
@@ -519,126 +592,7 @@ class Database {
       },
     ];
 
-    const plans: SubscriptionPlan[] = [
-      {
-        id: 'free',
-        name: 'Starter Free',
-        badge: 'Individual',
-        targetAudience: 'For developers & personal sites',
-        pricing: {
-          USD: { monthly: 0, annual: 0 },
-          EUR: { monthly: 0, annual: 0 },
-          GBP: { monthly: 0, annual: 0 },
-        },
-        limits: {
-          maxWebsites: 2,
-          minIntervalMinutes: 15,
-          dataRetentionDays: 30,
-          teamMembersLimit: 1,
-          whiteLabel: false,
-          apiAccess: false,
-          prioritySupport: false,
-        },
-        features: [
-          '2 Monitored Websites',
-          '15-Minute Check Frequency',
-          'HTTP & SSL Certificate Checks',
-          '30-Day Historical Data Retention',
-          'Email Downtime Alerts',
-          'Public Health Share Links',
-        ],
-      },
-      {
-        id: 'pro',
-        name: 'Professional',
-        badge: 'Most Popular',
-        targetAudience: 'For businesses & growing web apps',
-        pricing: {
-          USD: { monthly: 29, annual: 290 },
-          EUR: { monthly: 27, annual: 270 },
-          GBP: { monthly: 24, annual: 240 },
-        },
-        limits: {
-          maxWebsites: 15,
-          minIntervalMinutes: 1,
-          dataRetentionDays: 180,
-          teamMembersLimit: 5,
-          whiteLabel: false,
-          apiAccess: true,
-          prioritySupport: true,
-        },
-        features: [
-          '15 Monitored Websites',
-          '1-Minute Rapid Monitoring',
-          'SSL, DNS & Security Header Audits',
-          'Core Web Vitals & SEO Crawling',
-          '180-Day Data Retention',
-          'Webhook & Slack Integration',
-          'REST API Access with Scoped Keys',
-          '5 Team Member Seats',
-        ],
-      },
-      {
-        id: 'agency',
-        name: 'Agency Partner',
-        badge: 'Agencies & Studios',
-        targetAudience: 'For web agencies & client managers',
-        pricing: {
-          USD: { monthly: 79, annual: 790 },
-          EUR: { monthly: 74, annual: 740 },
-          GBP: { monthly: 65, annual: 650 },
-        },
-        limits: {
-          maxWebsites: 50,
-          minIntervalMinutes: 1,
-          dataRetentionDays: 365,
-          teamMembersLimit: 20,
-          whiteLabel: true,
-          apiAccess: true,
-          prioritySupport: true,
-        },
-        features: [
-          '50 Monitored Websites',
-          '1-Minute Monitoring Engine',
-          'White-Label PDF & Web Reports',
-          'Client Workspaces & Read-Only Links',
-          'Custom Brand Logo & Footer',
-          '365-Day Historical Analytics',
-          'Automated Scheduled Client Reports',
-          '20 Team Members with RBAC',
-        ],
-      },
-      {
-        id: 'enterprise',
-        name: 'Enterprise Scale',
-        badge: 'High Volume',
-        targetAudience: 'For large mission-critical operations',
-        pricing: {
-          USD: { monthly: 199, annual: 1990 },
-          EUR: { monthly: 185, annual: 1850 },
-          GBP: { monthly: 165, annual: 1650 },
-        },
-        limits: {
-          maxWebsites: 250,
-          minIntervalMinutes: 1,
-          dataRetentionDays: 730,
-          teamMembersLimit: 100,
-          whiteLabel: true,
-          apiAccess: true,
-          prioritySupport: true,
-        },
-        features: [
-          '250+ Monitored Websites',
-          'Multi-Region 30-Second Verification',
-          'Dedicated IP Monitoring Nodes',
-          'Custom SLAs (99.99%)',
-          'Unlimited Client Portals',
-          'Custom Retention Policies (2+ Years)',
-          '24/7 Dedicated Incident Team',
-          'Direct Engineering Slack Channel',
-        ],
-      },
-    ];
+    const plans: SubscriptionPlan[] = this.generatePlans();
 
     const invoices: Invoice[] = [
       {
@@ -646,10 +600,10 @@ class Database {
         orgId: orgIdAdmin,
         invoiceNumber: 'INV-2026-081',
         date: '2026-03-01T00:00:00.000Z',
-        amount: 1990,
+        amount: 50,
         currency: 'USD',
         status: 'paid',
-        planName: 'Enterprise Scale (Annual)',
+        planName: 'Pro Plan (Annual - $5/mo equivalent)',
       },
       {
         id: 'inv_2026_02',

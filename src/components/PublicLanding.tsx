@@ -44,6 +44,10 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
 
   const faqs = [
     {
+      q: 'How does the Free 24-Hour Trial and Pro plan work?',
+      a: 'The Free plan offers a complete 24-hour trial (one-time per account) to test our real-time monitoring and site health diagnostics with no credit card required. To monitor continuously and scan up to 5 websites with 1-minute checks, upgrade to Pro for just $5/month.',
+    },
+    {
       q: 'Do you require hosting, cPanel, SSH, or server passwords?',
       a: 'Never. PulseVanguard operates 100% through public DNS, TLS handshakes on port 443, and standard HTTP/HTTPS endpoints. You do not need to provide server credentials, database passwords, or FTP access.',
     },
@@ -384,70 +388,103 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
         </div>
 
         {/* Pricing Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 max-w-4xl mx-auto gap-6 sm:gap-8">
           {plans.map((p) => {
             const price = billingInterval === 'annual'
               ? p.pricing[currency].annual
               : p.pricing[currency].monthly;
 
+            const isPro = p.id === 'pro';
+
             return (
               <div
                 key={p.id}
-                className={`rounded-2xl border p-6 flex flex-col justify-between ${
-                  p.id === 'pro'
-                    ? 'border-[#E6A05A] bg-[#0F172A] shadow-xl shadow-[#E6A05A]/5'
-                    : 'border-slate-800 bg-[#0F172A]/70'
+                className={`relative rounded-2xl border p-7 sm:p-8 flex flex-col justify-between transition-all ${
+                  isPro
+                    ? 'border-[#E6A05A] bg-[#0F172A] shadow-2xl shadow-[#E6A05A]/10 ring-1 ring-[#E6A05A]/40'
+                    : 'border-slate-800 bg-[#0F172A]/70 hover:border-slate-700'
                 }`}
               >
-                <div className="space-y-4">
+                <div className="space-y-5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                      {p.badge}
+                      {isPro ? 'RECOMMENDED' : '24-HOUR TRIAL'}
                     </span>
-                    {p.id === 'pro' && (
-                      <span className="text-[10px] font-mono text-[#E6A05A] bg-[#E6A05A]/10 border border-[#E6A05A]/20 px-2 py-0.5 rounded">
-                        RECOMMENDED
+                    {isPro ? (
+                      <span className="text-[10px] font-mono font-bold text-[#E6A05A] bg-[#E6A05A]/10 border border-[#E6A05A]/30 px-2.5 py-0.5 rounded-full">
+                        MOST POPULAR
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-mono text-slate-400 bg-slate-800/80 border border-slate-700 px-2.5 py-0.5 rounded-full">
+                        ONE-TIME TRIAL
                       </span>
                     )}
                   </div>
 
                   <div>
-                    <h3 className="text-lg font-bold text-white">{p.name}</h3>
-                    <p className="text-xs text-slate-400 mt-0.5">{p.targetAudience}</p>
+                    <h3 className="text-2xl font-bold text-white">{p.name}</h3>
+                    <p className="text-xs sm:text-sm text-slate-400 mt-1">
+                      {isPro
+                        ? 'For businesses, developers & growing web applications'
+                        : '24 hour trial only, one time per account.'}
+                    </p>
                   </div>
 
-                  <div className="py-2">
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-3xl font-extrabold font-mono text-white tabular-nums">
+                  {/* Highlights Callout Banner */}
+                  {isPro ? (
+                    <div className="rounded-xl bg-[#E6A05A]/10 border border-[#E6A05A]/30 p-3 text-xs text-[#E6A05A] font-medium flex items-center gap-2.5">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-[#E6A05A]" />
+                      <span><strong>Can scan 5 websites</strong> with rapid 1-minute checks</span>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl bg-slate-800/60 border border-slate-700/60 p-3 text-xs text-slate-300 flex items-center gap-2.5">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-slate-400" />
+                      <span><strong>24 hour trial only</strong> · One time per account</span>
+                    </div>
+                  )}
+
+                  <div className="py-1">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-4xl sm:text-5xl font-extrabold font-mono text-white tabular-nums">
                         {currencySymbol}{price}
                       </span>
-                      <span className="text-xs text-slate-400 font-mono">
-                        / {billingInterval === 'annual' ? 'yr' : 'mo'}
+                      <span className="text-xs sm:text-sm text-slate-400 font-mono">
+                        {isPro
+                          ? `/ ${billingInterval === 'annual' ? 'yr' : 'mo'}`
+                          : 'for 24 hours'}
                       </span>
                     </div>
+                    {isPro && billingInterval === 'annual' && (
+                      <p className="text-[11px] text-emerald-400 font-mono mt-1">
+                        Equivalent to {currencySymbol}4.17/mo (2 months free)
+                      </p>
+                    )}
                   </div>
 
-                  <ul className="space-y-2 text-xs text-slate-300 pt-2 border-t border-slate-800/80">
+                  <ul className="space-y-2.5 text-xs text-slate-300 pt-3 border-t border-slate-800/80">
                     {p.features.map((feat, idx) => (
-                      <li key={idx} className="flex items-start gap-2">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                      <li key={idx} className="flex items-start gap-2.5">
+                        <CheckCircle2 className={`h-4 w-4 shrink-0 mt-0.5 ${isPro ? 'text-[#E6A05A]' : 'text-emerald-400'}`} />
                         <span>{feat}</span>
                       </li>
                     ))}
                   </ul>
                 </div>
 
-                <div className="pt-6">
+                <div className="pt-8">
                   <button
                     onClick={() => onOpenAuth('register')}
-                    className={`w-full py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                      p.id === 'pro'
-                        ? 'bg-[#E6A05A] text-[#0B1120] hover:bg-[#cf863c]'
+                    className={`w-full py-3 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+                      isPro
+                        ? 'bg-[#E6A05A] text-[#0B1120] hover:bg-[#cf863c] shadow-lg shadow-[#E6A05A]/10 font-bold'
                         : 'bg-slate-800 text-white hover:bg-slate-700'
                     }`}
                   >
-                    Start with {p.name}
+                    {isPro ? `Get Started with Pro ($5/mo)` : 'Start 24-Hour Free Trial'}
                   </button>
+                  <p className="text-[11px] text-center text-slate-500 mt-2 font-mono">
+                    {isPro ? 'Cancel anytime • Billed in USD, EUR, or GBP' : 'No credit card required • One-time evaluation'}
+                  </p>
                 </div>
               </div>
             );
@@ -545,7 +582,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
             Ready to Protect Your Website Uptime?
           </h2>
           <p className="text-xs sm:text-sm text-slate-400 max-w-xl mx-auto leading-relaxed">
-            Start monitoring your public endpoints in 60 seconds. No credit card required for Starter Free tier.
+            Start monitoring your public endpoints in 60 seconds. Free 24-hour trial with zero credit card required, or upgrade to Pro for $5/month to scan 5 websites.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <button

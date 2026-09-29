@@ -122,6 +122,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
+      {/* Trial to Pro Upgrade Banner */}
+      {organization?.planId !== 'pro' && (
+        <div className="rounded-xl border border-[#E6A05A]/30 bg-[#E6A05A]/10 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-2 w-2 rounded-full bg-[#E6A05A] animate-pulse" />
+            <span className="text-white font-medium">
+              You are using the <strong className="text-[#E6A05A]">Free 24-Hour Trial</strong> (one time per account). Upgrade to <strong className="text-white">Pro for $5/month</strong> to scan & monitor up to 5 websites.
+            </span>
+          </div>
+          <button
+            onClick={() => onNavigate('billing')}
+            className="px-3.5 py-1.5 rounded-lg bg-[#E6A05A] text-[#0B1120] font-bold text-xs hover:bg-[#cf863c] transition-colors shrink-0 self-start sm:self-auto shadow-sm"
+          >
+            Upgrade to Pro ($5/mo)
+          </button>
+        </div>
+      )}
+
       {/* Open Incidents Alert Banner if any */}
       {openIncidents.length > 0 && (
         <div className="rounded-xl border border-rose-900/80 bg-rose-950/30 p-4 space-y-2">
@@ -161,8 +179,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {offlineCount > 0 && <span className="text-rose-400">· {offlineCount} down</span>}
             </div>
           </div>
-          <div className="text-[11px] text-slate-500">
-            {organization?.planId?.toUpperCase() || 'FREE'} plan quota: {totalCount} configured
+          <div className="text-[11px] text-slate-400 font-mono">
+            {organization?.planId === 'pro'
+              ? `Pro Plan ($5/mo): ${totalCount}/5 sites used`
+              : `Free Trial (24h): ${totalCount}/1 site used`}
           </div>
         </div>
 

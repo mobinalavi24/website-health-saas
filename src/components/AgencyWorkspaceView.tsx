@@ -238,7 +238,7 @@ export const AgencyWorkspaceView: React.FC<AgencyWorkspaceViewProps> = ({
               </p>
             </div>
           </div>
-          <span className="text-xs font-mono text-emerald-400 font-semibold">INCLUDED IN AGENCY PLAN</span>
+          <span className="text-xs font-mono text-emerald-400 font-semibold">INCLUDED IN PRO PLAN ($5/MO)</span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">

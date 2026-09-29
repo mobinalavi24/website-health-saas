@@ -69,7 +69,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
             Subscription Plans & Quotas
           </h1>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Predictable international pricing with transparent checks, frequency limits, and white-label options.
+            Predictable international pricing: Free 24-hour trial (one time per account) or Pro for $5/month to scan 5 websites.
           </p>
         </div>
 
@@ -123,9 +123,10 @@ export const BillingView: React.FC<BillingViewProps> = ({
       )}
 
       {/* Plans Tier Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 max-w-4xl mx-auto gap-6 sm:gap-8">
         {plans.map((plan) => {
           const isCurrent = organization?.planId === plan.id;
+          const isPro = plan.id === 'pro';
           const price = interval === 'annual'
             ? plan.pricing[currency].annual
             : plan.pricing[currency].monthly;
@@ -133,61 +134,97 @@ export const BillingView: React.FC<BillingViewProps> = ({
           return (
             <div
               key={plan.id}
-              className={`rounded-2xl border p-6 flex flex-col justify-between transition-all ${
+              className={`rounded-2xl border p-7 sm:p-8 flex flex-col justify-between transition-all ${
                 isCurrent
-                  ? 'border-[#E6A05A] bg-[#0F172A] shadow-lg shadow-[#E6A05A]/5'
+                  ? 'border-[#E6A05A] bg-[#0F172A] shadow-xl shadow-[#E6A05A]/10 ring-1 ring-[#E6A05A]/40'
                   : 'border-slate-800 bg-[#0F172A]/80 hover:border-slate-700'
               }`}
             >
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                    {plan.badge}
+                    {isPro ? 'RECOMMENDED' : '24-HOUR TRIAL'}
                   </span>
-                  {isCurrent && (
-                    <span className="text-[10px] font-mono text-[#E6A05A] bg-[#E6A05A]/10 border border-[#E6A05A]/20 px-2 py-0.5 rounded">
-                      ACTIVE
+                  {isCurrent ? (
+                    <span className="text-[10px] font-mono text-[#E6A05A] bg-[#E6A05A]/10 border border-[#E6A05A]/30 px-2.5 py-0.5 rounded-full font-bold">
+                      ACTIVE PLAN
+                    </span>
+                  ) : isPro ? (
+                    <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full font-bold">
+                      MOST POPULAR
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-mono text-slate-400 bg-slate-800/80 border border-slate-700 px-2.5 py-0.5 rounded-full">
+                      ONE-TIME
                     </span>
                   )}
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-bold text-white">{plan.name}</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">{plan.targetAudience}</p>
+                  <h3 className="text-2xl font-bold text-white">{plan.name}</h3>
+                  <p className="text-xs sm:text-sm text-slate-400 mt-1">
+                    {isPro
+                      ? '$5/month · Can scan 5 websites'
+                      : '24 hour trial only, one time per account.'}
+                  </p>
                 </div>
 
-                <div className="py-2">
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-3xl font-extrabold font-mono text-white tabular-nums">
+                {/* Callout box */}
+                {isPro ? (
+                  <div className="rounded-xl bg-[#E6A05A]/10 border border-[#E6A05A]/30 p-3 text-xs text-[#E6A05A] font-semibold flex items-center gap-2">
+                    <Check className="h-4 w-4 shrink-0 text-[#E6A05A]" />
+                    <span>Can scan 5 websites with 1-minute checks</span>
+                  </div>
+                ) : (
+                  <div className="rounded-xl bg-slate-800/60 border border-slate-700/60 p-3 text-xs text-slate-300 flex items-center gap-2">
+                    <Check className="h-4 w-4 shrink-0 text-slate-400" />
+                    <span>24 hour trial only · One time per account</span>
+                  </div>
+                )}
+
+                <div className="py-1">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-4xl sm:text-5xl font-extrabold font-mono text-white tabular-nums">
                       {currencySymbol}{price}
                     </span>
-                    <span className="text-xs text-slate-400 font-mono">
-                      / {interval === 'annual' ? 'yr' : 'mo'}
+                    <span className="text-xs sm:text-sm text-slate-400 font-mono">
+                      {isPro
+                        ? `/ ${interval === 'annual' ? 'yr' : 'mo'}`
+                        : 'for 24 hours'}
                     </span>
                   </div>
+                  {isPro && interval === 'annual' && (
+                    <p className="text-[11px] text-emerald-400 font-mono mt-1">
+                      Equivalent to {currencySymbol}4.17/mo (2 months free)
+                    </p>
+                  )}
                 </div>
 
-                <ul className="space-y-2 text-xs text-slate-300 pt-2 border-t border-slate-800/80">
+                <ul className="space-y-2.5 text-xs text-slate-300 pt-3 border-t border-slate-800/80">
                   {plan.features.map((feat, idx) => (
-                    <li key={idx} className="flex items-start gap-2">
-                      <Check className="h-3.5 w-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <li key={idx} className="flex items-start gap-2.5">
+                      <Check className={`h-4 w-4 shrink-0 mt-0.5 ${isPro ? 'text-[#E6A05A]' : 'text-emerald-400'}`} />
                       <span>{feat}</span>
                     </li>
                   ))}
                 </ul>
               </div>
 
-              <div className="pt-6">
+              <div className="pt-8">
                 <button
                   onClick={() => handleSelectPlan(plan.id)}
                   disabled={loading || isCurrent}
-                  className={`w-full py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                  className={`w-full py-3 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
                     isCurrent
                       ? 'bg-slate-800 text-slate-400 cursor-default'
-                      : 'bg-[#E6A05A] text-[#0B1120] hover:bg-[#cf863c] cursor-pointer'
+                      : 'bg-[#E6A05A] text-[#0B1120] hover:bg-[#cf863c] cursor-pointer shadow-lg shadow-[#E6A05A]/10 font-bold'
                   }`}
                 >
-                  {isCurrent ? 'Current Plan' : `Upgrade to ${plan.name}`}
+                  {isCurrent
+                    ? 'Current Plan'
+                    : isPro
+                    ? `Upgrade to Pro (${currencySymbol}${price}${interval === 'annual' ? '/yr' : '/mo'})`
+                    : 'Switch to Free 24h Trial'}
                 </button>
               </div>
             </div>
