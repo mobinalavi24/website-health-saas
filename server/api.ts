@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import crypto from 'node:crypto';
@@ -5,6 +6,7 @@ import dns from 'node:dns/promises';
 import { db, hashPassword, verifyPassword, type User, type Website, type Organization, type AlertNotification, type ReportItem, type SupportTicket, type ApiKey } from './db.ts';
 import { performWebsiteScan, normalizeInputUrl, validateTargetSecurity } from './scanner.ts';
 import { monitorEngine } from './monitor.ts';
+import { createCryptoPaymentOrder, verifyPaymentOrder, testLBankConnection } from './lbank.ts';
 
 // Simple token mechanism for authenticated sessions
 const sessionStore = new Map<string, { userId: string; orgId: string; expiresAt: number }>();
@@ -59,6 +61,9 @@ async function readJsonBody(req: IncomingMessage): Promise<any> {
 function sendJson(res: ServerResponse, status: number, data: any) {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.end(JSON.stringify(data));
 }
 
@@ -69,6 +74,16 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
   const parsedUrl = new URL(reqUrl, 'http://localhost');
   const path = parsedUrl.pathname;
   const method = req.method?.toUpperCase() || 'GET';
+
+  // Handle CORS preflight options request
+  if (method === 'OPTIONS') {
+    res.statusCode = 204;
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.end();
+    return true;
+  }
 
   try {
     // 0. HEALTH CHECK
@@ -158,13 +173,41 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
     if (path === '/api/auth/login' && method === 'POST') {
       const { email, password } = await readJsonBody(req);
-      if (!email || !password) {
+      const userAgent = req.headers['user-agent'] || 'unknown';
+      const cleanEmail = typeof email === 'string' ? email.trim() : '';
+      const cleanPassword = typeof password === 'string' ? password : '';
+
+      // Diagnostic logging (strictly without logging password or password hash)
+      console.log(`[AUTH DIAGNOSTIC] Login attempt:`, {
+        emailLength: cleanEmail.length,
+        passwordLength: cleanPassword.length,
+        hasEmail: Boolean(cleanEmail),
+        hasPassword: Boolean(cleanPassword),
+        userAgentSummary: userAgent.substring(0, 80),
+        timestamp: new Date().toISOString(),
+      });
+
+      if (!cleanEmail || !cleanPassword) {
         sendJson(res, 400, { error: 'Email and password are required.' });
         return true;
       }
 
-      const user = db.findUserByEmail(email);
-      if (!user || !verifyPassword(password, user.passwordHash)) {
+      const user = db.findUserByEmail(cleanEmail);
+      if (!user) {
+        console.log(`[AUTH DIAGNOSTIC] User not found by email.`);
+        sendJson(res, 401, { error: 'Invalid credentials. Please verify your email and password.' });
+        return true;
+      }
+
+      const isValidPassword = verifyPassword(cleanPassword, user.passwordHash);
+      console.log(`[AUTH DIAGNOSTIC] Password verification outcome:`, {
+        userFound: true,
+        userId: user.id,
+        userRole: user.role,
+        verified: isValidPassword,
+      });
+
+      if (!isValidPassword) {
         sendJson(res, 401, { error: 'Invalid credentials. Please verify your email and password.' });
         return true;
       }
@@ -651,6 +694,133 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       }
       const invoices = db.getInvoices().filter((inv) => inv.orgId === session.org.id);
       sendJson(res, 200, invoices);
+      return true;
+    }
+
+    // --- CRYPTO PAYMENT SYSTEM (USDT TRC20 / LBank Integration) ---
+    if (path === '/api/crypto/create-order' && method === 'POST') {
+      const session = resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+
+      const body = await readJsonBody(req);
+      const planId = body.planId || 'pro';
+      const billingInterval = body.interval === 'annual' ? 'annual' : 'monthly';
+
+      try {
+        const order = await createCryptoPaymentOrder({
+          orgId: session.org.id,
+          userId: session.user.id,
+          userEmail: session.user.email,
+          planId,
+          billingInterval,
+        });
+
+        sendJson(res, 201, { success: true, order });
+      } catch (err: any) {
+        sendJson(res, 400, { error: err.message || 'Failed to create payment order' });
+      }
+      return true;
+    }
+
+    if (path.startsWith('/api/crypto/order/') && method === 'GET') {
+      const session = resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+
+      const orderId = path.replace('/api/crypto/order/', '').trim();
+      const order = db.findCryptoOrderById(orderId);
+      const isOwner = order && (order.userId === session.user.id || order.userEmail?.toLowerCase() === session.user.email.toLowerCase() || order.orgId === session.org.id);
+      if (!order || (!isOwner && session.user.role !== 'super_admin')) {
+        sendJson(res, 404, { error: 'Payment order not found' });
+        return true;
+      }
+
+      sendJson(res, 200, order);
+      return true;
+    }
+
+    if (path === '/api/crypto/check-order' && method === 'POST') {
+      const session = resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+
+      const { orderId, txId } = await readJsonBody(req);
+      if (!orderId) {
+        sendJson(res, 400, { error: 'Order ID is required' });
+        return true;
+      }
+
+      const order = db.findCryptoOrderById(orderId);
+      const isOwner = order && (order.userId === session.user.id || order.userEmail?.toLowerCase() === session.user.email.toLowerCase() || order.orgId === session.org.id);
+      if (!order || (!isOwner && session.user.role !== 'super_admin')) {
+        sendJson(res, 404, { error: 'Payment order not found' });
+        return true;
+      }
+
+      try {
+        const result = await verifyPaymentOrder(orderId, txId);
+        // If activated, refresh organization in session
+        if (result.activated) {
+          const freshOrg = db.findOrgById(session.org.id);
+          if (freshOrg) session.org = freshOrg;
+        }
+        sendJson(res, 200, {
+          success: true,
+          order: result.order,
+          activated: result.activated,
+          message: result.message,
+          organization: session.org,
+        });
+      } catch (err: any) {
+        sendJson(res, 500, { error: err.message || 'Verification failed' });
+      }
+      return true;
+    }
+
+    if (path === '/api/crypto/orders' && method === 'GET') {
+      const session = resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+
+      const userEmail = session.user.email.toLowerCase();
+      // Ensure user views their own payment records (or their org orders)
+      const orders = db.getCryptoOrders().filter((o) => {
+        if (session.user.role === 'super_admin') return true;
+        return o.userId === session.user.id || (o.userEmail && o.userEmail.toLowerCase() === userEmail) || o.orgId === session.org.id;
+      });
+      sendJson(res, 200, orders);
+      return true;
+    }
+
+    if (path === '/api/crypto/lbank-test' && (method === 'GET' || method === 'POST')) {
+      const session = resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+
+      try {
+        const testResult = await testLBankConnection();
+        sendJson(res, 200, testResult);
+      } catch (err: any) {
+        sendJson(res, 500, {
+          status: 'FAILED',
+          title: 'LBank API Connection: FAILED',
+          endpoint: 'https://api.lbank.info/v2/supplement/api_Restrictions.do',
+          errorMessage: err.message || 'Unexpected test failure',
+          diagnostic: 'Unexpected error executing LBank API test.',
+          timestamp: new Date().toISOString(),
+        });
+      }
       return true;
     }
 

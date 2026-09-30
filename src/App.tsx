@@ -10,6 +10,7 @@ import { ReportsView } from './components/ReportsView.tsx';
 import { BillingView } from './components/BillingView.tsx';
 import { ApiDocsView } from './components/ApiDocsView.tsx';
 import { AdminView } from './components/AdminView.tsx';
+import { MyCryptoPaymentsView } from './components/MyCryptoPaymentsView.tsx';
 import { AddWebsiteModal } from './components/AddWebsiteModal.tsx';
 import { AuthModal } from './components/AuthModal.tsx';
 import { ContactModal } from './components/ContactModal.tsx';
@@ -350,6 +351,10 @@ export default function App() {
           )}
 
           {activeView === 'api-docs' && <ApiDocsView />}
+
+          {activeView === 'my-crypto-payments' && user?.email?.toLowerCase() === 'mobinalavi7491@gmail.com' && (
+            <MyCryptoPaymentsView onNavigateToBilling={() => setActiveView('billing')} />
+          )}
 
           {activeView === 'admin' && <AdminView />}
         </div>

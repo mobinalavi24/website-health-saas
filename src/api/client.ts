@@ -9,6 +9,8 @@ import type {
   ReportItem,
   SubscriptionPlan,
   Invoice,
+  CryptoPaymentOrder,
+  LBankConnectionTestResult,
   ApiKey,
   SupportTicket,
   AuditLog,
@@ -204,6 +206,45 @@ export const apiClient = {
 
   async getInvoices(): Promise<Invoice[]> {
     return this.request<Invoice[]>('/api/billing/invoices');
+  },
+
+  // Crypto Payments (USDT TRC20)
+  async createCryptoOrder(planId: string, interval: 'monthly' | 'annual'): Promise<{ success: boolean; order: CryptoPaymentOrder }> {
+    return this.request<{ success: boolean; order: CryptoPaymentOrder }>('/api/crypto/create-order', {
+      method: 'POST',
+      body: JSON.stringify({ planId, interval }),
+    });
+  },
+
+  async getCryptoOrder(orderId: string): Promise<CryptoPaymentOrder> {
+    return this.request<CryptoPaymentOrder>(`/api/crypto/order/${encodeURIComponent(orderId)}`);
+  },
+
+  async checkCryptoOrder(orderId: string, txId?: string): Promise<{
+    success: boolean;
+    order: CryptoPaymentOrder;
+    activated: boolean;
+    message: string;
+    organization?: Organization;
+  }> {
+    return this.request<{
+      success: boolean;
+      order: CryptoPaymentOrder;
+      activated: boolean;
+      message: string;
+      organization?: Organization;
+    }>('/api/crypto/check-order', {
+      method: 'POST',
+      body: JSON.stringify({ orderId, txId }),
+    });
+  },
+
+  async getCryptoOrders(): Promise<CryptoPaymentOrder[]> {
+    return this.request<CryptoPaymentOrder[]>('/api/crypto/orders');
+  },
+
+  async testLBankConnection(): Promise<LBankConnectionTestResult> {
+    return this.request<LBankConnectionTestResult>('/api/crypto/lbank-test');
   },
 
   // Tickets

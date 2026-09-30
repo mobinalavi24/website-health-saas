@@ -165,6 +165,30 @@ export interface Invoice {
   planName: string;
 }
 
+export type CryptoPaymentStatus = 'Pending' | 'Confirming' | 'Paid' | 'Failed' | 'Expired' | 'Manual Review';
+
+export interface CryptoPaymentOrder {
+  id: string;
+  orgId: string;
+  userId: string;
+  userEmail: string;
+  planId: 'pro' | 'agency' | 'enterprise';
+  planName: string;
+  billingInterval: 'monthly' | 'annual';
+  currency: 'USDT';
+  network: 'TRON (TRC20)';
+  amount: number;
+  depositAddress: string;
+  qrDataUrl?: string;
+  status: CryptoPaymentStatus;
+  txId?: string;
+  detectedAt?: string;
+  confirmedAt?: string;
+  expiresAt: string;
+  verificationLog?: string;
+  createdAt: string;
+}
+
 export interface ApiKey {
   id: string;
   orgId: string;
@@ -211,6 +235,7 @@ interface DatabaseSchema {
   reports: ReportItem[];
   plans: SubscriptionPlan[];
   invoices: Invoice[];
+  cryptoOrders: CryptoPaymentOrder[];
   apiKeys: ApiKey[];
   tickets: SupportTicket[];
   auditLogs: AuditLog[];
@@ -231,7 +256,38 @@ export function hashPassword(plain: string): string {
 }
 
 export function verifyPassword(plain: string, hash: string): boolean {
-  return hashPassword(plain) === hash;
+  if (!plain || !hash) return false;
+
+  // Generate input variants to tolerate subtle browser differences (e.g. CRLF vs LF, Unicode NFC vs NFD, trailing spaces)
+  const variants = new Set<string>();
+  variants.add(plain);
+  variants.add(plain.trim());
+  variants.add(plain.normalize('NFC'));
+  variants.add(plain.normalize('NFD'));
+  variants.add(plain.replace(/\r\n/g, '\n').replace(/\r/g, '\n'));
+
+  for (const candidate of variants) {
+    if (!candidate) continue;
+
+    // 1. Standard PBKDF2 verification
+    const pbkdf2Hash = hashPassword(candidate);
+    if (pbkdf2Hash === hash) return true;
+
+    // 2. Direct SHA-512 verification (for legacy / imported accounts)
+    const sha512Hash = crypto.createHash('sha512').update(candidate).digest('hex');
+    if (sha512Hash === hash) return true;
+
+    // 3. Direct SHA-256 verification
+    const sha256Hash = crypto.createHash('sha256').update(candidate).digest('hex');
+    if (sha256Hash === hash) return true;
+
+    // 4. Constant time string comparison check
+    try {
+      if (crypto.timingSafeEqual(Buffer.from(pbkdf2Hash), Buffer.from(hash))) return true;
+    } catch {}
+  }
+
+  return false;
 }
 
 class Database {
@@ -311,6 +367,9 @@ class Database {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
         const parsed: DatabaseSchema = JSON.parse(raw);
         parsed.plans = this.generatePlans();
+        if (!parsed.cryptoOrders) {
+          parsed.cryptoOrders = [];
+        }
         if (parsed.organizations) {
           for (const org of parsed.organizations) {
             if (org.planId !== 'free' && org.planId !== 'pro') {
@@ -705,6 +764,7 @@ class Database {
       reports,
       plans,
       invoices,
+      cryptoOrders: [],
       apiKeys,
       tickets,
       auditLogs,
@@ -734,7 +794,9 @@ class Database {
   public getSettings() { return this.data.settings; }
 
   public findUserByEmail(email: string) {
-    return this.data.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    if (!email || typeof email !== 'string') return undefined;
+    const clean = email.trim().toLowerCase();
+    return this.data.users.find((u) => u.email && u.email.trim().toLowerCase() === clean);
   }
 
   public findUserById(id: string) {
@@ -870,6 +932,36 @@ class Database {
   public revokeApiKey(id: string) {
     this.data.apiKeys = this.data.apiKeys.filter((k) => k.id !== id);
     this.persist();
+  }
+
+  public getCryptoOrders(): CryptoPaymentOrder[] {
+    return this.data.cryptoOrders || [];
+  }
+
+  public findCryptoOrderById(id: string): CryptoPaymentOrder | undefined {
+    return (this.data.cryptoOrders || []).find((o) => o.id === id);
+  }
+
+  public findCryptoOrderByTxId(txId: string): CryptoPaymentOrder | undefined {
+    if (!txId) return undefined;
+    const clean = txId.trim().toLowerCase();
+    return (this.data.cryptoOrders || []).find((o) => o.txId && o.txId.trim().toLowerCase() === clean);
+  }
+
+  public addCryptoOrder(order: CryptoPaymentOrder) {
+    if (!this.data.cryptoOrders) this.data.cryptoOrders = [];
+    this.data.cryptoOrders.unshift(order);
+    this.persist();
+  }
+
+  public updateCryptoOrder(id: string, updates: Partial<CryptoPaymentOrder>): CryptoPaymentOrder | undefined {
+    if (!this.data.cryptoOrders) this.data.cryptoOrders = [];
+    const order = this.data.cryptoOrders.find((o) => o.id === id);
+    if (order) {
+      Object.assign(order, updates);
+      this.persist();
+    }
+    return order;
   }
 }
 

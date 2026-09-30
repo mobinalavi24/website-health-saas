@@ -163,6 +163,54 @@ export interface Invoice {
   planName: string;
 }
 
+export type CryptoPaymentStatus = 'Pending' | 'Confirming' | 'Paid' | 'Failed' | 'Expired' | 'Manual Review';
+
+export interface CryptoPaymentOrder {
+  id: string;
+  orgId: string;
+  userId: string;
+  userEmail: string;
+  planId: 'pro' | 'agency' | 'enterprise';
+  planName: string;
+  billingInterval: 'monthly' | 'annual';
+  currency: 'USDT';
+  network: 'TRON (TRC20)';
+  amount: number;
+  depositAddress: string;
+  qrDataUrl?: string;
+  status: CryptoPaymentStatus;
+  txId?: string;
+  detectedAt?: string;
+  confirmedAt?: string;
+  expiresAt: string;
+  verificationLog?: string;
+  createdAt: string;
+}
+
+export interface LBankConnectionTestResult {
+  status: 'SUCCESS' | 'FAILED';
+  title: string;
+  endpoint: string;
+  accountDetails?: {
+    apiKeyMasked: string;
+    permissions?: {
+      enableReading: boolean;
+      ipRestrict: boolean;
+      enableSpotTrading: boolean;
+      enableWithdrawals: boolean;
+      enableFuturesTrading: boolean;
+      enableTransfer?: boolean;
+    };
+    createdTime?: string;
+    depositAddress?: string;
+    accountCoins?: Array<{ coin: string; usable: string }>;
+  };
+  errorMessage?: string;
+  errorCode?: number | string;
+  diagnostic: string;
+  timestamp: string;
+}
+
 export interface ApiKey {
   id: string;
   orgId: string;

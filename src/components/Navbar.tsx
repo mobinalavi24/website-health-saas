@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Shield, Globe, Terminal, LogIn, LayoutDashboard, UserCheck } from 'lucide-react';
+import { Activity, Shield, Globe, Terminal, LogIn, LayoutDashboard, UserCheck, QrCode } from 'lucide-react';
 import type { User, Organization } from '../types.ts';
 
 interface NavbarProps {
@@ -118,6 +118,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 API Keys
               </button>
+              {user.email?.toLowerCase() === 'mobinalavi7491@gmail.com' && (
+                <button
+                  onClick={() => onNavigate('my-crypto-payments')}
+                  className={`transition-colors hover:text-white ${activeView === 'my-crypto-payments' ? 'text-[#E6A05A]' : ''}`}
+                >
+                  My Crypto Payments
+                </button>
+              )}
               {user.role === 'super_admin' && (
                 <button
                   onClick={() => onNavigate('admin')}
@@ -170,6 +178,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="text-xs font-medium text-white truncate max-w-[130px]">{user.name}</span>
                 <span className="text-[11px] text-slate-400 capitalize">{organization?.planId || 'free'} plan</span>
               </div>
+              {user.email?.toLowerCase() === 'mobinalavi7491@gmail.com' && (
+                <button
+                  onClick={() => onNavigate('my-crypto-payments')}
+                  title="My Crypto Payments"
+                  className={`flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-colors ${
+                    activeView === 'my-crypto-payments'
+                      ? 'bg-[#E6A05A] text-[#0B1120] border-[#E6A05A]'
+                      : 'bg-slate-800 border-slate-700 text-[#E6A05A] hover:bg-slate-700'
+                  }`}
+                >
+                  <QrCode className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">My Payments</span>
+                </button>
+              )}
               <button
                 onClick={() => onNavigate('dashboard')}
                 title="Open Dashboard"

@@ -34,10 +34,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     try {
       if (tab === 'login') {
+        // Clear any old/stale token from localStorage before attempting new login
+        apiClient.clearToken();
         const res = await apiClient.login(email.trim(), password);
         onSuccess(res.user, res.organization);
         onClose();
       } else if (tab === 'register') {
+        apiClient.clearToken();
         const res = await apiClient.register(name.trim(), email.trim(), password, orgName.trim());
         onSuccess(res.user, res.organization);
         onClose();
@@ -168,6 +171,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <input
                 type="email"
                 required
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck="false"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@company.com"
@@ -192,6 +199,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <input
                   type="password"
                   required
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck="false"
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••••••"
