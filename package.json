@@ -8,17 +8,25 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server.ts",
+    "test": "tsx test-trial.ts && tsx test-advanced-seo.ts && tsx test-postgres.ts",
+    "test:trial": "tsx test-trial.ts",
+    "test:seo": "tsx test-advanced-seo.ts",
+    "test:postgres": "tsx test-postgres.ts",
+    "db:migrate": "tsx -e \"import { runMigration } from './server/db/migrate.ts'; runMigration().then(console.log);\"",
+    "db:verify": "tsx -e \"import { verifyMigration } from './server/db/verify.ts'; verifyMigration().then(r => console.log(JSON.stringify(r, null, 2)));\"",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@types/pg": "^8.23.1",
     "@vitejs/plugin-react": "^6.1.1",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "pg": "^8.23.1",
     "qrcode": "^1.5.4",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
@@ -33,6 +41,7 @@
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
+    "pg-mem": "^3.0.14",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2"
   }

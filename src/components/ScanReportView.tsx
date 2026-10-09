@@ -17,8 +17,11 @@ import {
   Sparkles,
   Copy,
   Check,
+  Gauge,
 } from 'lucide-react';
-import type { ScanResult } from '../types.ts';
+import type { ScanResult, CombinedPageSpeedResult } from '../types.ts';
+import { PageSpeedSection } from './PageSpeedSection.tsx';
+import { AdvancedSeoSection } from './AdvancedSeoSection.tsx';
 
 interface ScanReportViewProps {
   report: ScanResult;
@@ -33,8 +36,9 @@ export const ScanReportView: React.FC<ScanReportViewProps> = ({
   onMonitorNow,
   isPublicView = false,
 }) => {
-  const [activeTab, setActiveTab] = useState<'recommendations' | 'ssl' | 'dns' | 'security' | 'seo' | 'tech'>('recommendations');
+  const [activeTab, setActiveTab] = useState<'recommendations' | 'pagespeed' | 'ssl' | 'dns' | 'security' | 'seo' | 'tech'>('recommendations');
   const [copied, setCopied] = useState(false);
+  const [pageSpeedState, setPageSpeedState] = useState<CombinedPageSpeedResult | null | undefined>(report.pageSpeed);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
   const getScoreColor = (score: number) => {
@@ -232,6 +236,28 @@ export const ScanReportView: React.FC<ScanReportViewProps> = ({
           Remediation & Issues ({report.recommendations.length})
         </button>
         <button
+          onClick={() => setActiveTab('pagespeed')}
+          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+            activeTab === 'pagespeed'
+              ? 'bg-slate-800 text-[#E6A05A] shadow-sm font-semibold'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Gauge className="h-3.5 w-3.5" />
+          <span>Google PageSpeed Insights</span>
+          {pageSpeedState?.mobile?.scores.performance !== undefined && pageSpeedState.mobile.scores.performance !== null && (
+            <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono ${
+              pageSpeedState.mobile.scores.performance >= 90
+                ? 'bg-emerald-500/10 text-emerald-400'
+                : pageSpeedState.mobile.scores.performance >= 50
+                ? 'bg-amber-500/10 text-amber-400'
+                : 'bg-rose-500/10 text-rose-400'
+            }`}>
+              {pageSpeedState.mobile.scores.performance}
+            </span>
+          )}
+        </button>
+        <button
           onClick={() => setActiveTab('ssl')}
           className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
             activeTab === 'ssl' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-white'
@@ -257,11 +283,16 @@ export const ScanReportView: React.FC<ScanReportViewProps> = ({
         </button>
         <button
           onClick={() => setActiveTab('seo')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-            activeTab === 'seo' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+            activeTab === 'seo' ? 'bg-slate-800 text-[#E6A05A] shadow-sm font-semibold' : 'text-slate-400 hover:text-white'
           }`}
         >
-          SEO & Meta Tags
+          <span>Advanced SEO Analysis</span>
+          {report.advancedSeo?.score !== undefined && (
+            <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-[#E6A05A]/10 text-[#E6A05A] border border-[#E6A05A]/30">
+              {report.advancedSeo.score}/100
+            </span>
+          )}
         </button>
         <button
           onClick={() => setActiveTab('tech')}
@@ -320,6 +351,15 @@ export const ScanReportView: React.FC<ScanReportViewProps> = ({
             );
           })}
         </div>
+      )}
+
+      {/* Tab: Google PageSpeed Insights */}
+      {activeTab === 'pagespeed' && (
+        <PageSpeedSection
+          url={report.url}
+          initialData={pageSpeedState}
+          onDataUpdated={(updated) => setPageSpeedState(updated)}
+        />
       )}
 
       {/* Tab 2: SSL Certificate */}
@@ -493,54 +533,9 @@ export const ScanReportView: React.FC<ScanReportViewProps> = ({
         </div>
       )}
 
-      {/* Tab 5: SEO & Meta */}
+      {/* Tab 5: Advanced SEO Analysis */}
       {activeTab === 'seo' && (
-        <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-6 space-y-4">
-          <h3 className="text-base font-semibold text-white">Search Engine Discovery & Meta Structure</h3>
-
-          <div className="space-y-3 text-xs">
-            <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400 font-semibold">Title Tag</span>
-                <span className="font-mono text-slate-300">{report.seo.titleLength} chars</span>
-              </div>
-              <p className="text-white font-medium">{report.seo.title || 'No <title> tag detected'}</p>
-            </div>
-
-            <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400 font-semibold">Meta Description</span>
-                <span className="font-mono text-slate-300">{report.seo.descriptionLength} chars</span>
-              </div>
-              <p className="text-white leading-relaxed">{report.seo.description || 'No <meta name="description"> tag detected'}</p>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                <span className="text-slate-500 block">robots.txt</span>
-                <span className={`font-mono font-medium ${report.seo.robotsTxtPresent ? 'text-emerald-400' : 'text-amber-400'}`}>
-                  {report.seo.robotsTxtPresent ? 'FOUND' : 'MISSING'}
-                </span>
-              </div>
-              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                <span className="text-slate-500 block">sitemap.xml</span>
-                <span className={`font-mono font-medium ${report.seo.sitemapPresent ? 'text-emerald-400' : 'text-slate-400'}`}>
-                  {report.seo.sitemapPresent ? 'FOUND' : 'NOT FOUND'}
-                </span>
-              </div>
-              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                <span className="text-slate-500 block">H1 Headings</span>
-                <span className="font-mono text-white font-medium">{report.seo.h1Count} tags</span>
-              </div>
-              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                <span className="text-slate-500 block">Image Alt Coverage</span>
-                <span className="font-mono text-white font-medium">
-                  {report.seo.imagesWithAltCount} / {report.seo.imageCount}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
+        <AdvancedSeoSection seoData={report.advancedSeo} scanResult={report} />
       )}
 
       {/* Tab 6: Detected Technologies */}

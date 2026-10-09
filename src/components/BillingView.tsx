@@ -220,6 +220,10 @@ export const BillingView: React.FC<BillingViewProps> = ({
                     <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full font-bold">
                       MOST POPULAR
                     </span>
+                  ) : organization?.trialEndsAt && new Date() >= new Date(organization.trialEndsAt) ? (
+                    <span className="text-[10px] font-mono text-rose-400 bg-rose-950/40 border border-rose-800 px-2.5 py-0.5 rounded-full font-bold">
+                      TRIAL EXPIRED
+                    </span>
                   ) : (
                     <span className="text-[10px] font-mono text-slate-400 bg-slate-800/80 border border-slate-700 px-2.5 py-0.5 rounded-full">
                       ONE-TIME
@@ -243,9 +247,17 @@ export const BillingView: React.FC<BillingViewProps> = ({
                     <span>Can scan 5 websites with 1-minute checks</span>
                   </div>
                 ) : (
-                  <div className="rounded-xl bg-slate-800/60 border border-slate-700/60 p-3 text-xs text-slate-300 flex items-center gap-2">
+                  <div className={`rounded-xl border p-3 text-xs flex items-center gap-2 ${
+                    organization?.trialEndsAt && new Date() >= new Date(organization.trialEndsAt)
+                      ? 'bg-rose-950/20 border-rose-900/60 text-rose-300'
+                      : 'bg-slate-800/60 border-slate-700/60 text-slate-300'
+                  }`}>
                     <Check className="h-4 w-4 shrink-0 text-slate-400" />
-                    <span>24 hour trial only · One time per account</span>
+                    <span>
+                      {organization?.trialEndsAt && new Date() >= new Date(organization.trialEndsAt)
+                        ? '24-hour trial period has ended. Cannot be restarted.'
+                        : '24 hour trial only · One time per account'}
+                    </span>
                   </div>
                 )}
 
@@ -278,26 +290,35 @@ export const BillingView: React.FC<BillingViewProps> = ({
               </div>
 
               <div className="pt-8">
-                <button
-                  onClick={() => handleSelectPlan(plan.id)}
-                  disabled={loading || isCurrent}
-                  className={`w-full py-3 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
-                    isCurrent
-                      ? 'bg-slate-800 text-slate-400 cursor-default'
-                      : 'bg-[#E6A05A] text-[#0B1120] hover:bg-[#cf863c] cursor-pointer shadow-lg shadow-[#E6A05A]/10 font-bold'
-                  }`}
-                >
-                  {isCurrent ? (
-                    'Current Plan'
-                  ) : isPro ? (
-                    <>
-                      <QrCode className="h-4 w-4" />
-                      <span>{loading ? 'Creating Order...' : `Pay ${currencySymbol}${price} with USDT (TRC20)`}</span>
-                    </>
-                  ) : (
-                    'Switch to Free 24h Trial'
-                  )}
-                </button>
+                {plan.id === 'free' && organization?.trialEndsAt && new Date() >= new Date(organization.trialEndsAt) && !isCurrent ? (
+                  <button
+                    disabled
+                    className="w-full py-3 rounded-xl text-xs sm:text-sm font-semibold bg-slate-800 text-rose-400/80 border border-slate-700 cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    <span>Trial Expired (Cannot Restart)</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleSelectPlan(plan.id)}
+                    disabled={loading || isCurrent}
+                    className={`w-full py-3 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+                      isCurrent
+                        ? 'bg-slate-800 text-slate-400 cursor-default'
+                        : 'bg-[#E6A05A] text-[#0B1120] hover:bg-[#cf863c] cursor-pointer shadow-lg shadow-[#E6A05A]/10 font-bold'
+                    }`}
+                  >
+                    {isCurrent ? (
+                      'Current Plan'
+                    ) : isPro ? (
+                      <>
+                        <QrCode className="h-4 w-4" />
+                        <span>{loading ? 'Creating Order...' : `Pay ${currencySymbol}${price} with USDT (TRC20)`}</span>
+                      </>
+                    ) : (
+                      'Switch to Free 24h Trial'
+                    )}
+                  </button>
+                )}
                 {isPro && !isCurrent && (
                   <p className="text-[11px] text-center text-slate-400 mt-2 font-mono flex items-center justify-center gap-1">
                     <span>Instant automatic activation via LBank USDT TRC20</span>

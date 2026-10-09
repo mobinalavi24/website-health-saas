@@ -23,14 +23,44 @@
       "createdAt": "2026-02-14T10:30:00.000Z"
     },
     {
-      "id": "usr_mobin_7491",
+      "id": "usr_1790775111622",
       "email": "mobinalavi7491@gmail.com",
-      "name": "Mobin Alavi",
-      "passwordHash": "pv_unassigned_external_auth",
-      "role": "team_member",
-      "orgId": "org_mobin_7491",
+      "name": "mobin alavi",
+      "passwordHash": "f88a5442035d77795775ecbe8eead5c70d90c2dbb371ba7edfc288a041c88389f123ee9067412affde2109d28f37aa8af7810ee6de8bb17212d047435704d357",
+      "role": "admin",
+      "orgId": "org_1790775111622",
       "emailVerified": true,
-      "createdAt": "2026-03-01T00:00:00.000Z"
+      "createdAt": "2026-09-30T13:31:51.631Z"
+    },
+    {
+      "id": "usr_1791120625886",
+      "email": "trialuser1791120625771@test.com",
+      "name": "Trial User",
+      "passwordHash": "2be495f223537d206a837dd5cdc09a3ffb41a186b56c27d6f3e2e2f2c78aee7178a2319706a9973288471c85b0f8f9b2ef40546a4560a26b66c4d76adf15a22c",
+      "role": "team_member",
+      "orgId": "org_1791120625886",
+      "emailVerified": true,
+      "createdAt": "2026-10-04T13:30:25.895Z"
+    },
+    {
+      "id": "usr_1791120644861",
+      "email": "trialuser1791120644721@test.com",
+      "name": "Trial User",
+      "passwordHash": "2be495f223537d206a837dd5cdc09a3ffb41a186b56c27d6f3e2e2f2c78aee7178a2319706a9973288471c85b0f8f9b2ef40546a4560a26b66c4d76adf15a22c",
+      "role": "team_member",
+      "orgId": "org_1791120644861",
+      "emailVerified": true,
+      "createdAt": "2026-10-04T13:30:44.870Z"
+    },
+    {
+      "id": "usr_1791120657581",
+      "email": "expire1791120657493@test.com",
+      "name": "Expiring User",
+      "passwordHash": "2be495f223537d206a837dd5cdc09a3ffb41a186b56c27d6f3e2e2f2c78aee7178a2319706a9973288471c85b0f8f9b2ef40546a4560a26b66c4d76adf15a22c",
+      "role": "team_member",
+      "orgId": "org_1791120657581",
+      "emailVerified": true,
+      "createdAt": "2026-10-04T13:30:57.590Z"
     }
   ],
   "organizations": [
@@ -54,7 +84,10 @@
           "createdAt": "2026-02-01T00:00:00.000Z"
         }
       ],
-      "createdAt": "2026-01-10T08:00:00.000Z"
+      "createdAt": "2026-01-10T08:00:00.000Z",
+      "trialStartedAt": "2026-01-10T08:00:00.000Z",
+      "trialEndsAt": "2026-01-11T08:00:00.000Z",
+      "trialUsed": true
     },
     {
       "id": "org_agency_002",
@@ -82,21 +115,78 @@
           "createdAt": "2026-02-20T00:00:00.000Z"
         }
       ],
-      "createdAt": "2026-02-14T10:30:00.000Z"
+      "createdAt": "2026-02-14T10:30:00.000Z",
+      "trialStartedAt": "2026-02-14T10:30:00.000Z",
+      "trialEndsAt": "2026-02-15T10:30:00.000Z",
+      "trialUsed": true
     },
     {
-      "id": "org_mobin_7491",
-      "name": "Mobin Workspace",
-      "planId": "pro",
+      "id": "org_1790775111622",
+      "name": "mobin alavi's Workspace",
+      "planId": "free",
       "billingInterval": "monthly",
       "currency": "USD",
-      "ownerId": "usr_mobin_7491",
+      "ownerId": "usr_1790775111622",
       "whiteLabel": {
         "enabled": false,
-        "brandName": "Mobin Workspace"
+        "brandName": "mobin alavi"
       },
       "clients": [],
-      "createdAt": "2026-03-01T00:00:00.000Z"
+      "createdAt": "2026-09-30T13:31:51.622Z",
+      "trialStartedAt": "2026-09-30T13:31:51.622Z",
+      "trialEndsAt": "2026-10-01T13:31:51.622Z",
+      "trialUsed": true
+    },
+    {
+      "id": "org_1791120625886",
+      "name": "Trial User's Workspace",
+      "planId": "free",
+      "billingInterval": "monthly",
+      "currency": "USD",
+      "ownerId": "usr_1791120625886",
+      "trialStartedAt": "2026-10-04T13:30:25.886Z",
+      "trialEndsAt": "2026-10-05T13:30:25.886Z",
+      "trialUsed": true,
+      "whiteLabel": {
+        "enabled": false,
+        "brandName": "Trial User"
+      },
+      "clients": [],
+      "createdAt": "2026-10-04T13:30:25.886Z"
+    },
+    {
+      "id": "org_1791120644861",
+      "name": "Trial User's Workspace",
+      "planId": "free",
+      "billingInterval": "monthly",
+      "currency": "USD",
+      "ownerId": "usr_1791120644861",
+      "trialStartedAt": "2026-10-04T13:30:44.861Z",
+      "trialEndsAt": "2026-10-05T13:30:44.861Z",
+      "trialUsed": true,
+      "whiteLabel": {
+        "enabled": false,
+        "brandName": "Trial User"
+      },
+      "clients": [],
+      "createdAt": "2026-10-04T13:30:44.861Z"
+    },
+    {
+      "id": "org_1791120657581",
+      "name": "Expiring User's Workspace",
+      "planId": "free",
+      "billingInterval": "monthly",
+      "currency": "USD",
+      "ownerId": "usr_1791120657581",
+      "trialStartedAt": "2026-10-04T13:30:57.581Z",
+      "trialEndsAt": "2026-10-05T13:30:57.581Z",
+      "trialUsed": true,
+      "whiteLabel": {
+        "enabled": false,
+        "brandName": "Expiring User"
+      },
+      "clients": [],
+      "createdAt": "2026-10-04T13:30:57.581Z"
     }
   ],
   "websites": [
@@ -109,9 +199,9 @@
       "domain": "github.com",
       "status": "ONLINE",
       "intervalMinutes": 1,
-      "lastCheckedAt": "2026-09-30T04:24:29.850Z",
-      "lastResponseTimeMs": 27,
-      "healthScore": 96,
+      "lastCheckedAt": "2026-10-07T13:24:26.089Z",
+      "lastResponseTimeMs": 40,
+      "healthScore": 93,
       "uptime24h": 100,
       "uptime7d": 99.9,
       "uptime30d": 99.8,
@@ -143,7 +233,2110 @@
         "alertOnSslExpiry": true,
         "latencyThresholdMs": 800
       },
-      "createdAt": "2026-01-10T09:00:00.000Z"
+      "createdAt": "2026-01-10T09:00:00.000Z",
+      "lastScanResult": {
+        "url": "https://github.com/",
+        "normalizedUrl": "https://github.com/",
+        "domain": "github.com",
+        "timestamp": "2026-10-06T18:48:03.329Z",
+        "overallScore": 93,
+        "grade": "A+",
+        "summary": {
+          "passed": 3,
+          "warnings": 1,
+          "critical": 0
+        },
+        "uptime": {
+          "status": "ONLINE",
+          "httpStatus": 200,
+          "httpStatusText": "OK",
+          "responseTimeMs": 255,
+          "isHttps": true,
+          "redirectCount": 0,
+          "finalUrl": "https://github.com/",
+          "details": "Checked in 485ms"
+        },
+        "ssl": {
+          "valid": true,
+          "issuer": "Sectigo Limited",
+          "subject": "github.com",
+          "validFrom": "2026-09-01T00:00:00.000Z",
+          "validTo": "2026-11-29T23:59:59.000Z",
+          "daysRemaining": 54,
+          "protocol": "TLSv1.3",
+          "cipher": "TLS_AES_128_GCM_SHA256",
+          "authorized": true
+        },
+        "dns": {
+          "aRecords": [
+            "20.26.156.215"
+          ],
+          "aaaaRecords": [],
+          "mxRecords": [
+            {
+              "exchange": "github-com.mail.protection.outlook.com",
+              "priority": 0
+            }
+          ],
+          "txtRecords": [
+            "00Dd0000000hHE0=1TBKg000000TN2r",
+            "MS=6BF03E6AF5CB689E315FB6199603BABF2C88D805",
+            "MS=ms44452932",
+            "MS=ms58704441",
+            "TAILSCALE-xOzoDvFUzZr5YYVCQFuD",
+            "adobe-idp-site-verification=b92c9e999aef825edc36e0a3d847d2dbad5b2fc0e05c79ddd7a16139b48ecf4b",
+            "anthropic-domain-verification-4az7qn=if8YWuRRqwLycGJDooumzHtxm",
+            "apple-domain-verification=RyQhdzTl6Z6x8ZP4",
+            "atlassian-domain-verification=jjgw98AKv2aeoYFxiL/VFaoyPkn3undEssTRuMg6C/3Fp/iqhkV4HVV7WjYlVeF8",
+            "calendly-site-verification=at0DQARi7IZvJtXQAWhMqpmIzpvoBNF7aam5VKKxP",
+            "cursor-domain-verification-gtfwmt=1rfLOtiTngX5QSxD5HvNKTvm3",
+            "docusign=087098e3-3d46-47b7-9b4e-8a23028154cd",
+            "facebook-domain-verification=39xu4jzl7roi7x0n93ldkxjiaarx50",
+            "google-site-verification=82Le34Flgtd15ojYhHlGF_6g72muSjamlMVThBOJpks",
+            "google-site-verification=UTM-3akMgubp6tQtgEuAkYNYLyYAvpTnnSrDMWoDR3o",
+            "jamf-site-verification=XtaPNIYghF_e_xRDI8CjgQ",
+            "krisp-domain-verification=ZlyiK7XLhnaoUQb2hpak1PLY7dFkl1WE",
+            "loom-site-verification=f3787154f1154b7880e720a511ea664d",
+            "miro-verification=d2e174fdb00c71e0bcf58f8e58c3da2dd80dcfa9",
+            "openai-domain-verification=dv-3nh33eQwdkotMIAzLrIDVZo1",
+            "serval-domain-verification-ydryhj=qbkiEakpwEpTvHh5fIiCqtaue",
+            "shopify-verification-code=t1YPwcmvnxZyBycaCpk1MPyWoFs72o",
+            "stripe-verification=f88ef17321660a01bab1660454192e014defa29ba7b8de9633c69d6b4912217f",
+            "v=spf1 ip4:192.30.252.0/22 include:spf.protection.outlook.com include:_netblocks.google.com include:_netblocks2.google.com include:mail.zendesk.com include:_spf.salesforce.com include:servers.mcsv.net include:mktomail.com include:sendgrid.net ip4:62.253.227.114 ip4:166.78.69.169 ip4:166.78.69.170 ip4:166.78.71.131 ~all"
+          ],
+          "nsRecords": [
+            "dns4.p08.nsone.net",
+            "dns1.p08.nsone.net",
+            "dns2.p08.nsone.net",
+            "ns-1283.awsdns-32.org",
+            "ns-1707.awsdns-21.co.uk",
+            "ns-520.awsdns-01.net",
+            "ns-421.awsdns-52.com",
+            "dns3.p08.nsone.net"
+          ],
+          "cnameRecords": [],
+          "queryTimeMs": 16
+        },
+        "security": {
+          "hsts": true,
+          "hstsHeader": "max-age=31536000; includeSubdomains; preload",
+          "csp": true,
+          "cspHeader": "default-src 'none'; base-uri 'self'; child-src github.githubassets.com github.com/assets-cdn/worker/ github.com/assets/ gist.github.com/assets-cdn/worker/; connect-src 'self' uploads.github.com www.githubstatus.com collector.github.com raw.githubusercontent.com api.github.com github-cloud.s3.amazonaws.com github-production-repository-file-5c1aeb.s3.amazonaws.com github-production-upload-manifest-file-7fdce7.s3.amazonaws.com github-production-user-asset-6210df.s3.amazonaws.com *.rel.tunnels.api.visualstudio.com wss://*.rel.tunnels.api.visualstudio.com github.githubassets.com objects-origin.githubusercontent.com copilot-proxy.githubusercontent.com proxy.individual.githubcopilot.com proxy.business.githubcopilot.com proxy.enterprise.githubcopilot.com *.actions.githubusercontent.com wss://*.actions.githubusercontent.com productionresultssa0.blob.core.windows.net productionresultssa1.blob.core.windows.net productionresultssa2.blob.core.windows.net productionresultssa3.blob.core.windows.net productionresultssa4.blob.core.windows.net productionresultssa5.blob.core.windows.net productionresultssa6.blob.core.windows.net productionresultssa7.blob.core.windows.net productionresultssa8.blob.core.windows.net productionresultssa9.blob.core.windows.net productionresultssa10.blob.core.windows.net productionresultssa11.blob.core.windows.net productionresultssa12.blob.core.windows.net productionresultssa13.blob.core.windows.net productionresultssa14.blob.core.windows.net productionresultssa15.blob.core.windows.net productionresultssa16.blob.core.windows.net productionresultssa17.blob.core.windows.net productionresultssa18.blob.core.windows.net productionresultssa19.blob.core.windows.net github-production-repository-image-32fea6.s3.amazonaws.com github-production-release-asset-2e65be.s3.amazonaws.com insights.github.com wss://alive.github.com wss://alive-staging.github.com api.githubcopilot.com api.individual.githubcopilot.com api.business.githubcopilot.com api.enterprise.githubcopilot.com wss://production-copilot-host.webpubsub.azure.com api.github.com/cmc_internal/api/ edge.fullstory.com rs.fullstory.com; font-src github.githubassets.com; form-action 'self' github.com gist.github.com copilot-workspace.githubnext.com objects-origin.githubusercontent.com; frame-ancestors 'none'; frame-src viewscreen.githubusercontent.com notebooks.githubusercontent.com www.youtube-nocookie.com; img-src 'self' data: blob: github.githubassets.com media.githubusercontent.com camo.githubusercontent.com identicons.github.com avatars.githubusercontent.com private-avatars.githubusercontent.com github-cloud.s3.amazonaws.com objects.githubusercontent.com release-assets.githubusercontent.com secured-user-images.githubusercontent.com user-images.githubusercontent.com private-user-images.githubusercontent.com opengraph.githubassets.com repository-images.githubusercontent.com marketplace-screenshots.githubusercontent.com copilotprodattachments.blob.core.windows.net/github-production-copilot-attachments/ github-production-user-asset-6210df.s3.amazonaws.com customer-stories-feed.github.com spotlights-feed.github.com explore-feed.github.com *.googleusercontent.com objects-origin.githubusercontent.com *.githubusercontent.com images.ctfassets.net/8aevphvgewt8/; manifest-src 'self'; media-src github.com user-images.githubusercontent.com secured-user-images.githubusercontent.com private-user-images.githubusercontent.com github-production-user-asset-6210df.s3.amazonaws.com gist.github.com github.githubassets.com assets.ctfassets.net/8aevphvgewt8/ videos.ctfassets.net/8aevphvgewt8/; script-src github.githubassets.com 'sha256-tSjmyPUky1KbRZ0fw9VUil3wFEbeM82rtbJDygGJAXw='; style-src 'unsafe-inline' github.githubassets.com; upgrade-insecure-requests; worker-src github.githubassets.com github.com/assets-cdn/worker/ github.com/assets/ gist.github.com/assets-cdn/worker/",
+          "xFrameOptions": true,
+          "xFrameOptionsHeader": "deny",
+          "xContentTypeOptions": true,
+          "referrerPolicy": true,
+          "permissionsPolicy": false,
+          "serverHeaderLeak": "github.com",
+          "spfConfigured": true,
+          "spfRecord": "v=spf1 ip4:192.30.252.0/22 include:spf.protection.outlook.com include:_netblocks.google.com include:_netblocks2.google.com include:mail.zendesk.com include:_spf.salesforce.com include:servers.mcsv.net include:mktomail.com include:sendgrid.net ip4:62.253.227.114 ip4:166.78.69.169 ip4:166.78.69.170 ip4:166.78.71.131 ~all",
+          "dmarcConfigured": true,
+          "dmarcRecord": "v=DMARC1; p=quarantine; sp=reject; pct=100; rua=mailto:dmarc@github.com; ruf=mailto:dmarc@github.com; fo=1"
+        },
+        "advancedSeo": {
+          "score": 74,
+          "overview": {
+            "score": 74,
+            "indexabilityStatus": "indexable",
+            "criticalCount": 1,
+            "warningCount": 2,
+            "passedCount": 11,
+            "scoreBreakdown": {
+              "overall": 74,
+              "technical": {
+                "score": 20,
+                "max": 20
+              },
+              "onPage": {
+                "score": 24,
+                "max": 30
+              },
+              "social": {
+                "score": 15,
+                "max": 15
+              },
+              "structuredData": {
+                "score": 0,
+                "max": 15
+              },
+              "indexability": {
+                "score": 15,
+                "max": 20
+              }
+            }
+          },
+          "onPage": {
+            "title": {
+              "exists": true,
+              "value": "GitHub · Change is constant. GitHub keeps you ahead. · GitHub · GitHub",
+              "characterCount": 70,
+              "severity": "warning",
+              "issues": [
+                "Multiple <title> tags detected (25). Search engines will only use one.",
+                "Title is 70 characters. Search engines typically truncate titles exceeding ~60 characters."
+              ]
+            },
+            "description": {
+              "exists": true,
+              "value": "Join the world&#39;s most widely adopted, AI-powered developer platform where millions of developers, businesses, and the largest open source community build software that advances humanity.",
+              "characterCount": 190,
+              "severity": "warning",
+              "issues": [
+                "Long meta description (190 characters). Snippets exceeding ~160 characters are usually truncated."
+              ]
+            },
+            "canonical": {
+              "exists": true,
+              "url": "https://github.com",
+              "isAbsolute": true,
+              "isHttps": true,
+              "isSameDomain": true,
+              "multipleTags": false,
+              "tagsCount": 1,
+              "crossDomain": false,
+              "issues": []
+            },
+            "headings": {
+              "h1Count": 1,
+              "h2Count": 9,
+              "h3Count": 16,
+              "h1Texts": [
+                "The future of building happens together"
+              ],
+              "headingsHierarchy": [
+                {
+                  "tag": "h2",
+                  "text": "Navigation Menu"
+                },
+                {
+                  "tag": "h1",
+                  "text": "The future of building happens together"
+                },
+                {
+                  "tag": "h2",
+                  "text": "GitHub features"
+                },
+                {
+                  "tag": "h2",
+                  "text": "GitHub customers"
+                },
+                {
+                  "tag": "h2",
+                  "text": "Accelerate your entire workflow"
+                },
+                {
+                  "tag": "h3",
+                  "text": "Your AI partner everywhere. Copilot is ready to work with you at each ..."
+                },
+                {
+                  "tag": "h3",
+                  "text": "Automate your path to production"
+                },
+                {
+                  "tag": "h3",
+                  "text": "Code instantly from anywhere"
+                },
+                {
+                  "tag": "h3",
+                  "text": "Keep momentum on the go"
+                },
+                {
+                  "tag": "h3",
+                  "text": "Shape your toolchain"
+                },
+                {
+                  "tag": "h2",
+                  "text": "Built-in application security where found means fixed"
+                },
+                {
+                  "tag": "h3",
+                  "text": "Apply fixes in seconds. Spend less time debugging and more time buildi..."
+                },
+                {
+                  "tag": "h2",
+                  "text": "Work together, achieve more"
+                },
+                {
+                  "tag": "h3",
+                  "text": "Plan with clarity. Organize everything from high-level roadmaps to eve..."
+                },
+                {
+                  "tag": "h3",
+                  "text": "Keep track of your tasks"
+                }
+              ],
+              "hierarchyGaps": [],
+              "issues": []
+            },
+            "images": {
+              "totalImages": 24,
+              "imagesWithAlt": 7,
+              "decorativeImages": 17,
+              "missingAlt": 0,
+              "imagesWithDimensions": 0,
+              "lazyLoadedImages": 24,
+              "altCoveragePercent": 100
+            },
+            "links": {
+              "totalLinks": 140,
+              "internalLinks": 105,
+              "externalLinks": 30,
+              "emptyHrefCount": 3,
+              "fragmentOnlyCount": 2,
+              "issues": [
+                "Found 3 link(s) with empty href attributes."
+              ]
+            },
+            "internationalization": {
+              "htmlLang": {
+                "exists": true,
+                "value": "en",
+                "isValidCode": true
+              },
+              "hreflangCount": 26,
+              "languages": [
+                "en-us",
+                "pt-br",
+                "es-ar",
+                "es-bo",
+                "es-cl",
+                "es-co",
+                "es-cr",
+                "es-cu",
+                "es-do",
+                "es-ec",
+                "es-gt",
+                "es-hn",
+                "es-mx",
+                "es-ni",
+                "es-pa",
+                "es-pe",
+                "es-pr",
+                "es-py",
+                "es-sv",
+                "es-uy",
+                "es-ve",
+                "ja",
+                "ko-kr",
+                "fr-fr",
+                "de-de",
+                "x-default"
+              ],
+              "hreflangTags": [
+                {
+                  "lang": "en-us",
+                  "href": "https://github.com",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "pt-br",
+                  "href": "https://github.com?locale=pt-br",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-ar",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-bo",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-cl",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-co",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-cr",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-cu",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-do",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-ec",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-gt",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-hn",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-mx",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-ni",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-pa",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-pe",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-pr",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-py",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-sv",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-uy",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-ve",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "ja",
+                  "href": "https://github.com?locale=ja",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "ko-kr",
+                  "href": "https://github.com?locale=ko-kr",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "fr-fr",
+                  "href": "https://github.com?locale=fr-fr",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "de-de",
+                  "href": "https://github.com?locale=de-de",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "x-default",
+                  "href": "https://github.com/",
+                  "isValidUrl": true
+                }
+              ],
+              "duplicateDeclarations": []
+            }
+          },
+          "social": {
+            "openGraph": {
+              "present": true,
+              "title": {
+                "present": true,
+                "value": "GitHub · Change is constant. GitHub keeps you ahead. · GitHub"
+              },
+              "description": {
+                "present": true,
+                "value": "Join the world&#39;s most widely adopted, AI-powered developer platform where millions of developers, businesses, and the largest open source community build software that advances humanity."
+              },
+              "image": {
+                "present": true,
+                "value": "https://images.ctfassets.net/8aevphvgewt8/4pe4eOtUJ0ARpZRE4fNekf/f52b1f9c52f059a33170229883731ed0/GH-Homepage-Universe-img.png",
+                "isValidUrl": true
+              },
+              "url": {
+                "present": true,
+                "value": "https://github.com/"
+              },
+              "type": {
+                "present": true,
+                "value": "object"
+              },
+              "siteName": {
+                "present": true,
+                "value": "GitHub"
+              },
+              "duplicateTags": [],
+              "issues": []
+            },
+            "twitter": {
+              "present": true,
+              "card": {
+                "present": true,
+                "value": "summary_large_image"
+              },
+              "title": {
+                "present": true,
+                "value": "GitHub · Change is constant. GitHub keeps you ahead. · GitHub"
+              },
+              "description": {
+                "present": true,
+                "value": "Join the world&#39;s most widely adopted, AI-powered developer platform where millions of developers, businesses, and the largest open source community build software that advances humanity."
+              },
+              "image": {
+                "present": true,
+                "value": "https://images.ctfassets.net/8aevphvgewt8/4pe4eOtUJ0ARpZRE4fNekf/f52b1f9c52f059a33170229883731ed0/GH-Homepage-Universe-img.png",
+                "isValidUrl": true
+              },
+              "site": {
+                "present": true,
+                "value": "@github"
+              },
+              "creator": {
+                "present": false
+              },
+              "duplicateTags": [],
+              "issues": []
+            }
+          },
+          "structuredData": {
+            "present": false,
+            "blocksCount": 0,
+            "schemasFound": [],
+            "items": [],
+            "validationStatus": "none",
+            "validationSummary": "No JSON-LD structured data detected.",
+            "disclaimer": "Note: This analysis performs basic JSON syntax and Schema.org structural validation. It is not an evaluation of Google Rich Results eligibility or search feature inclusion."
+          },
+          "crawlability": {
+            "robotsMeta": {
+              "exists": false,
+              "tagCount": 0,
+              "directives": []
+            },
+            "googlebotMeta": {
+              "exists": false,
+              "directives": []
+            },
+            "xRobotsTag": {
+              "exists": false,
+              "directives": []
+            },
+            "directiveConflicts": [],
+            "robotsTxt": {
+              "exists": true,
+              "accessible": true,
+              "httpStatus": 200,
+              "sitemapsDeclared": [],
+              "userAgentGroupsCount": 13,
+              "hasDisallowAll": true,
+              "disallowRulesCount": 475,
+              "allowRulesCount": 21
+            },
+            "sitemap": {
+              "exists": false,
+              "accessible": false,
+              "url": "https://github.com/sitemap.xml",
+              "httpStatus": 406,
+              "contentType": "text/html; charset=utf-8",
+              "validXml": false,
+              "isSitemapIndex": false
+            }
+          },
+          "indexability": {
+            "status": "indexable",
+            "reasons": [
+              "Robots.txt contains \"Disallow: /\" rule which instructs bots not to crawl this endpoint."
+            ],
+            "technicalExplanation": "Indexability indicates whether search engine crawlers are technically permitted to crawl, render, and index this specific page based on HTTP status, robots tags, X-Robots-Tag headers, and robots.txt directives."
+          },
+          "technical": {
+            "https": {
+              "enabled": true,
+              "validCert": true,
+              "protocol": "TLSv1.3"
+            },
+            "canonicalConsistency": {
+              "consistent": true,
+              "details": "Canonical URL matches page target domain and protocol."
+            },
+            "redirects": {
+              "hasRedirect": false,
+              "initialUrl": "https://github.com/",
+              "finalUrl": "https://github.com/",
+              "status": 200
+            },
+            "htmlLanguage": {
+              "exists": true,
+              "value": "en",
+              "isValidCode": true
+            },
+            "mobileViewport": {
+              "configured": true,
+              "value": "width=device-width",
+              "isStandard": true
+            },
+            "httpStatus": 200,
+            "httpStatusText": "OK",
+            "contentType": "text/html; charset=utf-8",
+            "compression": {
+              "enabled": true,
+              "encoding": "gzip"
+            },
+            "caching": {
+              "cacheControl": "max-age=0, private, must-revalidate",
+              "etag": "W/\"7c7265a6d4b1b6cfb21fbcc6bedb0c61\"",
+              "hasCacheHeaders": true
+            }
+          },
+          "conflicts": {
+            "conflicts": [
+              {
+                "type": "multiple_titles",
+                "severity": "critical",
+                "message": "Multiple <title> tags detected in HTML head."
+              }
+            ]
+          },
+          "issues": [
+            {
+              "id": "tech-https-valid",
+              "category": "technical",
+              "severity": "passed",
+              "passed": true,
+              "message": "HTTPS is properly configured with a valid SSL/TLS certificate.",
+              "recommendation": "Ensure automated SSL certificate renewal remains active."
+            },
+            {
+              "id": "tech-viewport-standard",
+              "category": "technical",
+              "severity": "passed",
+              "passed": true,
+              "message": "Responsive viewport meta tag is configured.",
+              "recommendation": "Good mobile responsiveness foundation."
+            },
+            {
+              "id": "tech-compression",
+              "category": "technical",
+              "severity": "passed",
+              "passed": true,
+              "message": "HTTP response compression is active (gzip).",
+              "recommendation": "Maintain modern compression (Gzip or Brotli)."
+            },
+            {
+              "id": "tech-caching",
+              "category": "technical",
+              "severity": "passed",
+              "passed": true,
+              "message": "Cache-Control headers detected.",
+              "recommendation": "Leverage browser caching for static assets."
+            },
+            {
+              "id": "onpage-title-warning",
+              "category": "onPage",
+              "severity": "warning",
+              "passed": false,
+              "message": "Multiple <title> tags detected (25). Search engines will only use one.",
+              "recommendation": "Target 30–60 characters to prevent snippet truncation while providing thorough context."
+            },
+            {
+              "id": "onpage-desc-warning",
+              "category": "onPage",
+              "severity": "warning",
+              "passed": false,
+              "message": "Long meta description (190 characters). Snippets exceeding ~160 characters are usually truncated.",
+              "recommendation": "Recommended meta description length is 120–160 characters."
+            },
+            {
+              "id": "onpage-canonical-valid",
+              "category": "onPage",
+              "severity": "passed",
+              "passed": true,
+              "message": "Valid canonical link declared (https://github.com).",
+              "recommendation": "Canonical tag is well-formed."
+            },
+            {
+              "id": "onpage-h1-single",
+              "category": "onPage",
+              "severity": "passed",
+              "passed": true,
+              "message": "Single <h1> heading detected: \"The future of building happens together\".",
+              "recommendation": "Heading hierarchy is clean."
+            },
+            {
+              "id": "onpage-images-alt",
+              "category": "onPage",
+              "severity": "passed",
+              "passed": true,
+              "message": "All images have alt attributes (or decorative alt=\"\").",
+              "recommendation": "Great image accessibility and SEO practice."
+            },
+            {
+              "id": "social-og-complete",
+              "category": "social",
+              "severity": "passed",
+              "passed": true,
+              "message": "Open Graph title, description, and image are configured.",
+              "recommendation": "Provides rich previews on Facebook, LinkedIn, Slack, and Discord."
+            },
+            {
+              "id": "social-twitter-complete",
+              "category": "social",
+              "severity": "passed",
+              "passed": true,
+              "message": "Twitter Card (summary_large_image) is configured.",
+              "recommendation": "Optimizes previews when links are shared on X / Twitter."
+            },
+            {
+              "id": "sd-jsonld-missing",
+              "category": "structuredData",
+              "severity": "info",
+              "passed": false,
+              "message": "No JSON-LD structured data detected on this page.",
+              "recommendation": "Embed Schema.org structured data (e.g. Organization, WebSite, Article) to provide rich semantic context."
+            },
+            {
+              "id": "indexability-indexable",
+              "category": "indexability",
+              "severity": "passed",
+              "passed": true,
+              "message": "Page is technically indexable (HTTP 200, no blocking directives).",
+              "recommendation": "No crawling blockers detected."
+            },
+            {
+              "id": "crawl-robots-txt-found",
+              "category": "crawlability",
+              "severity": "passed",
+              "passed": true,
+              "message": "robots.txt is accessible.",
+              "recommendation": "Robots crawling guidelines are published."
+            },
+            {
+              "id": "crawl-sitemap-missing",
+              "category": "crawlability",
+              "severity": "info",
+              "passed": false,
+              "message": "No XML Sitemap detected at /sitemap.xml or declared in robots.txt.",
+              "recommendation": "Publish a sitemap.xml to facilitate comprehensive page discovery."
+            },
+            {
+              "id": "conflict-multiple_titles",
+              "category": "onPage",
+              "severity": "critical",
+              "passed": false,
+              "message": "Multiple <title> tags detected in HTML head.",
+              "recommendation": "Resolve conflicting directives to provide search crawlers with clear signals."
+            }
+          ]
+        },
+        "seo": {
+          "title": "GitHub · Change is constant. GitHub keeps you ahead. · GitHub · GitHub",
+          "titleLength": 70,
+          "titleStatus": "warning",
+          "description": "Join the world&#39;s most widely adopted, AI-powered developer platform where millions of developers, businesses, and the largest open source community build software that advances humanity.",
+          "descriptionLength": 190,
+          "descriptionStatus": "warning",
+          "canonical": "https://github.com",
+          "viewportConfigured": true,
+          "robotsTxtPresent": true,
+          "sitemapPresent": false,
+          "h1Count": 1,
+          "h2Count": 9,
+          "hasLangAttr": true,
+          "lang": "en",
+          "imageCount": 24,
+          "imagesWithAltCount": 24,
+          "score": 74,
+          "overview": {
+            "score": 74,
+            "indexabilityStatus": "indexable",
+            "criticalCount": 1,
+            "warningCount": 2,
+            "passedCount": 11,
+            "scoreBreakdown": {
+              "overall": 74,
+              "technical": {
+                "score": 20,
+                "max": 20
+              },
+              "onPage": {
+                "score": 24,
+                "max": 30
+              },
+              "social": {
+                "score": 15,
+                "max": 15
+              },
+              "structuredData": {
+                "score": 0,
+                "max": 15
+              },
+              "indexability": {
+                "score": 15,
+                "max": 20
+              }
+            }
+          },
+          "onPage": {
+            "title": {
+              "exists": true,
+              "value": "GitHub · Change is constant. GitHub keeps you ahead. · GitHub · GitHub",
+              "characterCount": 70,
+              "severity": "warning",
+              "issues": [
+                "Multiple <title> tags detected (25). Search engines will only use one.",
+                "Title is 70 characters. Search engines typically truncate titles exceeding ~60 characters."
+              ]
+            },
+            "description": {
+              "exists": true,
+              "value": "Join the world&#39;s most widely adopted, AI-powered developer platform where millions of developers, businesses, and the largest open source community build software that advances humanity.",
+              "characterCount": 190,
+              "severity": "warning",
+              "issues": [
+                "Long meta description (190 characters). Snippets exceeding ~160 characters are usually truncated."
+              ]
+            },
+            "canonical": {
+              "exists": true,
+              "url": "https://github.com",
+              "isAbsolute": true,
+              "isHttps": true,
+              "isSameDomain": true,
+              "multipleTags": false,
+              "tagsCount": 1,
+              "crossDomain": false,
+              "issues": []
+            },
+            "headings": {
+              "h1Count": 1,
+              "h2Count": 9,
+              "h3Count": 16,
+              "h1Texts": [
+                "The future of building happens together"
+              ],
+              "headingsHierarchy": [
+                {
+                  "tag": "h2",
+                  "text": "Navigation Menu"
+                },
+                {
+                  "tag": "h1",
+                  "text": "The future of building happens together"
+                },
+                {
+                  "tag": "h2",
+                  "text": "GitHub features"
+                },
+                {
+                  "tag": "h2",
+                  "text": "GitHub customers"
+                },
+                {
+                  "tag": "h2",
+                  "text": "Accelerate your entire workflow"
+                },
+                {
+                  "tag": "h3",
+                  "text": "Your AI partner everywhere. Copilot is ready to work with you at each ..."
+                },
+                {
+                  "tag": "h3",
+                  "text": "Automate your path to production"
+                },
+                {
+                  "tag": "h3",
+                  "text": "Code instantly from anywhere"
+                },
+                {
+                  "tag": "h3",
+                  "text": "Keep momentum on the go"
+                },
+                {
+                  "tag": "h3",
+                  "text": "Shape your toolchain"
+                },
+                {
+                  "tag": "h2",
+                  "text": "Built-in application security where found means fixed"
+                },
+                {
+                  "tag": "h3",
+                  "text": "Apply fixes in seconds. Spend less time debugging and more time buildi..."
+                },
+                {
+                  "tag": "h2",
+                  "text": "Work together, achieve more"
+                },
+                {
+                  "tag": "h3",
+                  "text": "Plan with clarity. Organize everything from high-level roadmaps to eve..."
+                },
+                {
+                  "tag": "h3",
+                  "text": "Keep track of your tasks"
+                }
+              ],
+              "hierarchyGaps": [],
+              "issues": []
+            },
+            "images": {
+              "totalImages": 24,
+              "imagesWithAlt": 7,
+              "decorativeImages": 17,
+              "missingAlt": 0,
+              "imagesWithDimensions": 0,
+              "lazyLoadedImages": 24,
+              "altCoveragePercent": 100
+            },
+            "links": {
+              "totalLinks": 140,
+              "internalLinks": 105,
+              "externalLinks": 30,
+              "emptyHrefCount": 3,
+              "fragmentOnlyCount": 2,
+              "issues": [
+                "Found 3 link(s) with empty href attributes."
+              ]
+            },
+            "internationalization": {
+              "htmlLang": {
+                "exists": true,
+                "value": "en",
+                "isValidCode": true
+              },
+              "hreflangCount": 26,
+              "languages": [
+                "en-us",
+                "pt-br",
+                "es-ar",
+                "es-bo",
+                "es-cl",
+                "es-co",
+                "es-cr",
+                "es-cu",
+                "es-do",
+                "es-ec",
+                "es-gt",
+                "es-hn",
+                "es-mx",
+                "es-ni",
+                "es-pa",
+                "es-pe",
+                "es-pr",
+                "es-py",
+                "es-sv",
+                "es-uy",
+                "es-ve",
+                "ja",
+                "ko-kr",
+                "fr-fr",
+                "de-de",
+                "x-default"
+              ],
+              "hreflangTags": [
+                {
+                  "lang": "en-us",
+                  "href": "https://github.com",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "pt-br",
+                  "href": "https://github.com?locale=pt-br",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-ar",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-bo",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-cl",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-co",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-cr",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-cu",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-do",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-ec",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-gt",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-hn",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-mx",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-ni",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-pa",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-pe",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-pr",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-py",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-sv",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-uy",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "es-ve",
+                  "href": "https://github.com?locale=es-419",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "ja",
+                  "href": "https://github.com?locale=ja",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "ko-kr",
+                  "href": "https://github.com?locale=ko-kr",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "fr-fr",
+                  "href": "https://github.com?locale=fr-fr",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "de-de",
+                  "href": "https://github.com?locale=de-de",
+                  "isValidUrl": true
+                },
+                {
+                  "lang": "x-default",
+                  "href": "https://github.com/",
+                  "isValidUrl": true
+                }
+              ],
+              "duplicateDeclarations": []
+            }
+          },
+          "social": {
+            "openGraph": {
+              "present": true,
+              "title": {
+                "present": true,
+                "value": "GitHub · Change is constant. GitHub keeps you ahead. · GitHub"
+              },
+              "description": {
+                "present": true,
+                "value": "Join the world&#39;s most widely adopted, AI-powered developer platform where millions of developers, businesses, and the largest open source community build software that advances humanity."
+              },
+              "image": {
+                "present": true,
+                "value": "https://images.ctfassets.net/8aevphvgewt8/4pe4eOtUJ0ARpZRE4fNekf/f52b1f9c52f059a33170229883731ed0/GH-Homepage-Universe-img.png",
+                "isValidUrl": true
+              },
+              "url": {
+                "present": true,
+                "value": "https://github.com/"
+              },
+              "type": {
+                "present": true,
+                "value": "object"
+              },
+              "siteName": {
+                "present": true,
+                "value": "GitHub"
+              },
+              "duplicateTags": [],
+              "issues": []
+            },
+            "twitter": {
+              "present": true,
+              "card": {
+                "present": true,
+                "value": "summary_large_image"
+              },
+              "title": {
+                "present": true,
+                "value": "GitHub · Change is constant. GitHub keeps you ahead. · GitHub"
+              },
+              "description": {
+                "present": true,
+                "value": "Join the world&#39;s most widely adopted, AI-powered developer platform where millions of developers, businesses, and the largest open source community build software that advances humanity."
+              },
+              "image": {
+                "present": true,
+                "value": "https://images.ctfassets.net/8aevphvgewt8/4pe4eOtUJ0ARpZRE4fNekf/f52b1f9c52f059a33170229883731ed0/GH-Homepage-Universe-img.png",
+                "isValidUrl": true
+              },
+              "site": {
+                "present": true,
+                "value": "@github"
+              },
+              "creator": {
+                "present": false
+              },
+              "duplicateTags": [],
+              "issues": []
+            }
+          },
+          "structuredData": {
+            "present": false,
+            "blocksCount": 0,
+            "schemasFound": [],
+            "items": [],
+            "validationStatus": "none",
+            "validationSummary": "No JSON-LD structured data detected.",
+            "disclaimer": "Note: This analysis performs basic JSON syntax and Schema.org structural validation. It is not an evaluation of Google Rich Results eligibility or search feature inclusion."
+          },
+          "crawlability": {
+            "robotsMeta": {
+              "exists": false,
+              "tagCount": 0,
+              "directives": []
+            },
+            "googlebotMeta": {
+              "exists": false,
+              "directives": []
+            },
+            "xRobotsTag": {
+              "exists": false,
+              "directives": []
+            },
+            "directiveConflicts": [],
+            "robotsTxt": {
+              "exists": true,
+              "accessible": true,
+              "httpStatus": 200,
+              "sitemapsDeclared": [],
+              "userAgentGroupsCount": 13,
+              "hasDisallowAll": true,
+              "disallowRulesCount": 475,
+              "allowRulesCount": 21
+            },
+            "sitemap": {
+              "exists": false,
+              "accessible": false,
+              "url": "https://github.com/sitemap.xml",
+              "httpStatus": 406,
+              "contentType": "text/html; charset=utf-8",
+              "validXml": false,
+              "isSitemapIndex": false
+            }
+          },
+          "indexability": {
+            "status": "indexable",
+            "reasons": [
+              "Robots.txt contains \"Disallow: /\" rule which instructs bots not to crawl this endpoint."
+            ],
+            "technicalExplanation": "Indexability indicates whether search engine crawlers are technically permitted to crawl, render, and index this specific page based on HTTP status, robots tags, X-Robots-Tag headers, and robots.txt directives."
+          },
+          "technical": {
+            "https": {
+              "enabled": true,
+              "validCert": true,
+              "protocol": "TLSv1.3"
+            },
+            "canonicalConsistency": {
+              "consistent": true,
+              "details": "Canonical URL matches page target domain and protocol."
+            },
+            "redirects": {
+              "hasRedirect": false,
+              "initialUrl": "https://github.com/",
+              "finalUrl": "https://github.com/",
+              "status": 200
+            },
+            "htmlLanguage": {
+              "exists": true,
+              "value": "en",
+              "isValidCode": true
+            },
+            "mobileViewport": {
+              "configured": true,
+              "value": "width=device-width",
+              "isStandard": true
+            },
+            "httpStatus": 200,
+            "httpStatusText": "OK",
+            "contentType": "text/html; charset=utf-8",
+            "compression": {
+              "enabled": true,
+              "encoding": "gzip"
+            },
+            "caching": {
+              "cacheControl": "max-age=0, private, must-revalidate",
+              "etag": "W/\"7c7265a6d4b1b6cfb21fbcc6bedb0c61\"",
+              "hasCacheHeaders": true
+            }
+          },
+          "issues": [
+            {
+              "id": "tech-https-valid",
+              "category": "technical",
+              "severity": "passed",
+              "passed": true,
+              "message": "HTTPS is properly configured with a valid SSL/TLS certificate.",
+              "recommendation": "Ensure automated SSL certificate renewal remains active."
+            },
+            {
+              "id": "tech-viewport-standard",
+              "category": "technical",
+              "severity": "passed",
+              "passed": true,
+              "message": "Responsive viewport meta tag is configured.",
+              "recommendation": "Good mobile responsiveness foundation."
+            },
+            {
+              "id": "tech-compression",
+              "category": "technical",
+              "severity": "passed",
+              "passed": true,
+              "message": "HTTP response compression is active (gzip).",
+              "recommendation": "Maintain modern compression (Gzip or Brotli)."
+            },
+            {
+              "id": "tech-caching",
+              "category": "technical",
+              "severity": "passed",
+              "passed": true,
+              "message": "Cache-Control headers detected.",
+              "recommendation": "Leverage browser caching for static assets."
+            },
+            {
+              "id": "onpage-title-warning",
+              "category": "onPage",
+              "severity": "warning",
+              "passed": false,
+              "message": "Multiple <title> tags detected (25). Search engines will only use one.",
+              "recommendation": "Target 30–60 characters to prevent snippet truncation while providing thorough context."
+            },
+            {
+              "id": "onpage-desc-warning",
+              "category": "onPage",
+              "severity": "warning",
+              "passed": false,
+              "message": "Long meta description (190 characters). Snippets exceeding ~160 characters are usually truncated.",
+              "recommendation": "Recommended meta description length is 120–160 characters."
+            },
+            {
+              "id": "onpage-canonical-valid",
+              "category": "onPage",
+              "severity": "passed",
+              "passed": true,
+              "message": "Valid canonical link declared (https://github.com).",
+              "recommendation": "Canonical tag is well-formed."
+            },
+            {
+              "id": "onpage-h1-single",
+              "category": "onPage",
+              "severity": "passed",
+              "passed": true,
+              "message": "Single <h1> heading detected: \"The future of building happens together\".",
+              "recommendation": "Heading hierarchy is clean."
+            },
+            {
+              "id": "onpage-images-alt",
+              "category": "onPage",
+              "severity": "passed",
+              "passed": true,
+              "message": "All images have alt attributes (or decorative alt=\"\").",
+              "recommendation": "Great image accessibility and SEO practice."
+            },
+            {
+              "id": "social-og-complete",
+              "category": "social",
+              "severity": "passed",
+              "passed": true,
+              "message": "Open Graph title, description, and image are configured.",
+              "recommendation": "Provides rich previews on Facebook, LinkedIn, Slack, and Discord."
+            },
+            {
+              "id": "social-twitter-complete",
+              "category": "social",
+              "severity": "passed",
+              "passed": true,
+              "message": "Twitter Card (summary_large_image) is configured.",
+              "recommendation": "Optimizes previews when links are shared on X / Twitter."
+            },
+            {
+              "id": "sd-jsonld-missing",
+              "category": "structuredData",
+              "severity": "info",
+              "passed": false,
+              "message": "No JSON-LD structured data detected on this page.",
+              "recommendation": "Embed Schema.org structured data (e.g. Organization, WebSite, Article) to provide rich semantic context."
+            },
+            {
+              "id": "indexability-indexable",
+              "category": "indexability",
+              "severity": "passed",
+              "passed": true,
+              "message": "Page is technically indexable (HTTP 200, no blocking directives).",
+              "recommendation": "No crawling blockers detected."
+            },
+            {
+              "id": "crawl-robots-txt-found",
+              "category": "crawlability",
+              "severity": "passed",
+              "passed": true,
+              "message": "robots.txt is accessible.",
+              "recommendation": "Robots crawling guidelines are published."
+            },
+            {
+              "id": "crawl-sitemap-missing",
+              "category": "crawlability",
+              "severity": "info",
+              "passed": false,
+              "message": "No XML Sitemap detected at /sitemap.xml or declared in robots.txt.",
+              "recommendation": "Publish a sitemap.xml to facilitate comprehensive page discovery."
+            },
+            {
+              "id": "conflict-multiple_titles",
+              "category": "onPage",
+              "severity": "critical",
+              "passed": false,
+              "message": "Multiple <title> tags detected in HTML head.",
+              "recommendation": "Resolve conflicting directives to provide search crawlers with clear signals."
+            }
+          ],
+          "advanced": {
+            "score": 74,
+            "overview": {
+              "score": 74,
+              "indexabilityStatus": "indexable",
+              "criticalCount": 1,
+              "warningCount": 2,
+              "passedCount": 11,
+              "scoreBreakdown": {
+                "overall": 74,
+                "technical": {
+                  "score": 20,
+                  "max": 20
+                },
+                "onPage": {
+                  "score": 24,
+                  "max": 30
+                },
+                "social": {
+                  "score": 15,
+                  "max": 15
+                },
+                "structuredData": {
+                  "score": 0,
+                  "max": 15
+                },
+                "indexability": {
+                  "score": 15,
+                  "max": 20
+                }
+              }
+            },
+            "onPage": {
+              "title": {
+                "exists": true,
+                "value": "GitHub · Change is constant. GitHub keeps you ahead. · GitHub · GitHub",
+                "characterCount": 70,
+                "severity": "warning",
+                "issues": [
+                  "Multiple <title> tags detected (25). Search engines will only use one.",
+                  "Title is 70 characters. Search engines typically truncate titles exceeding ~60 characters."
+                ]
+              },
+              "description": {
+                "exists": true,
+                "value": "Join the world&#39;s most widely adopted, AI-powered developer platform where millions of developers, businesses, and the largest open source community build software that advances humanity.",
+                "characterCount": 190,
+                "severity": "warning",
+                "issues": [
+                  "Long meta description (190 characters). Snippets exceeding ~160 characters are usually truncated."
+                ]
+              },
+              "canonical": {
+                "exists": true,
+                "url": "https://github.com",
+                "isAbsolute": true,
+                "isHttps": true,
+                "isSameDomain": true,
+                "multipleTags": false,
+                "tagsCount": 1,
+                "crossDomain": false,
+                "issues": []
+              },
+              "headings": {
+                "h1Count": 1,
+                "h2Count": 9,
+                "h3Count": 16,
+                "h1Texts": [
+                  "The future of building happens together"
+                ],
+                "headingsHierarchy": [
+                  {
+                    "tag": "h2",
+                    "text": "Navigation Menu"
+                  },
+                  {
+                    "tag": "h1",
+                    "text": "The future of building happens together"
+                  },
+                  {
+                    "tag": "h2",
+                    "text": "GitHub features"
+                  },
+                  {
+                    "tag": "h2",
+                    "text": "GitHub customers"
+                  },
+                  {
+                    "tag": "h2",
+                    "text": "Accelerate your entire workflow"
+                  },
+                  {
+                    "tag": "h3",
+                    "text": "Your AI partner everywhere. Copilot is ready to work with you at each ..."
+                  },
+                  {
+                    "tag": "h3",
+                    "text": "Automate your path to production"
+                  },
+                  {
+                    "tag": "h3",
+                    "text": "Code instantly from anywhere"
+                  },
+                  {
+                    "tag": "h3",
+                    "text": "Keep momentum on the go"
+                  },
+                  {
+                    "tag": "h3",
+                    "text": "Shape your toolchain"
+                  },
+                  {
+                    "tag": "h2",
+                    "text": "Built-in application security where found means fixed"
+                  },
+                  {
+                    "tag": "h3",
+                    "text": "Apply fixes in seconds. Spend less time debugging and more time buildi..."
+                  },
+                  {
+                    "tag": "h2",
+                    "text": "Work together, achieve more"
+                  },
+                  {
+                    "tag": "h3",
+                    "text": "Plan with clarity. Organize everything from high-level roadmaps to eve..."
+                  },
+                  {
+                    "tag": "h3",
+                    "text": "Keep track of your tasks"
+                  }
+                ],
+                "hierarchyGaps": [],
+                "issues": []
+              },
+              "images": {
+                "totalImages": 24,
+                "imagesWithAlt": 7,
+                "decorativeImages": 17,
+                "missingAlt": 0,
+                "imagesWithDimensions": 0,
+                "lazyLoadedImages": 24,
+                "altCoveragePercent": 100
+              },
+              "links": {
+                "totalLinks": 140,
+                "internalLinks": 105,
+                "externalLinks": 30,
+                "emptyHrefCount": 3,
+                "fragmentOnlyCount": 2,
+                "issues": [
+                  "Found 3 link(s) with empty href attributes."
+                ]
+              },
+              "internationalization": {
+                "htmlLang": {
+                  "exists": true,
+                  "value": "en",
+                  "isValidCode": true
+                },
+                "hreflangCount": 26,
+                "languages": [
+                  "en-us",
+                  "pt-br",
+                  "es-ar",
+                  "es-bo",
+                  "es-cl",
+                  "es-co",
+                  "es-cr",
+                  "es-cu",
+                  "es-do",
+                  "es-ec",
+                  "es-gt",
+                  "es-hn",
+                  "es-mx",
+                  "es-ni",
+                  "es-pa",
+                  "es-pe",
+                  "es-pr",
+                  "es-py",
+                  "es-sv",
+                  "es-uy",
+                  "es-ve",
+                  "ja",
+                  "ko-kr",
+                  "fr-fr",
+                  "de-de",
+                  "x-default"
+                ],
+                "hreflangTags": [
+                  {
+                    "lang": "en-us",
+                    "href": "https://github.com",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "pt-br",
+                    "href": "https://github.com?locale=pt-br",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-ar",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-bo",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-cl",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-co",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-cr",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-cu",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-do",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-ec",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-gt",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-hn",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-mx",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-ni",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-pa",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-pe",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-pr",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-py",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-sv",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-uy",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "es-ve",
+                    "href": "https://github.com?locale=es-419",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "ja",
+                    "href": "https://github.com?locale=ja",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "ko-kr",
+                    "href": "https://github.com?locale=ko-kr",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "fr-fr",
+                    "href": "https://github.com?locale=fr-fr",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "de-de",
+                    "href": "https://github.com?locale=de-de",
+                    "isValidUrl": true
+                  },
+                  {
+                    "lang": "x-default",
+                    "href": "https://github.com/",
+                    "isValidUrl": true
+                  }
+                ],
+                "duplicateDeclarations": []
+              }
+            },
+            "social": {
+              "openGraph": {
+                "present": true,
+                "title": {
+                  "present": true,
+                  "value": "GitHub · Change is constant. GitHub keeps you ahead. · GitHub"
+                },
+                "description": {
+                  "present": true,
+                  "value": "Join the world&#39;s most widely adopted, AI-powered developer platform where millions of developers, businesses, and the largest open source community build software that advances humanity."
+                },
+                "image": {
+                  "present": true,
+                  "value": "https://images.ctfassets.net/8aevphvgewt8/4pe4eOtUJ0ARpZRE4fNekf/f52b1f9c52f059a33170229883731ed0/GH-Homepage-Universe-img.png",
+                  "isValidUrl": true
+                },
+                "url": {
+                  "present": true,
+                  "value": "https://github.com/"
+                },
+                "type": {
+                  "present": true,
+                  "value": "object"
+                },
+                "siteName": {
+                  "present": true,
+                  "value": "GitHub"
+                },
+                "duplicateTags": [],
+                "issues": []
+              },
+              "twitter": {
+                "present": true,
+                "card": {
+                  "present": true,
+                  "value": "summary_large_image"
+                },
+                "title": {
+                  "present": true,
+                  "value": "GitHub · Change is constant. GitHub keeps you ahead. · GitHub"
+                },
+                "description": {
+                  "present": true,
+                  "value": "Join the world&#39;s most widely adopted, AI-powered developer platform where millions of developers, businesses, and the largest open source community build software that advances humanity."
+                },
+                "image": {
+                  "present": true,
+                  "value": "https://images.ctfassets.net/8aevphvgewt8/4pe4eOtUJ0ARpZRE4fNekf/f52b1f9c52f059a33170229883731ed0/GH-Homepage-Universe-img.png",
+                  "isValidUrl": true
+                },
+                "site": {
+                  "present": true,
+                  "value": "@github"
+                },
+                "creator": {
+                  "present": false
+                },
+                "duplicateTags": [],
+                "issues": []
+              }
+            },
+            "structuredData": {
+              "present": false,
+              "blocksCount": 0,
+              "schemasFound": [],
+              "items": [],
+              "validationStatus": "none",
+              "validationSummary": "No JSON-LD structured data detected.",
+              "disclaimer": "Note: This analysis performs basic JSON syntax and Schema.org structural validation. It is not an evaluation of Google Rich Results eligibility or search feature inclusion."
+            },
+            "crawlability": {
+              "robotsMeta": {
+                "exists": false,
+                "tagCount": 0,
+                "directives": []
+              },
+              "googlebotMeta": {
+                "exists": false,
+                "directives": []
+              },
+              "xRobotsTag": {
+                "exists": false,
+                "directives": []
+              },
+              "directiveConflicts": [],
+              "robotsTxt": {
+                "exists": true,
+                "accessible": true,
+                "httpStatus": 200,
+                "sitemapsDeclared": [],
+                "userAgentGroupsCount": 13,
+                "hasDisallowAll": true,
+                "disallowRulesCount": 475,
+                "allowRulesCount": 21
+              },
+              "sitemap": {
+                "exists": false,
+                "accessible": false,
+                "url": "https://github.com/sitemap.xml",
+                "httpStatus": 406,
+                "contentType": "text/html; charset=utf-8",
+                "validXml": false,
+                "isSitemapIndex": false
+              }
+            },
+            "indexability": {
+              "status": "indexable",
+              "reasons": [
+                "Robots.txt contains \"Disallow: /\" rule which instructs bots not to crawl this endpoint."
+              ],
+              "technicalExplanation": "Indexability indicates whether search engine crawlers are technically permitted to crawl, render, and index this specific page based on HTTP status, robots tags, X-Robots-Tag headers, and robots.txt directives."
+            },
+            "technical": {
+              "https": {
+                "enabled": true,
+                "validCert": true,
+                "protocol": "TLSv1.3"
+              },
+              "canonicalConsistency": {
+                "consistent": true,
+                "details": "Canonical URL matches page target domain and protocol."
+              },
+              "redirects": {
+                "hasRedirect": false,
+                "initialUrl": "https://github.com/",
+                "finalUrl": "https://github.com/",
+                "status": 200
+              },
+              "htmlLanguage": {
+                "exists": true,
+                "value": "en",
+                "isValidCode": true
+              },
+              "mobileViewport": {
+                "configured": true,
+                "value": "width=device-width",
+                "isStandard": true
+              },
+              "httpStatus": 200,
+              "httpStatusText": "OK",
+              "contentType": "text/html; charset=utf-8",
+              "compression": {
+                "enabled": true,
+                "encoding": "gzip"
+              },
+              "caching": {
+                "cacheControl": "max-age=0, private, must-revalidate",
+                "etag": "W/\"7c7265a6d4b1b6cfb21fbcc6bedb0c61\"",
+                "hasCacheHeaders": true
+              }
+            },
+            "conflicts": {
+              "conflicts": [
+                {
+                  "type": "multiple_titles",
+                  "severity": "critical",
+                  "message": "Multiple <title> tags detected in HTML head."
+                }
+              ]
+            },
+            "issues": [
+              {
+                "id": "tech-https-valid",
+                "category": "technical",
+                "severity": "passed",
+                "passed": true,
+                "message": "HTTPS is properly configured with a valid SSL/TLS certificate.",
+                "recommendation": "Ensure automated SSL certificate renewal remains active."
+              },
+              {
+                "id": "tech-viewport-standard",
+                "category": "technical",
+                "severity": "passed",
+                "passed": true,
+                "message": "Responsive viewport meta tag is configured.",
+                "recommendation": "Good mobile responsiveness foundation."
+              },
+              {
+                "id": "tech-compression",
+                "category": "technical",
+                "severity": "passed",
+                "passed": true,
+                "message": "HTTP response compression is active (gzip).",
+                "recommendation": "Maintain modern compression (Gzip or Brotli)."
+              },
+              {
+                "id": "tech-caching",
+                "category": "technical",
+                "severity": "passed",
+                "passed": true,
+                "message": "Cache-Control headers detected.",
+                "recommendation": "Leverage browser caching for static assets."
+              },
+              {
+                "id": "onpage-title-warning",
+                "category": "onPage",
+                "severity": "warning",
+                "passed": false,
+                "message": "Multiple <title> tags detected (25). Search engines will only use one.",
+                "recommendation": "Target 30–60 characters to prevent snippet truncation while providing thorough context."
+              },
+              {
+                "id": "onpage-desc-warning",
+                "category": "onPage",
+                "severity": "warning",
+                "passed": false,
+                "message": "Long meta description (190 characters). Snippets exceeding ~160 characters are usually truncated.",
+                "recommendation": "Recommended meta description length is 120–160 characters."
+              },
+              {
+                "id": "onpage-canonical-valid",
+                "category": "onPage",
+                "severity": "passed",
+                "passed": true,
+                "message": "Valid canonical link declared (https://github.com).",
+                "recommendation": "Canonical tag is well-formed."
+              },
+              {
+                "id": "onpage-h1-single",
+                "category": "onPage",
+                "severity": "passed",
+                "passed": true,
+                "message": "Single <h1> heading detected: \"The future of building happens together\".",
+                "recommendation": "Heading hierarchy is clean."
+              },
+              {
+                "id": "onpage-images-alt",
+                "category": "onPage",
+                "severity": "passed",
+                "passed": true,
+                "message": "All images have alt attributes (or decorative alt=\"\").",
+                "recommendation": "Great image accessibility and SEO practice."
+              },
+              {
+                "id": "social-og-complete",
+                "category": "social",
+                "severity": "passed",
+                "passed": true,
+                "message": "Open Graph title, description, and image are configured.",
+                "recommendation": "Provides rich previews on Facebook, LinkedIn, Slack, and Discord."
+              },
+              {
+                "id": "social-twitter-complete",
+                "category": "social",
+                "severity": "passed",
+                "passed": true,
+                "message": "Twitter Card (summary_large_image) is configured.",
+                "recommendation": "Optimizes previews when links are shared on X / Twitter."
+              },
+              {
+                "id": "sd-jsonld-missing",
+                "category": "structuredData",
+                "severity": "info",
+                "passed": false,
+                "message": "No JSON-LD structured data detected on this page.",
+                "recommendation": "Embed Schema.org structured data (e.g. Organization, WebSite, Article) to provide rich semantic context."
+              },
+              {
+                "id": "indexability-indexable",
+                "category": "indexability",
+                "severity": "passed",
+                "passed": true,
+                "message": "Page is technically indexable (HTTP 200, no blocking directives).",
+                "recommendation": "No crawling blockers detected."
+              },
+              {
+                "id": "crawl-robots-txt-found",
+                "category": "crawlability",
+                "severity": "passed",
+                "passed": true,
+                "message": "robots.txt is accessible.",
+                "recommendation": "Robots crawling guidelines are published."
+              },
+              {
+                "id": "crawl-sitemap-missing",
+                "category": "crawlability",
+                "severity": "info",
+                "passed": false,
+                "message": "No XML Sitemap detected at /sitemap.xml or declared in robots.txt.",
+                "recommendation": "Publish a sitemap.xml to facilitate comprehensive page discovery."
+              },
+              {
+                "id": "conflict-multiple_titles",
+                "category": "onPage",
+                "severity": "critical",
+                "passed": false,
+                "message": "Multiple <title> tags detected in HTML head.",
+                "recommendation": "Resolve conflicting directives to provide search crawlers with clear signals."
+              }
+            ]
+          }
+        },
+        "technologies": [
+          {
+            "name": "React",
+            "category": "Framework",
+            "confidence": "medium"
+          }
+        ],
+        "categoryScores": {
+          "uptimeAndSpeed": {
+            "score": 25,
+            "max": 25,
+            "label": "Uptime & Speed"
+          },
+          "sslAndTransport": {
+            "score": 25,
+            "max": 25,
+            "label": "SSL & Transport"
+          },
+          "securityAndHeaders": {
+            "score": 25,
+            "max": 25,
+            "label": "Security & Headers"
+          },
+          "seoAndStandards": {
+            "score": 18,
+            "max": 25,
+            "label": "SEO & Standards"
+          }
+        },
+        "recommendations": [
+          {
+            "type": "passed",
+            "category": "Uptime",
+            "title": "HTTP Availability",
+            "description": "Target responded with HTTP 200 (OK) in 255ms.",
+            "recommendation": "Target server is responding normally."
+          },
+          {
+            "type": "passed",
+            "category": "SSL & Domain",
+            "title": "Valid SSL Certificate",
+            "description": "Issued by Sectigo Limited, expires in 54 days.",
+            "recommendation": "Certificate is healthy and securely encrypting traffic."
+          },
+          {
+            "type": "passed",
+            "category": "Security",
+            "title": "HSTS Header Configured",
+            "description": "HSTS enforces encrypted HTTPS transport on compatible clients.",
+            "recommendation": "Good security posture."
+          },
+          {
+            "type": "warning",
+            "category": "SEO",
+            "title": "Suboptimal Title Length",
+            "description": "Title is 70 characters. Search engines typically display between 30 and 65 characters without truncation.",
+            "recommendation": "Adjust your page title length to between 35 and 60 characters for optimal display."
+          }
+        ],
+        "pageSpeed": {
+          "url": "https://github.com/",
+          "domain": "github.com",
+          "scannedAt": "2026-10-06T18:48:48.336Z",
+          "mobile": {
+            "device": "mobile",
+            "scores": {
+              "performance": 48,
+              "accessibility": 100,
+              "bestPractices": 96,
+              "seo": 100
+            },
+            "metrics": {
+              "lcp": {
+                "value": 14,
+                "unit": "s",
+                "status": "poor"
+              },
+              "inp": {
+                "value": 299,
+                "unit": "ms",
+                "status": "needs-improvement",
+                "percentile": 299
+              },
+              "cls": {
+                "value": 0.072,
+                "unit": "",
+                "status": "good"
+              },
+              "fcp": {
+                "value": 12.49,
+                "unit": "s",
+                "status": "poor"
+              },
+              "ttfb": {
+                "value": 0.25,
+                "unit": "s",
+                "status": "good"
+              },
+              "speedIndex": {
+                "value": 12.49,
+                "unit": "s",
+                "status": "poor"
+              }
+            },
+            "opportunities": [
+              {
+                "id": "unused-javascript",
+                "title": "Reduce unused JavaScript",
+                "description": "Reduce unused JavaScript and defer loading scripts until they are required to decrease bytes consumed by network activity. [Learn how to reduce unused JavaScript](https://developer.chrome.com/docs/lighthouse/performance/unused-javascript/).",
+                "score": 0,
+                "estimatedSavingsMs": 4380,
+                "estimatedSavingsBytes": 884792,
+                "displayValue": "Est savings of 864 KiB"
+              },
+              {
+                "id": "unused-css-rules",
+                "title": "Reduce unused CSS",
+                "description": "Reduce unused rules from stylesheets and defer CSS not used for above-the-fold content to decrease bytes consumed by network activity. [Learn how to reduce unused CSS](https://developer.chrome.com/docs/lighthouse/performance/unused-css-rules/).",
+                "score": 0,
+                "estimatedSavingsMs": 1060,
+                "estimatedSavingsBytes": 206283,
+                "displayValue": "Est savings of 201 KiB"
+              },
+              {
+                "id": "server-response-time",
+                "title": "Initial server response time was short",
+                "description": "Keep the server response time for the main document short because all other requests depend on it. [Learn more about the Time to First Byte metric](https://developer.chrome.com/docs/lighthouse/performance/time-to-first-byte/).",
+                "score": 100,
+                "estimatedSavingsMs": 149,
+                "displayValue": "Root document took 250 ms"
+              },
+              {
+                "id": "total-byte-weight",
+                "title": "Avoid enormous network payloads",
+                "description": "Large network payloads cost users real money and are highly correlated with long load times. [Learn how to reduce payload sizes](https://developer.chrome.com/docs/lighthouse/performance/total-byte-weight/).",
+                "score": 50,
+                "displayValue": "Total size was 5,534 KiB"
+              }
+            ],
+            "diagnostics": {
+              "totalBlockingTimeMs": 294,
+              "maxPotentialFidMs": 213,
+              "domSize": null
+            },
+            "scannedAt": "2026-10-06T18:48:42.713Z",
+            "source": "google-pagespeed-v5"
+          },
+          "desktop": null,
+          "cached": false,
+          "error": "Desktop: This operation was aborted"
+        }
+      }
     },
     {
       "id": "site_cloudflare",
@@ -153,8 +2346,8 @@
       "domain": "cloudflare.com",
       "status": "ONLINE",
       "intervalMinutes": 5,
-      "lastCheckedAt": "2026-09-30T04:20:49.137Z",
-      "lastResponseTimeMs": 1305,
+      "lastCheckedAt": "2026-10-07T13:20:41.376Z",
+      "lastResponseTimeMs": 331,
       "healthScore": 98,
       "uptime24h": 100,
       "uptime7d": 99.9,
@@ -198,8 +2391,8 @@
       "domain": "wikipedia.org",
       "status": "ONLINE",
       "intervalMinutes": 5,
-      "lastCheckedAt": "2026-09-30T04:20:47.931Z",
-      "lastResponseTimeMs": 97,
+      "lastCheckedAt": "2026-10-07T13:20:41.218Z",
+      "lastResponseTimeMs": 174,
       "healthScore": 94,
       "uptime24h": 100,
       "uptime7d": 99.9,
@@ -242,8 +2435,8 @@
       "domain": "example.com",
       "status": "ONLINE",
       "intervalMinutes": 15,
-      "lastCheckedAt": "2026-09-30T04:20:48.115Z",
-      "lastResponseTimeMs": 277,
+      "lastCheckedAt": "2026-10-07T13:19:51.322Z",
+      "lastResponseTimeMs": 284,
       "healthScore": 84,
       "uptime24h": 100,
       "uptime7d": 99.9,
@@ -1621,9 +3814,1433 @@
       "status": "ONLINE",
       "httpStatus": 200,
       "responseTimeMs": 27
+    },
+    {
+      "id": "met_1790773078258_yp8w",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T12:57:58.258Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 50
+    },
+    {
+      "id": "met_1790773078323_ulee",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-09-30T12:57:58.323Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 101
+    },
+    {
+      "id": "met_1790773078505_h3az",
+      "websiteId": "site_example",
+      "timestamp": "2026-09-30T12:57:58.505Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 281
+    },
+    {
+      "id": "met_1790773078542_gwu8",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-09-30T12:57:58.542Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 322
+    },
+    {
+      "id": "met_1790773144508_zpxz",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T12:59:04.508Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 59
+    },
+    {
+      "id": "met_1790773216485_b0pu",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:00:16.485Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 32
+    },
+    {
+      "id": "met_1790773285603_s6ar",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:01:25.603Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 59
+    },
+    {
+      "id": "met_1790773347943_mk63",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:02:27.943Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 49
+    },
+    {
+      "id": "met_1790773397990_xf9f",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-09-30T13:03:17.990Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 90
+    },
+    {
+      "id": "met_1790773398474_3pmv",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-09-30T13:03:18.474Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 578
+    },
+    {
+      "id": "met_1790773422929_d2se",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:03:42.929Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 33
+    },
+    {
+      "id": "met_1790773497922_h2iy",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:04:57.922Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 22
+    },
+    {
+      "id": "met_1790773572925_bjia",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:06:12.925Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 23
+    },
+    {
+      "id": "met_1790773647931_thb0",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:07:27.931Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 27
+    },
+    {
+      "id": "met_1790773698473_covp",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-09-30T13:08:18.473Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 119
+    },
+    {
+      "id": "met_1790773720384_momr",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:08:40.384Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 32
+    },
+    {
+      "id": "met_1790773720438_21yd",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-09-30T13:08:40.438Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 81
+    },
+    {
+      "id": "met_1790773795380_1cp9",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:09:55.380Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 23
+    },
+    {
+      "id": "met_1790773870386_5cvf",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:11:10.386Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 27
+    },
+    {
+      "id": "met_1790773945388_uvie",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:12:25.388Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 27
+    },
+    {
+      "id": "met_1790773995404_6ea6",
+      "websiteId": "site_example",
+      "timestamp": "2026-09-30T13:13:15.404Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 41
+    },
+    {
+      "id": "met_1790774020388_1ibs",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:13:40.388Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 25
+    },
+    {
+      "id": "met_1790774020453_qx9x",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-09-30T13:13:40.453Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 88
+    },
+    {
+      "id": "met_1790774045681_pfv8",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-09-30T13:14:05.681Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 317
+    },
+    {
+      "id": "met_1790774101677_cm0g",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:15:01.677Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 51
+    },
+    {
+      "id": "met_1790774176653_1qfc",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:16:16.653Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 25
+    },
+    {
+      "id": "met_1790774251669_av02",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:17:31.669Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 37
+    },
+    {
+      "id": "met_1790774326655_25ry",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:18:46.655Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 22
+    },
+    {
+      "id": "met_1790774326725_v1o3",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-09-30T13:18:46.725Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 90
+    },
+    {
+      "id": "met_1790774361026_eqes",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-09-30T13:19:21.026Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 349
+    },
+    {
+      "id": "met_1790774410706_cej3",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:20:10.706Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 28
+    },
+    {
+      "id": "met_1790774485707_qfi8",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:21:25.707Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 26
+    },
+    {
+      "id": "met_1790774560717_v7hl",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:22:40.717Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 35
+    },
+    {
+      "id": "met_1790774635718_psm0",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:23:55.718Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 32
+    },
+    {
+      "id": "met_1790774635873_09v9",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-09-30T13:23:55.873Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 184
+    },
+    {
+      "id": "met_1790774685755_a5u7",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-09-30T13:24:45.755Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 69
+    },
+    {
+      "id": "met_1790774710713_guaq",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:25:10.713Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 25
+    },
+    {
+      "id": "met_1790774788718_eigz",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:26:28.718Z",
+      "status": "DEGRADED",
+      "httpStatus": 200,
+      "responseTimeMs": 3026
+    },
+    {
+      "id": "met_1790774860715_x6os",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:27:40.715Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 23
+    },
+    {
+      "id": "met_1790774910727_hc2x",
+      "websiteId": "site_example",
+      "timestamp": "2026-09-30T13:28:30.727Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 32
+    },
+    {
+      "id": "met_1790774935724_9csg",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:28:55.724Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 28
+    },
+    {
+      "id": "met_1790774960766_5qar",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-09-30T13:29:20.766Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 69
+    },
+    {
+      "id": "met_1790775010721_o3e3",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:30:10.721Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 22
+    },
+    {
+      "id": "met_1790775011027_yzvk",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-09-30T13:30:11.027Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 326
+    },
+    {
+      "id": "met_1790775077285_ptoq",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:31:17.285Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 43
+    },
+    {
+      "id": "met_1790775149275_z2z5",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:32:29.275Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 32
+    },
+    {
+      "id": "met_1790775224274_iyjj",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:33:44.274Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 28
+    },
+    {
+      "id": "met_1790775274326_if35",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-09-30T13:34:34.326Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 78
+    },
+    {
+      "id": "met_1790775299273_yavh",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:34:59.273Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 25
+    },
+    {
+      "id": "met_1790775324322_n4wj",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-09-30T13:35:24.322Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 75
+    },
+    {
+      "id": "met_1790775374286_zkwd",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:36:14.286Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 38
+    },
+    {
+      "id": "met_1790775449278_mali",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:37:29.278Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 27
+    },
+    {
+      "id": "met_1790775524279_2uy6",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:38:44.279Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 25
+    },
+    {
+      "id": "met_1790775599298_3ufv",
+      "websiteId": "site_github",
+      "timestamp": "2026-09-30T13:39:59.298Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 40
+    },
+    {
+      "id": "met_1790775599349_qiss",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-09-30T13:39:59.349Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 88
+    },
+    {
+      "id": "met_1790946397199_elej",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-02T13:06:37.199Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 42
+    },
+    {
+      "id": "met_1790946397248_o2ex",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-10-02T13:06:37.248Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 82
+    },
+    {
+      "id": "met_1790946397260_h571",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-10-02T13:06:37.260Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 92
+    },
+    {
+      "id": "met_1790946397451_f2e4",
+      "websiteId": "site_example",
+      "timestamp": "2026-10-02T13:06:37.451Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 282
+    },
+    {
+      "id": "met_1790946469181_sfz8",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-02T13:07:49.181Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 23
+    },
+    {
+      "id": "met_1790946544191_nj1s",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-02T13:09:04.191Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 31
+    },
+    {
+      "id": "met_1790946619188_nfth",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-02T13:10:19.188Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 26
+    },
+    {
+      "id": "met_1790946694185_6zvq",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-02T13:11:34.185Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 21
+    },
+    {
+      "id": "met_1790946719251_d2yu",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-10-02T13:11:59.251Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 84
+    },
+    {
+      "id": "met_1790946719476_d62u",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-10-02T13:11:59.476Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 311
+    },
+    {
+      "id": "met_1790946769193_rdzc",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-02T13:12:49.193Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 26
+    },
+    {
+      "id": "met_1790946846058_x1i5",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-02T13:14:06.058Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 26
+    },
+    {
+      "id": "met_1790946912164_bsxt",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-02T13:15:12.164Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 24
+    },
+    {
+      "id": "met_1791120314207_hqgi",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-04T13:25:14.207Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 85
+    },
+    {
+      "id": "met_1791120314225_ipxc",
+      "websiteId": "site_example",
+      "timestamp": "2026-10-04T13:25:14.225Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 80
+    },
+    {
+      "id": "met_1791120314283_z7zo",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-10-04T13:25:14.283Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 144
+    },
+    {
+      "id": "met_1791120314313_6khf",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-10-04T13:25:14.313Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 171
+    },
+    {
+      "id": "met_1791120386153_mnby",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-04T13:26:26.153Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 28
+    },
+    {
+      "id": "met_1791120461165_eysg",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-04T13:27:41.165Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 39
+    },
+    {
+      "id": "met_1791120536155_s7qt",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-04T13:28:56.155Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 28
+    },
+    {
+      "id": "met_1791120611157_opnt",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-04T13:30:11.157Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 29
+    },
+    {
+      "id": "met_1791120621103_yo94",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-10-04T13:30:21.103Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 89
+    },
+    {
+      "id": "met_1791120621112_rgrt",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-10-04T13:30:21.112Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 86
+    },
+    {
+      "id": "met_1791120693051_5fzw",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-04T13:31:33.051Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 37
+    },
+    {
+      "id": "met_1791120768042_pvy7",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-04T13:32:48.042Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 25
+    },
+    {
+      "id": "met_1791120843049_bqcc",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-04T13:34:03.049Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 29
+    },
+    {
+      "id": "met_1791120918047_9wzw",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-04T13:35:18.047Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 24
+    },
+    {
+      "id": "met_1791120930163_2sk1",
+      "websiteId": "site_1791120929808_r3jx",
+      "timestamp": "2026-10-04T13:35:30.163Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 353
+    },
+    {
+      "id": "met_1791120931044_n6tm",
+      "websiteId": "site_1791120929954_imm9",
+      "timestamp": "2026-10-04T13:35:31.044Z",
+      "status": "OFFLINE",
+      "httpStatus": 0,
+      "responseTimeMs": 50,
+      "errorMessage": "fetch failed"
+    },
+    {
+      "id": "met_1791231744598_88ch",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-05T20:22:24.598Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 54
+    },
+    {
+      "id": "met_1791231744678_m3pf",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-10-05T20:22:24.678Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 117
+    },
+    {
+      "id": "met_1791231744687_cl6f",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-10-05T20:22:24.687Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 123
+    },
+    {
+      "id": "met_1791231744854_uq6z",
+      "websiteId": "site_example",
+      "timestamp": "2026-10-05T20:22:24.854Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 289
+    },
+    {
+      "id": "met_1791231750035_e309",
+      "websiteId": "site_1791231748937_ttbh",
+      "timestamp": "2026-10-05T20:22:30.035Z",
+      "status": "OFFLINE",
+      "httpStatus": 0,
+      "responseTimeMs": 55,
+      "errorMessage": "fetch failed"
+    },
+    {
+      "id": "met_1791311043958_babu",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:24:03.958Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 54
+    },
+    {
+      "id": "met_1791311044013_8v12",
+      "websiteId": "site_example",
+      "timestamp": "2026-10-06T18:24:04.013Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 90
+    },
+    {
+      "id": "met_1791311044054_1qyu",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-10-06T18:24:04.054Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 133
+    },
+    {
+      "id": "met_1791311044317_6bih",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-10-06T18:24:04.317Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 399
+    },
+    {
+      "id": "met_1791311115928_bhpv",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:25:15.928Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 22
+    },
+    {
+      "id": "met_1791311190933_tw0u",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:26:30.933Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 25
+    },
+    {
+      "id": "met_1791311265942_8u5c",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:27:45.942Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 32
+    },
+    {
+      "id": "met_1791311340936_eo9r",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:29:00.936Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 21
+    },
+    {
+      "id": "met_1791311365987_rng2",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-10-06T18:29:25.987Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 68
+    },
+    {
+      "id": "met_1791311366242_0mgp",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-10-06T18:29:26.242Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 326
+    },
+    {
+      "id": "met_1791311415937_1bjp",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:30:15.937Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 21
+    },
+    {
+      "id": "met_1791311490938_34gb",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:31:30.938Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 20
+    },
+    {
+      "id": "met_1791311565942_chlq",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:32:45.942Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 21
+    },
+    {
+      "id": "met_1791311640947_wumt",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:34:00.948Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 25
+    },
+    {
+      "id": "met_1791311690992_8d3o",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-10-06T18:34:50.992Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 67
+    },
+    {
+      "id": "met_1791311691503_s23o",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-10-06T18:34:51.503Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 580
+    },
+    {
+      "id": "met_1791311715963_j2yd",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:35:15.963Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 38
+    },
+    {
+      "id": "met_1791311790948_8i5y",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:36:30.948Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 21
+    },
+    {
+      "id": "met_1791311865958_2p58",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:37:45.958Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 28
+    },
+    {
+      "id": "met_1791311940958_hdcb",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:39:00.958Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 26
+    },
+    {
+      "id": "met_1791311966048_5ish",
+      "websiteId": "site_example",
+      "timestamp": "2026-10-06T18:39:26.048Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 102
+    },
+    {
+      "id": "met_1791312015983_fpeb",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:40:15.983Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 21
+    },
+    {
+      "id": "met_1791312016039_3h2o",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-10-06T18:40:16.039Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 75
+    },
+    {
+      "id": "met_1791312016270_7iz7",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-10-06T18:40:16.270Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 307
+    },
+    {
+      "id": "met_1791312079449_b5hl",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:41:19.449Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 47
+    },
+    {
+      "id": "met_1791312154431_82jy",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:42:34.431Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 27
+    },
+    {
+      "id": "met_1791312229428_3air",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:43:49.428Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 20
+    },
+    {
+      "id": "met_1791312304436_7vls",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:45:04.436Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 26
+    },
+    {
+      "id": "met_1791312329478_6sbt",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-10-06T18:45:29.478Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 66
+    },
+    {
+      "id": "met_1791312329499_26lo",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-10-06T18:45:29.499Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 85
+    },
+    {
+      "id": "met_1791312379437_4w15",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:46:19.437Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 23
+    },
+    {
+      "id": "met_1791312454440_4amu",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:47:34.440Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 23
+    },
+    {
+      "id": "met_1791312472485_jh3o",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:47:52.485Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 18
+    },
+    {
+      "id": "met_1791312554443_zcyx",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:49:14.444Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 23
+    },
+    {
+      "id": "met_1791312629444_vosy",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:50:29.444Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 19
+    },
+    {
+      "id": "met_1791312654479_lnso",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-10-06T18:50:54.479Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 53
+    },
+    {
+      "id": "met_1791312654501_n6so",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-10-06T18:50:54.501Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 74
+    },
+    {
+      "id": "met_1791312704457_dx53",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:51:44.457Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 29
+    },
+    {
+      "id": "met_1791312780695_3n0j",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:53:00.695Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 51
+    },
+    {
+      "id": "met_1791312855679_6ofv",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:54:15.679Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 34
+    },
+    {
+      "id": "met_1791312880928_pycs",
+      "websiteId": "site_example",
+      "timestamp": "2026-10-06T18:54:40.928Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 283
+    },
+    {
+      "id": "met_1791312930671_d0jr",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:55:30.671Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 24
+    },
+    {
+      "id": "met_1791312955729_abqj",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-10-06T18:55:55.729Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 80
+    },
+    {
+      "id": "met_1791312955977_9gjr",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-10-06T18:55:55.977Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 330
+    },
+    {
+      "id": "met_1791313005681_06x6",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:56:45.681Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 31
+    },
+    {
+      "id": "met_1791313080673_3snl",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:58:00.673Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 21
+    },
+    {
+      "id": "met_1791313155680_k3yt",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T18:59:15.680Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 27
+    },
+    {
+      "id": "met_1791313230692_cr7j",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T19:00:30.692Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 33
+    },
+    {
+      "id": "met_1791313280735_ygqg",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-10-06T19:01:20.735Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 71
+    },
+    {
+      "id": "met_1791313280975_2vi7",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-10-06T19:01:20.975Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 313
+    },
+    {
+      "id": "met_1791313305698_9nsq",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T19:01:45.698Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 36
+    },
+    {
+      "id": "met_1791313380688_2w16",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T19:03:00.688Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 25
+    },
+    {
+      "id": "met_1791313455695_b6bc",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T19:04:15.695Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 29
+    },
+    {
+      "id": "met_1791313530689_2zch",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-06T19:05:30.689Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 21
+    },
+    {
+      "id": "met_1791313587555_jveq",
+      "websiteId": "site_1791313586387_th80",
+      "timestamp": "2026-10-06T19:06:27.555Z",
+      "status": "OFFLINE",
+      "httpStatus": 0,
+      "responseTimeMs": 125,
+      "errorMessage": "fetch failed"
+    },
+    {
+      "id": "met_1791378269050_nubv",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-07T13:04:29.050Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 52
+    },
+    {
+      "id": "met_1791378269093_5uni",
+      "websiteId": "site_example",
+      "timestamp": "2026-10-07T13:04:29.093Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 79
+    },
+    {
+      "id": "met_1791378269256_j6dr",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-10-07T13:04:29.256Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 244
+    },
+    {
+      "id": "met_1791378270329_abal",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-10-07T13:04:30.329Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 1319
+    },
+    {
+      "id": "met_1791378341022_0can",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-07T13:05:41.022Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 24
+    },
+    {
+      "id": "met_1791378416025_d7de",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-07T13:06:56.025Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 24
+    },
+    {
+      "id": "met_1791378491027_o9vq",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-07T13:08:11.027Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 22
+    },
+    {
+      "id": "met_1791378566029_03zs",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-07T13:09:26.029Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 21
+    },
+    {
+      "id": "met_1791378591090_isgj",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-10-07T13:09:51.090Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 79
+    },
+    {
+      "id": "met_1791378591573_12mh",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-10-07T13:09:51.573Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 565
+    },
+    {
+      "id": "met_1791378641038_vqtr",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-07T13:10:41.038Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 26
+    },
+    {
+      "id": "met_1791378716042_j4zi",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-07T13:11:56.042Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 28
+    },
+    {
+      "id": "met_1791378791043_fbcx",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-07T13:13:11.043Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 26
+    },
+    {
+      "id": "met_1791378866045_ba8i",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-07T13:14:26.045Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 26
+    },
+    {
+      "id": "met_1791378916211_0i8k",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-10-07T13:15:16.211Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 186
+    },
+    {
+      "id": "met_1791378916338_zebu",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-10-07T13:15:16.338Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 315
+    },
+    {
+      "id": "met_1791378941048_8q5j",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-07T13:15:41.048Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 25
+    },
+    {
+      "id": "met_1791379016059_oat0",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-07T13:16:56.059Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 29
+    },
+    {
+      "id": "met_1791379092053_z2yo",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-07T13:18:12.053Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 1022
+    },
+    {
+      "id": "met_1791379166062_urcg",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-07T13:19:26.062Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 26
+    },
+    {
+      "id": "met_1791379191319_k3rp",
+      "websiteId": "site_example",
+      "timestamp": "2026-10-07T13:19:51.319Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 284
+    },
+    {
+      "id": "met_1791379241065_d5ji",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-07T13:20:41.065Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 28
+    },
+    {
+      "id": "met_1791379241215_ej1l",
+      "websiteId": "site_wikipedia",
+      "timestamp": "2026-10-07T13:20:41.215Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 174
+    },
+    {
+      "id": "met_1791379241371_g82g",
+      "websiteId": "site_cloudflare",
+      "timestamp": "2026-10-07T13:20:41.371Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 331
+    },
+    {
+      "id": "met_1791379316086_y425",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-07T13:21:56.086Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 45
+    },
+    {
+      "id": "met_1791379391067_rx0n",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-07T13:23:11.067Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 25
+    },
+    {
+      "id": "met_1791379466084_6odk",
+      "websiteId": "site_github",
+      "timestamp": "2026-10-07T13:24:26.084Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 40
+    },
+    {
+      "id": "met_1791379487219_ab4q",
+      "websiteId": "site_1791379486805_2m4r",
+      "timestamp": "2026-10-07T13:24:47.219Z",
+      "status": "ONLINE",
+      "httpStatus": 200,
+      "responseTimeMs": 411
+    },
+    {
+      "id": "met_1791379488097_8h65",
+      "websiteId": "site_1791379487000_6jri",
+      "timestamp": "2026-10-07T13:24:48.097Z",
+      "status": "OFFLINE",
+      "httpStatus": 0,
+      "responseTimeMs": 52,
+      "errorMessage": "fetch failed"
     }
   ],
   "incidents": [
+    {
+      "id": "inc_1791379488092",
+      "orgId": "org_1791379486768",
+      "websiteId": "site_1791379487000_6jri",
+      "websiteName": "Pro Monitored Site",
+      "startedAt": "2026-10-07T13:24:48.092Z",
+      "status": "OPEN",
+      "cause": "fetch failed"
+    },
+    {
+      "id": "inc_1791313587550",
+      "orgId": "org_1791313585356",
+      "websiteId": "site_1791313586387_th80",
+      "websiteName": "Pro Monitored Site",
+      "startedAt": "2026-10-06T19:06:27.550Z",
+      "status": "OPEN",
+      "cause": "fetch failed"
+    },
+    {
+      "id": "inc_1791231750033",
+      "orgId": "org_1791231748512",
+      "websiteId": "site_1791231748937_ttbh",
+      "websiteName": "Pro Monitored Site",
+      "startedAt": "2026-10-05T20:22:30.033Z",
+      "status": "OPEN",
+      "cause": "fetch failed"
+    },
+    {
+      "id": "inc_1791120931041",
+      "orgId": "org_1791120929778",
+      "websiteId": "site_1791120929954_imm9",
+      "websiteName": "Pro Monitored Site",
+      "startedAt": "2026-10-04T13:35:31.041Z",
+      "status": "OPEN",
+      "cause": "fetch failed"
+    },
     {
       "id": "inc_101",
       "orgId": "org_admin_001",
@@ -1637,6 +5254,66 @@
     }
   ],
   "alerts": [
+    {
+      "id": "alt_1791379488094",
+      "orgId": "org_1791379486768",
+      "websiteId": "site_1791379487000_6jri",
+      "websiteName": "Pro Monitored Site",
+      "type": "downtime",
+      "severity": "critical",
+      "title": "Website DOWN: Pro Monitored Site",
+      "message": "Pro Monitored Site (pro-site.com) is inaccessible. Cause: fetch failed",
+      "read": false,
+      "timestamp": "2026-10-07T13:24:48.094Z"
+    },
+    {
+      "id": "alt_1791313587553",
+      "orgId": "org_1791313585356",
+      "websiteId": "site_1791313586387_th80",
+      "websiteName": "Pro Monitored Site",
+      "type": "downtime",
+      "severity": "critical",
+      "title": "Website DOWN: Pro Monitored Site",
+      "message": "Pro Monitored Site (pro-site.com) is inaccessible. Cause: fetch failed",
+      "read": false,
+      "timestamp": "2026-10-06T19:06:27.553Z"
+    },
+    {
+      "id": "alt_1791231750034",
+      "orgId": "org_1791231748512",
+      "websiteId": "site_1791231748937_ttbh",
+      "websiteName": "Pro Monitored Site",
+      "type": "downtime",
+      "severity": "critical",
+      "title": "Website DOWN: Pro Monitored Site",
+      "message": "Pro Monitored Site (pro-site.com) is inaccessible. Cause: fetch failed",
+      "read": false,
+      "timestamp": "2026-10-05T20:22:30.034Z"
+    },
+    {
+      "id": "alt_1791120931042",
+      "orgId": "org_1791120929778",
+      "websiteId": "site_1791120929954_imm9",
+      "websiteName": "Pro Monitored Site",
+      "type": "downtime",
+      "severity": "critical",
+      "title": "Website DOWN: Pro Monitored Site",
+      "message": "Pro Monitored Site (pro-site.com) is inaccessible. Cause: fetch failed",
+      "read": false,
+      "timestamp": "2026-10-04T13:35:31.042Z"
+    },
+    {
+      "id": "alt_1790774788717",
+      "orgId": "org_admin_001",
+      "websiteId": "site_github",
+      "websiteName": "GitHub Production",
+      "type": "latency",
+      "severity": "warning",
+      "title": "Latency Degradation: GitHub Production",
+      "message": "Response time 3026ms exceeded threshold of 800ms.",
+      "read": false,
+      "timestamp": "2026-09-30T13:26:28.718Z"
+    },
     {
       "id": "alt_001",
       "orgId": "org_admin_001",
@@ -1952,6 +5629,202 @@
       "verificationLog": "Amount deviation: received 4.90 USDT, expected 5.00 USDT.",
       "expiresAt": "2026-09-05T08:00:00.000Z",
       "createdAt": "2026-09-05T07:00:00.000Z"
+    }
+  ],
+  "pageSpeedRecords": [
+    {
+      "id": "ps_mob_1791312528336",
+      "websiteId": "site_github",
+      "url": "https://github.com/",
+      "domain": "github.com",
+      "device": "mobile",
+      "performance": 48,
+      "accessibility": 100,
+      "bestPractices": 96,
+      "seo": 100,
+      "lcp": {
+        "value": 14,
+        "unit": "s",
+        "status": "poor"
+      },
+      "inp": {
+        "value": 299,
+        "unit": "ms",
+        "status": "needs-improvement",
+        "percentile": 299
+      },
+      "cls": {
+        "value": 0.072,
+        "unit": "",
+        "status": "good"
+      },
+      "fcp": {
+        "value": 12.49,
+        "unit": "s",
+        "status": "poor"
+      },
+      "ttfb": {
+        "value": 0.25,
+        "unit": "s",
+        "status": "good"
+      },
+      "speedIndex": {
+        "value": 12.49,
+        "unit": "s",
+        "status": "poor"
+      },
+      "opportunities": [
+        {
+          "id": "unused-javascript",
+          "title": "Reduce unused JavaScript",
+          "description": "Reduce unused JavaScript and defer loading scripts until they are required to decrease bytes consumed by network activity. [Learn how to reduce unused JavaScript](https://developer.chrome.com/docs/lighthouse/performance/unused-javascript/).",
+          "score": 0,
+          "estimatedSavingsMs": 4380,
+          "estimatedSavingsBytes": 884792,
+          "displayValue": "Est savings of 864 KiB"
+        },
+        {
+          "id": "unused-css-rules",
+          "title": "Reduce unused CSS",
+          "description": "Reduce unused rules from stylesheets and defer CSS not used for above-the-fold content to decrease bytes consumed by network activity. [Learn how to reduce unused CSS](https://developer.chrome.com/docs/lighthouse/performance/unused-css-rules/).",
+          "score": 0,
+          "estimatedSavingsMs": 1060,
+          "estimatedSavingsBytes": 206283,
+          "displayValue": "Est savings of 201 KiB"
+        },
+        {
+          "id": "server-response-time",
+          "title": "Initial server response time was short",
+          "description": "Keep the server response time for the main document short because all other requests depend on it. [Learn more about the Time to First Byte metric](https://developer.chrome.com/docs/lighthouse/performance/time-to-first-byte/).",
+          "score": 100,
+          "estimatedSavingsMs": 149,
+          "displayValue": "Root document took 250 ms"
+        },
+        {
+          "id": "total-byte-weight",
+          "title": "Avoid enormous network payloads",
+          "description": "Large network payloads cost users real money and are highly correlated with long load times. [Learn how to reduce payload sizes](https://developer.chrome.com/docs/lighthouse/performance/total-byte-weight/).",
+          "score": 50,
+          "displayValue": "Total size was 5,534 KiB"
+        }
+      ],
+      "scannedAt": "2026-10-06T18:48:48.336Z"
+    },
+    {
+      "id": "ps_desk_1791120639987",
+      "url": "https://example.com/",
+      "domain": "example.com",
+      "device": "desktop",
+      "performance": 100,
+      "accessibility": 96,
+      "bestPractices": 100,
+      "seo": 80,
+      "lcp": {
+        "value": 0.24,
+        "unit": "s",
+        "status": "good"
+      },
+      "inp": {
+        "value": 18,
+        "unit": "ms",
+        "status": "good",
+        "percentile": 18
+      },
+      "cls": {
+        "value": 0,
+        "unit": "",
+        "status": "good"
+      },
+      "fcp": {
+        "value": 0.22,
+        "unit": "s",
+        "status": "good"
+      },
+      "ttfb": {
+        "value": 0,
+        "unit": "s",
+        "status": "good"
+      },
+      "speedIndex": {
+        "value": 0.24,
+        "unit": "s",
+        "status": "good"
+      },
+      "opportunities": [
+        {
+          "id": "server-response-time",
+          "title": "Initial server response time was short",
+          "description": "Keep the server response time for the main document short because all other requests depend on it. [Learn more about the Time to First Byte metric](https://developer.chrome.com/docs/lighthouse/performance/time-to-first-byte/).",
+          "score": 100,
+          "displayValue": "Root document took 0 ms"
+        },
+        {
+          "id": "total-byte-weight",
+          "title": "Avoids enormous network payloads",
+          "description": "Large network payloads cost users real money and are highly correlated with long load times. [Learn how to reduce payload sizes](https://developer.chrome.com/docs/lighthouse/performance/total-byte-weight/).",
+          "score": 100,
+          "displayValue": "Total size was 2 KiB"
+        }
+      ],
+      "scannedAt": "2026-10-04T13:30:39.986Z"
+    },
+    {
+      "id": "ps_mob_1791120639986",
+      "url": "https://example.com/",
+      "domain": "example.com",
+      "device": "mobile",
+      "performance": 100,
+      "accessibility": 96,
+      "bestPractices": 100,
+      "seo": 80,
+      "lcp": {
+        "value": 0.76,
+        "unit": "s",
+        "status": "good"
+      },
+      "inp": {
+        "value": 86,
+        "unit": "ms",
+        "status": "good",
+        "percentile": 86
+      },
+      "cls": {
+        "value": 0,
+        "unit": "",
+        "status": "good"
+      },
+      "fcp": {
+        "value": 0.75,
+        "unit": "s",
+        "status": "good"
+      },
+      "ttfb": {
+        "value": 0,
+        "unit": "s",
+        "status": "good"
+      },
+      "speedIndex": {
+        "value": 0.75,
+        "unit": "s",
+        "status": "good"
+      },
+      "opportunities": [
+        {
+          "id": "server-response-time",
+          "title": "Initial server response time was short",
+          "description": "Keep the server response time for the main document short because all other requests depend on it. [Learn more about the Time to First Byte metric](https://developer.chrome.com/docs/lighthouse/performance/time-to-first-byte/).",
+          "score": 100,
+          "displayValue": "Root document took 0 ms"
+        },
+        {
+          "id": "total-byte-weight",
+          "title": "Avoids enormous network payloads",
+          "description": "Large network payloads cost users real money and are highly correlated with long load times. [Learn how to reduce payload sizes](https://developer.chrome.com/docs/lighthouse/performance/total-byte-weight/).",
+          "score": 100,
+          "displayValue": "Total size was 2 KiB"
+        }
+      ],
+      "scannedAt": "2026-10-04T13:30:39.986Z"
     }
   ]
 }

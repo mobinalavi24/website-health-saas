@@ -22,13 +22,18 @@ import {
   Cpu,
   Check,
   Copy,
+  Gauge,
 } from 'lucide-react';
 import { apiClient } from '../api/client.ts';
-import type { Website, MetricPoint, Incident, ScanResult } from '../types.ts';
+import type { Website, MetricPoint, Incident, ScanResult, Organization } from '../types.ts';
 import { ScanReportView } from './ScanReportView.tsx';
+import { PageSpeedSection } from './PageSpeedSection.tsx';
+import { AdvancedSeoSection } from './AdvancedSeoSection.tsx';
 
 interface WebsiteDetailViewProps {
   website: Website;
+  organization?: Organization | null;
+  onNavigate?: (view: string) => void;
   onBack: () => void;
   onUpdate: (updated: Website) => void;
   onDelete: (id: string) => void;
@@ -37,12 +42,14 @@ interface WebsiteDetailViewProps {
 
 export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
   website,
+  organization,
+  onNavigate,
   onBack,
   onUpdate,
   onDelete,
   onGenerateReport,
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'uptime' | 'ssl' | 'dns' | 'security' | 'seo' | 'incidents' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'pagespeed' | 'uptime' | 'ssl' | 'dns' | 'security' | 'seo' | 'incidents' | 'settings'>('overview');
   const [metrics, setMetrics] = useState<MetricPoint[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loadingMetrics, setLoadingMetrics] = useState(false);
@@ -51,6 +58,12 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
   const [verifying, setVerifying] = useState(false);
   const [verifyMessage, setVerifyMessage] = useState<{ success?: boolean; text: string } | null>(null);
   const [copiedToken, setCopiedToken] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
+
+  // Check if organization Free Trial is expired
+  const isFreePlan = organization?.planId === 'free';
+  const trialEndsMs = organization?.trialEndsAt ? new Date(organization.trialEndsAt).getTime() : 0;
+  const isTrialExpired = isFreePlan && trialEndsMs > 0 && Date.now() >= trialEndsMs;
 
   // Settings form state
   const [intervalMinutes, setIntervalMinutes] = useState(website.intervalMinutes);
@@ -81,18 +94,31 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
   };
 
   const handleRunRapidCheck = async () => {
+    if (isTrialExpired) {
+      setFeedback({ type: 'error', message: 'Your free trial has expired. Upgrade to Pro to continue.' });
+      return;
+    }
     setChecking(true);
+    setFeedback(null);
     try {
       const updated = await apiClient.checkWebsiteNow(website.id);
       onUpdate(updated);
       await loadMetricsAndIncidents();
+      setFeedback({ type: 'success', message: 'Health check completed successfully.' });
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Check failed' });
     } finally {
       setChecking(false);
     }
   };
 
   const handleRunFullAudit = async () => {
+    if (isTrialExpired) {
+      setFeedback({ type: 'error', message: 'Your free trial has expired. Upgrade to Pro to continue.' });
+      return;
+    }
     setAuditing(true);
+    setFeedback(null);
     try {
       const auditResult = await apiClient.runDeepAudit(website.id);
       onUpdate({
@@ -103,12 +129,19 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
         lastCheckedAt: auditResult.timestamp,
       });
       setActiveTab('overview');
+      setFeedback({ type: 'success', message: 'Full health audit completed!' });
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Audit failed' });
     } finally {
       setAuditing(false);
     }
   };
 
   const handleVerifyDomain = async () => {
+    if (isTrialExpired) {
+      setVerifyMessage({ success: false, text: 'Your free trial has expired. Upgrade to Pro to verify domains.' });
+      return;
+    }
     setVerifying(true);
     setVerifyMessage(null);
     try {
@@ -126,7 +159,12 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
   };
 
   const handleSaveSettings = async () => {
+    if (isTrialExpired) {
+      setFeedback({ type: 'error', message: 'Your free trial has expired. Upgrade to Pro to update settings.' });
+      return;
+    }
     setSavingSettings(true);
+    setFeedback(null);
     try {
       const updated = await apiClient.updateWebsite(website.id, {
         intervalMinutes,
@@ -139,9 +177,9 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
         },
       });
       onUpdate(updated);
-      alert('Settings saved successfully.');
+      setFeedback({ type: 'success', message: 'Settings saved successfully.' });
     } catch (err: any) {
-      alert(`Error saving settings: ${err.message}`);
+      setFeedback({ type: 'error', message: `Error saving settings: ${err.message}` });
     } finally {
       setSavingSettings(false);
     }
@@ -205,20 +243,30 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
         {/* Quick action triggers */}
         <div className="flex items-center gap-2">
           <button
-            onClick={handleRunRapidCheck}
+            onClick={isTrialExpired && onNavigate ? () => onNavigate('billing') : handleRunRapidCheck}
             disabled={checking}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-300 bg-slate-900 border border-slate-800 rounded-lg hover:text-white transition-colors disabled:opacity-50"
+            title={isTrialExpired ? 'Free Trial Expired. Upgrade to Pro to run checks.' : 'Check Now'}
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
+              isTrialExpired
+                ? 'bg-slate-900 border border-slate-800 text-slate-500 hover:text-rose-400'
+                : 'text-slate-300 bg-slate-900 border border-slate-800 hover:text-white disabled:opacity-50'
+            }`}
           >
             <RefreshCw className={`h-3.5 w-3.5 ${checking ? 'animate-spin text-[#E6A05A]' : ''}`} />
             <span>Check Now</span>
           </button>
           <button
-            onClick={handleRunFullAudit}
+            onClick={isTrialExpired && onNavigate ? () => onNavigate('billing') : handleRunFullAudit}
             disabled={auditing}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-[#0B1120] bg-[#E6A05A] rounded-lg hover:bg-[#cf863c] transition-colors disabled:opacity-50"
+            title={isTrialExpired ? 'Free Trial Expired. Upgrade to Pro to run health audits.' : 'Full Health Audit'}
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-colors ${
+              isTrialExpired
+                ? 'bg-slate-800 text-slate-400 border border-slate-700 hover:text-white'
+                : 'text-[#0B1120] bg-[#E6A05A] hover:bg-[#cf863c] disabled:opacity-50'
+            }`}
           >
             <Shield className="h-3.5 w-3.5" />
-            <span>{auditing ? 'Auditing...' : 'Full Health Audit'}</span>
+            <span>{auditing ? 'Auditing...' : isTrialExpired ? 'Upgrade for Audit' : 'Full Health Audit'}</span>
           </button>
           <button
             onClick={() => onGenerateReport(website.id, `${website.name} Health & Performance Report`)}
@@ -230,6 +278,50 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
         </div>
       </div>
 
+      {/* Trial Expired Warning Banner */}
+      {isTrialExpired && (
+        <div className="rounded-xl border border-rose-800/80 bg-rose-950/40 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-2.5 w-2.5 rounded-full bg-rose-500 shrink-0" />
+            <div className="space-y-0.5">
+              <span className="text-white font-bold tracking-tight block sm:inline mr-2">
+                Free Trial Expired
+              </span>
+              <span className="text-rose-200">
+                Upgrade to Pro to continue monitoring and scanning.
+              </span>
+            </div>
+          </div>
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('billing')}
+              className="px-4 py-2 rounded-lg font-bold text-xs bg-rose-600 hover:bg-rose-500 text-white transition-colors shrink-0 self-start sm:self-auto shadow-sm cursor-pointer"
+            >
+              Upgrade to Pro ($5/mo)
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Action Feedback Notification */}
+      {feedback && (
+        <div
+          className={`p-3 rounded-xl border text-xs flex items-center justify-between gap-2 ${
+            feedback.type === 'error'
+              ? 'bg-rose-950/30 border-rose-800 text-rose-300'
+              : 'bg-emerald-950/30 border-emerald-800 text-emerald-300'
+          }`}
+        >
+          <span>{feedback.message}</span>
+          <button
+            onClick={() => setFeedback(null)}
+            className="text-slate-400 hover:text-white text-xs px-1"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Tabs navigation */}
       <div className="flex items-center gap-1 p-1 bg-slate-900/90 border border-slate-800 rounded-lg overflow-x-auto">
         <button
@@ -239,6 +331,20 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
           }`}
         >
           Overview & Score
+        </button>
+        <button
+          onClick={() => setActiveTab('pagespeed')}
+          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+            activeTab === 'pagespeed' ? 'bg-slate-800 text-[#E6A05A] shadow-sm font-semibold' : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Gauge className="h-3.5 w-3.5" />
+          <span>Google PageSpeed</span>
+          {website.lastScanResult?.pageSpeed?.mobile?.scores.performance !== undefined && website.lastScanResult.pageSpeed?.mobile?.scores.performance !== null && (
+            <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400">
+              {website.lastScanResult.pageSpeed.mobile.scores.performance}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setActiveTab('uptime')}
@@ -375,6 +481,25 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
             </div>
           )}
         </div>
+      )}
+
+      {/* TAB: GOOGLE PAGESPEED INSIGHTS */}
+      {activeTab === 'pagespeed' && (
+        <PageSpeedSection
+          url={website.url}
+          initialData={website.lastScanResult?.pageSpeed}
+          onDataUpdated={(updated) => {
+            if (website.lastScanResult) {
+              onUpdate({
+                ...website,
+                lastScanResult: {
+                  ...website.lastScanResult,
+                  pageSpeed: updated,
+                },
+              });
+            }
+          }}
+        />
       )}
 
       {/* TAB 2: UPTIME & LATENCY */}
@@ -609,48 +734,30 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
 
       {/* TAB 6: SEO */}
       {activeTab === 'seo' && (
-        <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-6 space-y-4">
-          <h3 className="text-base font-semibold text-white">SEO & Crawler Health</h3>
-          <p className="text-xs text-slate-400">Meta tags, robots.txt, sitemap, and heading tags validation.</p>
-
-          {website.lastScanResult?.seo ? (
-            <div className="space-y-3 text-xs">
-              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                <span className="text-slate-400 block mb-1">Title ({website.lastScanResult.seo.titleLength} characters):</span>
-                <p className="text-white font-medium">{website.lastScanResult.seo.title || 'Missing title'}</p>
-              </div>
-              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                <span className="text-slate-400 block mb-1">Meta Description ({website.lastScanResult.seo.descriptionLength} characters):</span>
-                <p className="text-white font-medium">{website.lastScanResult.seo.description || 'Missing meta description'}</p>
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                  <span className="text-slate-500 block">robots.txt</span>
-                  <span className={`font-mono ${website.lastScanResult.seo.robotsTxtPresent ? 'text-emerald-400' : 'text-amber-400'}`}>
-                    {website.lastScanResult.seo.robotsTxtPresent ? 'FOUND' : 'MISSING'}
-                  </span>
-                </div>
-                <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                  <span className="text-slate-500 block">sitemap.xml</span>
-                  <span className={`font-mono ${website.lastScanResult.seo.sitemapPresent ? 'text-emerald-400' : 'text-slate-400'}`}>
-                    {website.lastScanResult.seo.sitemapPresent ? 'FOUND' : 'NOT FOUND'}
-                  </span>
-                </div>
-                <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                  <span className="text-slate-500 block">H1 Headings</span>
-                  <span className="font-mono text-white">{website.lastScanResult.seo.h1Count} tags</span>
-                </div>
-                <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                  <span className="text-slate-500 block">Images with Alt</span>
-                  <span className="font-mono text-white">
-                    {website.lastScanResult.seo.imagesWithAltCount} / {website.lastScanResult.seo.imageCount}
-                  </span>
-                </div>
-              </div>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between pb-2">
+            <div>
+              <h3 className="text-base font-semibold text-white">Advanced SEO Analysis</h3>
+              <p className="text-xs text-slate-400">On-page markup, Open Graph, Twitter Cards, JSON-LD schemas, and crawler indexability.</p>
             </div>
+            {website.lastScanResult?.advancedSeo?.overview && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">SEO Health Score:</span>
+                <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-[#E6A05A]/10 text-[#E6A05A] border border-[#E6A05A]/30">
+                  {website.lastScanResult.advancedSeo.overview.score} / 100
+                </span>
+              </div>
+            )}
+          </div>
+
+          {website.lastScanResult ? (
+            <AdvancedSeoSection
+              seoData={website.lastScanResult.advancedSeo}
+              scanResult={website.lastScanResult}
+            />
           ) : (
-            <div className="py-8 text-center text-xs text-slate-400">
-              Run a health audit to evaluate SEO indicators.
+            <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-8 text-center text-xs text-slate-400">
+              Run a health audit on this website to evaluate advanced SEO indicators.
             </div>
           )}
         </div>

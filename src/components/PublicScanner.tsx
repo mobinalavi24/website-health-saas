@@ -36,7 +36,8 @@ export const PublicScanner: React.FC<PublicScannerProps> = ({
     setScanStep('Verifying domain & SSRF safety rules...');
     const stepTimer1 = setTimeout(() => setScanStep('Resolving public DNS (A, MX, TXT)...'), 600);
     const stepTimer2 = setTimeout(() => setScanStep('Connecting to port 443 & verifying SSL/TLS...'), 1400);
-    const stepTimer3 = setTimeout(() => setScanStep('Analyzing HTTP response time, headers & SEO...'), 2200);
+    const stepTimer3 = setTimeout(() => setScanStep('Analyzing HTTP response time, headers & SEO...'), 2400);
+    const stepTimer4 = setTimeout(() => setScanStep('Running Google PageSpeed & Lighthouse diagnostics...'), 3600);
 
     try {
       const scanData = await apiClient.scanWebsite(toScan);
@@ -48,6 +49,7 @@ export const PublicScanner: React.FC<PublicScannerProps> = ({
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);
       clearTimeout(stepTimer3);
+      clearTimeout(stepTimer4);
       setLoading(false);
       setScanStep('');
     }

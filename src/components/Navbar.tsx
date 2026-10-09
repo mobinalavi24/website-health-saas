@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Shield, Globe, Terminal, LogIn, LayoutDashboard, UserCheck, QrCode } from 'lucide-react';
+import { Activity, Shield, Globe, Terminal, LogIn, LayoutDashboard, UserCheck, QrCode, Coins } from 'lucide-react';
 import type { User, Organization } from '../types.ts';
 
 interface NavbarProps {
@@ -126,6 +126,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                   My Crypto Payments
                 </button>
               )}
+              {(user.role === 'admin' || user.role === 'super_admin' || user.email?.toLowerCase() === 'mobinalavi7491@gmail.com') && (
+                <button
+                  onClick={() => onNavigate('admin-crypto-transactions')}
+                  className={`transition-colors hover:text-white flex items-center gap-1.5 ${
+                    activeView === 'admin-crypto-transactions' ? 'text-[#E6A05A] font-semibold' : ''
+                  }`}
+                >
+                  <Coins className="h-3.5 w-3.5" />
+                  Crypto Transactions
+                </button>
+              )}
               {user.role === 'super_admin' && (
                 <button
                   onClick={() => onNavigate('admin')}
@@ -176,8 +187,32 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="flex items-center gap-3">
               <div className="hidden lg:flex flex-col text-right">
                 <span className="text-xs font-medium text-white truncate max-w-[130px]">{user.name}</span>
-                <span className="text-[11px] text-slate-400 capitalize">{organization?.planId || 'free'} plan</span>
+                {organization?.planId === 'free' ? (
+                  <span className="text-[11px] font-medium">
+                    {organization.trialEndsAt && new Date() >= new Date(organization.trialEndsAt) ? (
+                      <span className="text-rose-400 font-semibold">Trial Expired</span>
+                    ) : (
+                      <span className="text-[#E6A05A]">Free Trial</span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-slate-400 capitalize">{organization?.planId || 'free'} plan</span>
+                )}
               </div>
+              {(user.role === 'admin' || user.role === 'super_admin' || user.email?.toLowerCase() === 'mobinalavi7491@gmail.com') && (
+                <button
+                  onClick={() => onNavigate('admin-crypto-transactions')}
+                  title="Crypto Transactions (Admin)"
+                  className={`flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-colors ${
+                    activeView === 'admin-crypto-transactions'
+                      ? 'bg-[#E6A05A] text-[#0B1120] border-[#E6A05A]'
+                      : 'bg-slate-800 border-slate-700 text-[#E6A05A] hover:bg-slate-700'
+                  }`}
+                >
+                  <Coins className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Transactions</span>
+                </button>
+              )}
               {user.email?.toLowerCase() === 'mobinalavi7491@gmail.com' && (
                 <button
                   onClick={() => onNavigate('my-crypto-payments')}

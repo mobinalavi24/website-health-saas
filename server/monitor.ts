@@ -1,5 +1,7 @@
 import { db, type Website, type MetricPoint, type Incident, type AlertNotification } from './db.ts';
 import { performWebsiteScan } from './scanner.ts';
+import { performPageSpeedAnalysis } from './pagespeed.ts';
+import { getAccountTrialStatus } from './trial.ts';
 
 interface WorkerStats {
   running: boolean;
@@ -55,6 +57,15 @@ export class ContinuousMonitoringEngine {
 
       // Find due websites
       const dueWebsites = websites.filter((site) => {
+        // Enforce Free Trial restriction: if account is Free and trial has expired, skip monitoring
+        const org = db.findOrgById(site.orgId);
+        if (org && org.planId === 'free') {
+          const trial = getAccountTrialStatus(org, now);
+          if (trial.isExpired) {
+            return false; // Skip monitoring for expired trial without deleting website data
+          }
+        }
+
         if (!site.lastCheckedAt) return true;
         const last = new Date(site.lastCheckedAt).getTime();
         const diffMinutes = (now - last) / (1000 * 60);
@@ -78,6 +89,15 @@ export class ContinuousMonitoringEngine {
   }
 
   public async checkWebsite(website: Website): Promise<Website> {
+    // Check if free trial has expired for this website's owner organization
+    const org = db.findOrgById(website.orgId);
+    if (org && org.planId === 'free') {
+      const trial = getAccountTrialStatus(org);
+      if (trial.isExpired) {
+        return website; // Skip monitoring check without deleting website data
+      }
+    }
+
     const checkStart = Date.now();
     let currentStatus: 'ONLINE' | 'DEGRADED' | 'OFFLINE' = 'ONLINE';
     let httpStatus = 0;
@@ -258,7 +278,74 @@ export class ContinuousMonitoringEngine {
     const website = db.findWebsiteById(websiteId);
     if (!website) throw new Error('Website not found');
 
+    const org = db.findOrgById(website.orgId);
+    if (org && org.planId === 'free') {
+      const trial = getAccountTrialStatus(org);
+      if (trial.isExpired) {
+        throw new Error('Your free trial has expired. Upgrade to Pro to continue.');
+      }
+    }
+
     const result = await performWebsiteScan(website.url);
+
+    // Also run PageSpeed safely without failing audit
+    try {
+      const psResult = await performPageSpeedAnalysis(website.url);
+      result.pageSpeed = psResult;
+      if (psResult.mobile) {
+        db.addPageSpeedRecord({
+          id: `ps_mob_${Date.now()}`,
+          websiteId,
+          url: psResult.url,
+          domain: psResult.domain,
+          device: 'mobile',
+          performance: psResult.mobile.scores.performance,
+          accessibility: psResult.mobile.scores.accessibility,
+          bestPractices: psResult.mobile.scores.bestPractices,
+          seo: psResult.mobile.scores.seo,
+          lcp: psResult.mobile.metrics.lcp,
+          inp: psResult.mobile.metrics.inp,
+          cls: psResult.mobile.metrics.cls,
+          fcp: psResult.mobile.metrics.fcp,
+          ttfb: psResult.mobile.metrics.ttfb,
+          speedIndex: psResult.mobile.metrics.speedIndex,
+          opportunities: psResult.mobile.opportunities,
+          scannedAt: psResult.scannedAt,
+        });
+      }
+      if (psResult.desktop) {
+        db.addPageSpeedRecord({
+          id: `ps_desk_${Date.now()}`,
+          websiteId,
+          url: psResult.url,
+          domain: psResult.domain,
+          device: 'desktop',
+          performance: psResult.desktop.scores.performance,
+          accessibility: psResult.desktop.scores.accessibility,
+          bestPractices: psResult.desktop.scores.bestPractices,
+          seo: psResult.desktop.scores.seo,
+          lcp: psResult.desktop.metrics.lcp,
+          inp: psResult.desktop.metrics.inp,
+          cls: psResult.desktop.metrics.cls,
+          fcp: psResult.desktop.metrics.fcp,
+          ttfb: psResult.desktop.metrics.ttfb,
+          speedIndex: psResult.desktop.metrics.speedIndex,
+          opportunities: psResult.desktop.opportunities,
+          scannedAt: psResult.scannedAt,
+        });
+      }
+    } catch (e: any) {
+      console.warn('[PageSpeed FullAudit Notice]', e.message);
+      result.pageSpeed = {
+        url: result.url,
+        domain: result.domain,
+        scannedAt: new Date().toISOString(),
+        mobile: null,
+        desktop: null,
+        error: e.message || 'PageSpeed analysis unavailable.',
+      };
+    }
+
     db.updateWebsite(websiteId, {
       lastScanResult: result,
       healthScore: result.overallScore,

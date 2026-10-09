@@ -1,12 +1,30 @@
 import type { ScanResult } from '../server/scanner.ts';
+import type {
+  PageSpeedMetricStatus,
+  CoreWebVitalMetric,
+  PageSpeedOpportunity,
+  PageSpeedDeviceData,
+  CombinedPageSpeedResult,
+  StoredPageSpeedRecord,
+} from '../server/pagespeedTypes.ts';
 
-export type { ScanResult };
+export type * from '../server/seoTypes.ts';
+
+export type {
+  ScanResult,
+  PageSpeedMetricStatus,
+  CoreWebVitalMetric,
+  PageSpeedOpportunity,
+  PageSpeedDeviceData,
+  CombinedPageSpeedResult,
+  StoredPageSpeedRecord,
+};
 
 export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'super_admin' | 'agency_admin' | 'team_member' | 'client_viewer';
+  role: 'super_admin' | 'admin' | 'agency_admin' | 'team_member' | 'client_viewer';
   orgId: string;
   avatarUrl?: string;
   emailVerified: boolean;
@@ -20,6 +38,9 @@ export interface Organization {
   billingInterval: 'monthly' | 'annual';
   currency: 'USD' | 'EUR' | 'GBP';
   ownerId: string;
+  trialStartedAt?: string;
+  trialEndsAt?: string;
+  trialUsed?: boolean;
   whiteLabel: {
     enabled: boolean;
     brandName: string;
@@ -35,6 +56,18 @@ export interface Organization {
     createdAt: string;
   }[];
   createdAt: string;
+}
+
+export interface TrialInfo {
+  startedAt: string;
+  endsAt: string;
+  expired: boolean;
+  remainingMs: number;
+}
+
+export interface AccountStatus {
+  plan: 'free' | 'pro' | 'agency' | 'enterprise';
+  trial: TrialInfo;
 }
 
 export interface Website {

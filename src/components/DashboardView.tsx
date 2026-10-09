@@ -77,6 +77,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return matchesSearch && matchesStatus;
   });
 
+  // Calculate live countdown for Free Trial
+  const isFreePlan = organization?.planId === 'free';
+  const trialEndsMs = organization?.trialEndsAt ? new Date(organization.trialEndsAt).getTime() : 0;
+  const [nowMs, setNowMs] = useState(Date.now());
+
+  React.useEffect(() => {
+    if (!isFreePlan) return;
+    const interval = setInterval(() => setNowMs(Date.now()), 10000);
+    return () => clearInterval(interval);
+  }, [isFreePlan]);
+
+  const isTrialExpired = isFreePlan && trialEndsMs > 0 && nowMs >= trialEndsMs;
+  const trialRemainingMs = isFreePlan && trialEndsMs > 0 ? Math.max(0, trialEndsMs - nowMs) : 0;
+  const remainingHours = Math.floor(trialRemainingMs / (1000 * 60 * 60));
+  const remainingMins = Math.floor((trialRemainingMs % (1000 * 60 * 60)) / (1000 * 60));
+
   const handleRunCheck = async (siteId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setCheckingIds((prev) => new Set(prev).add(siteId));
@@ -113,27 +129,66 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <span>Refresh</span>
           </button>
           <button
-            onClick={onAddWebsite}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[#0B1120] bg-[#E6A05A] rounded-lg hover:bg-[#cf863c] transition-colors"
+            onClick={isTrialExpired ? () => onNavigate('billing') : onAddWebsite}
+            title={isTrialExpired ? 'Free Trial Expired. Upgrade to Pro to add websites.' : 'Add Website'}
+            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors ${
+              isTrialExpired
+                ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700 cursor-pointer'
+                : 'text-[#0B1120] bg-[#E6A05A] hover:bg-[#cf863c]'
+            }`}
           >
             <Plus className="h-4 w-4" />
-            <span>Add Website</span>
+            <span>{isTrialExpired ? 'Upgrade to Add Website' : 'Add Website'}</span>
           </button>
         </div>
       </div>
 
       {/* Trial to Pro Upgrade Banner */}
-      {organization?.planId !== 'pro' && (
-        <div className="rounded-xl border border-[#E6A05A]/30 bg-[#E6A05A]/10 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+      {isFreePlan && (
+        <div
+          className={`rounded-xl border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+            isTrialExpired
+              ? 'border-rose-800/80 bg-rose-950/40'
+              : 'border-[#E6A05A]/30 bg-[#E6A05A]/10'
+          }`}
+        >
           <div className="flex items-center gap-2.5">
-            <span className="flex h-2 w-2 rounded-full bg-[#E6A05A] animate-pulse" />
-            <span className="text-white font-medium">
-              You are using the <strong className="text-[#E6A05A]">Free 24-Hour Trial</strong> (one time per account). Upgrade to <strong className="text-white">Pro for $5/month</strong> to scan & monitor up to 5 websites.
-            </span>
+            <span
+              className={`flex h-2.5 w-2.5 rounded-full ${
+                isTrialExpired ? 'bg-rose-500' : 'bg-[#E6A05A] animate-pulse'
+              }`}
+            />
+            {isTrialExpired ? (
+              <div className="space-y-0.5">
+                <span className="text-white font-bold tracking-tight block sm:inline mr-2">
+                  Free Trial Expired
+                </span>
+                <span className="text-rose-200">
+                  Upgrade to Pro to continue monitoring and scanning.
+                </span>
+              </div>
+            ) : (
+              <div className="space-y-0.5">
+                <span className="text-white font-semibold">
+                  Free Trial —{' '}
+                  <span className="font-mono text-[#E6A05A] font-bold">
+                    {remainingHours}h {remainingMins}m remaining
+                  </span>
+                </span>
+                <p className="text-slate-300 text-[11px]">
+                  24 hours of unrestricted full-platform monitoring. Upgrade to{' '}
+                  <strong className="text-white">Pro for $5/month</strong> to monitor up to 5 websites continuously.
+                </p>
+              </div>
+            )}
           </div>
           <button
             onClick={() => onNavigate('billing')}
-            className="px-3.5 py-1.5 rounded-lg bg-[#E6A05A] text-[#0B1120] font-bold text-xs hover:bg-[#cf863c] transition-colors shrink-0 self-start sm:self-auto shadow-sm"
+            className={`px-4 py-2 rounded-lg font-bold text-xs transition-colors shrink-0 self-start sm:self-auto shadow-sm ${
+              isTrialExpired
+                ? 'bg-rose-600 hover:bg-rose-500 text-white'
+                : 'bg-[#E6A05A] text-[#0B1120] hover:bg-[#cf863c]'
+            }`}
           >
             Upgrade to Pro ($5/mo)
           </button>
@@ -399,10 +454,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <td className="py-3.5 px-4 text-right font-sans" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1.5">
                           <button
-                            onClick={(e) => handleRunCheck(site.id, e)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isTrialExpired) {
+                                onNavigate('billing');
+                              } else {
+                                handleRunCheck(site.id, e);
+                              }
+                            }}
                             disabled={isChecking}
-                            title="Run instant HTTP check now"
-                            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors disabled:opacity-50"
+                            title={isTrialExpired ? 'Free Trial Expired. Upgrade to Pro to run checks.' : 'Run instant HTTP check now'}
+                            className={`p-1.5 rounded transition-colors ${
+                              isTrialExpired
+                                ? 'text-slate-600 hover:text-rose-400'
+                                : 'text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-50'
+                            }`}
                           >
                             <RefreshCw className={`h-3.5 w-3.5 ${isChecking ? 'animate-spin text-[#E6A05A]' : ''}`} />
                           </button>

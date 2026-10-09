@@ -1,0 +1,517 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { query, withTransaction } from './connection.ts';
+import { initSchema } from './init.ts';
+
+export interface MigrationSummary {
+  success: boolean;
+  source: string;
+  timestamp: string;
+  counts: Record<string, number>;
+  details: string[];
+}
+
+export async function runMigration(options: { force?: boolean } = {}): Promise<MigrationSummary> {
+  const jsonPath = path.resolve(process.cwd(), 'data/pulsevanguard.db.json');
+
+  if (!fs.existsSync(jsonPath)) {
+    throw new Error(`JSON database file not found at ${jsonPath}`);
+  }
+
+  const rawJson = fs.readFileSync(jsonPath, 'utf8');
+  let data: any;
+  try {
+    data = JSON.parse(rawJson);
+  } catch (err: any) {
+    throw new Error(`Invalid JSON syntax in database file ${jsonPath}: ${err.message}`);
+  }
+
+  // 1. Initialize schema
+  await initSchema();
+
+  // 2. Check if migration was already applied (idempotency check)
+  const existingHistory = await query('SELECT * FROM migration_history WHERE id = $1', ['init_from_json']);
+  if (existingHistory.rows.length > 0 && !options.force) {
+    const row = existingHistory.rows[0];
+    console.log('[Migration]: JSON database was already migrated at', row.applied_at);
+    return {
+      success: true,
+      source: jsonPath,
+      timestamp: row.applied_at,
+      counts: row.record_counts,
+      details: ['Migration already applied. Skipped re-inserting to preserve idempotency.'],
+    };
+  }
+
+  const counts: Record<string, number> = {};
+  const details: string[] = [];
+
+  // Use a transaction for all inserts
+  await withTransaction(async (client) => {
+    // 1. Subscription Plans
+    const plans = data.plans || [];
+    for (const plan of plans) {
+      await client.query(
+        `INSERT INTO subscription_plans (id, name, badge, target_audience, pricing, limits, features)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name,
+           badge = EXCLUDED.badge,
+           target_audience = EXCLUDED.target_audience,
+           pricing = EXCLUDED.pricing,
+           limits = EXCLUDED.limits,
+           features = EXCLUDED.features`,
+        [
+          plan.id,
+          plan.name,
+          plan.badge,
+          plan.targetAudience,
+          JSON.stringify(plan.pricing),
+          JSON.stringify(plan.limits),
+          JSON.stringify(plan.features),
+        ]
+      );
+    }
+    counts['plans'] = plans.length;
+    details.push(`Subscription Plans: ${plans.length} records imported`);
+
+    // 2. Organizations
+    const orgs = data.organizations || [];
+    for (const org of orgs) {
+      await client.query(
+        `INSERT INTO organizations (
+           id, name, plan_id, billing_interval, currency, owner_id,
+           trial_started_at, trial_ends_at, trial_used, white_label, clients, created_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name,
+           plan_id = EXCLUDED.plan_id,
+           billing_interval = EXCLUDED.billing_interval,
+           currency = EXCLUDED.currency,
+           owner_id = EXCLUDED.owner_id,
+           trial_started_at = EXCLUDED.trial_started_at,
+           trial_ends_at = EXCLUDED.trial_ends_at,
+           trial_used = EXCLUDED.trial_used,
+           white_label = EXCLUDED.white_label,
+           clients = EXCLUDED.clients`,
+        [
+          org.id,
+          org.name,
+          org.planId,
+          org.billingInterval || 'monthly',
+          org.currency || 'USD',
+          org.ownerId,
+          org.trialStartedAt ? new Date(org.trialStartedAt).toISOString() : null,
+          org.trialEndsAt ? new Date(org.trialEndsAt).toISOString() : null,
+          Boolean(org.trialUsed),
+          JSON.stringify(org.whiteLabel || { enabled: false, brandName: '' }),
+          JSON.stringify(org.clients || []),
+          org.createdAt ? new Date(org.createdAt).toISOString() : new Date().toISOString(),
+        ]
+      );
+    }
+    counts['organizations'] = orgs.length;
+    details.push(`Organizations: ${orgs.length} records imported with trial state`);
+
+    // 3. Users
+    const users = data.users || [];
+    for (const user of users) {
+      await client.query(
+        `INSERT INTO users (id, email, name, password_hash, role, org_id, avatar_url, email_verified, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (id) DO UPDATE SET
+           email = EXCLUDED.email,
+           name = EXCLUDED.name,
+           password_hash = EXCLUDED.password_hash,
+           role = EXCLUDED.role,
+           org_id = EXCLUDED.org_id,
+           avatar_url = EXCLUDED.avatar_url,
+           email_verified = EXCLUDED.email_verified`,
+        [
+          user.id,
+          user.email.toLowerCase(),
+          user.name,
+          user.passwordHash,
+          user.role,
+          user.orgId,
+          user.avatarUrl || null,
+          user.emailVerified ?? true,
+          user.createdAt ? new Date(user.createdAt).toISOString() : new Date().toISOString(),
+        ]
+      );
+    }
+    counts['users'] = users.length;
+    details.push(`Users: ${users.length} records imported with password hashes`);
+
+    // 4. Websites
+    const websites = data.websites || [];
+    for (const site of websites) {
+      await client.query(
+        `INSERT INTO websites (
+           id, org_id, client_id, name, url, domain, status, interval_minutes,
+           last_checked_at, last_response_time_ms, health_score, uptime_24h, uptime_7d, uptime_30d,
+           verification, tags, group_name, enabled_checks, notification_settings, last_scan_result, created_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+         ON CONFLICT (id) DO UPDATE SET
+           org_id = EXCLUDED.org_id,
+           client_id = EXCLUDED.client_id,
+           name = EXCLUDED.name,
+           url = EXCLUDED.url,
+           domain = EXCLUDED.domain,
+           status = EXCLUDED.status,
+           interval_minutes = EXCLUDED.interval_minutes,
+           last_checked_at = EXCLUDED.last_checked_at,
+           last_response_time_ms = EXCLUDED.last_response_time_ms,
+           health_score = EXCLUDED.health_score,
+           uptime_24h = EXCLUDED.uptime_24h,
+           uptime_7d = EXCLUDED.uptime_7d,
+           uptime_30d = EXCLUDED.uptime_30d,
+           verification = EXCLUDED.verification,
+           tags = EXCLUDED.tags,
+           group_name = EXCLUDED.group_name,
+           enabled_checks = EXCLUDED.enabled_checks,
+           notification_settings = EXCLUDED.notification_settings,
+           last_scan_result = EXCLUDED.last_scan_result`,
+        [
+          site.id,
+          site.orgId,
+          site.clientId || null,
+          site.name,
+          site.url,
+          site.domain,
+          site.status || 'ONLINE',
+          site.intervalMinutes || 5,
+          site.lastCheckedAt ? new Date(site.lastCheckedAt).toISOString() : null,
+          site.lastResponseTimeMs || 0,
+          site.healthScore ?? 100,
+          site.uptime24h ?? 100.0,
+          site.uptime7d ?? 100.0,
+          site.uptime30d ?? 100.0,
+          JSON.stringify(site.verification || {}),
+          JSON.stringify(site.tags || []),
+          site.groupName || 'General',
+          JSON.stringify(site.enabledChecks || {}),
+          JSON.stringify(site.notificationSettings || {}),
+          site.lastScanResult ? JSON.stringify(site.lastScanResult) : null,
+          site.createdAt ? new Date(site.createdAt).toISOString() : new Date().toISOString(),
+        ]
+      );
+    }
+    counts['websites'] = websites.length;
+    details.push(`Websites: ${websites.length} records imported with scanner history`);
+
+    // 5. Metrics
+    const metrics = data.metrics || [];
+    for (const metric of metrics) {
+      await client.query(
+        `INSERT INTO metrics (id, website_id, timestamp, status, http_status, response_time_ms, error_message)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          metric.id,
+          metric.websiteId,
+          metric.timestamp ? new Date(metric.timestamp).toISOString() : new Date().toISOString(),
+          metric.status,
+          metric.httpStatus,
+          metric.responseTimeMs,
+          metric.errorMessage || null,
+        ]
+      );
+    }
+    counts['metrics'] = metrics.length;
+    details.push(`Metrics: ${metrics.length} telemetry points imported`);
+
+    // 6. Incidents
+    const incidents = data.incidents || [];
+    for (const inc of incidents) {
+      await client.query(
+        `INSERT INTO incidents (id, org_id, website_id, website_name, started_at, resolved_at, status, cause, duration_minutes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (id) DO UPDATE SET
+           status = EXCLUDED.status,
+           resolved_at = EXCLUDED.resolved_at,
+           cause = EXCLUDED.cause,
+           duration_minutes = EXCLUDED.duration_minutes`,
+        [
+          inc.id,
+          inc.orgId,
+          inc.websiteId,
+          inc.websiteName,
+          inc.startedAt ? new Date(inc.startedAt).toISOString() : new Date().toISOString(),
+          inc.resolvedAt ? new Date(inc.resolvedAt).toISOString() : null,
+          inc.status,
+          inc.cause,
+          inc.durationMinutes ?? null,
+        ]
+      );
+    }
+    counts['incidents'] = incidents.length;
+    details.push(`Incidents: ${incidents.length} records imported`);
+
+    // 7. Alerts
+    const alerts = data.alerts || [];
+    for (const alert of alerts) {
+      await client.query(
+        `INSERT INTO alerts (id, org_id, website_id, website_name, type, severity, title, message, read, timestamp)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         ON CONFLICT (id) DO UPDATE SET
+           read = EXCLUDED.read`,
+        [
+          alert.id,
+          alert.orgId,
+          alert.websiteId || null,
+          alert.websiteName || null,
+          alert.type,
+          alert.severity,
+          alert.title,
+          alert.message,
+          Boolean(alert.read),
+          alert.timestamp ? new Date(alert.timestamp).toISOString() : new Date().toISOString(),
+        ]
+      );
+    }
+    counts['alerts'] = alerts.length;
+    details.push(`Alerts: ${alerts.length} notifications imported`);
+
+    // 8. Reports
+    const reports = data.reports || [];
+    for (const rep of reports) {
+      await client.query(
+        `INSERT INTO reports (id, org_id, website_id, website_name, title, type, share_token, is_public, generated_at, data)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         ON CONFLICT (id) DO UPDATE SET
+           title = EXCLUDED.title,
+           is_public = EXCLUDED.is_public,
+           data = EXCLUDED.data`,
+        [
+          rep.id,
+          rep.orgId,
+          rep.websiteId,
+          rep.websiteName,
+          rep.title,
+          rep.type,
+          rep.shareToken,
+          Boolean(rep.isPublic),
+          rep.generatedAt ? new Date(rep.generatedAt).toISOString() : new Date().toISOString(),
+          JSON.stringify(rep.data || {}),
+        ]
+      );
+    }
+    counts['reports'] = reports.length;
+    details.push(`Reports: ${reports.length} audit reports imported`);
+
+    // 9. Invoices
+    const invoices = data.invoices || [];
+    for (const inv of invoices) {
+      await client.query(
+        `INSERT INTO invoices (id, org_id, invoice_number, date, amount, currency, status, plan_name)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          inv.id,
+          inv.orgId,
+          inv.invoiceNumber,
+          inv.date,
+          inv.amount,
+          inv.currency,
+          inv.status,
+          inv.planName,
+        ]
+      );
+    }
+    counts['invoices'] = invoices.length;
+    details.push(`Invoices: ${invoices.length} billing records imported`);
+
+    // 10. Crypto Orders
+    const cryptoOrders = data.cryptoOrders || [];
+    for (const ord of cryptoOrders) {
+      await client.query(
+        `INSERT INTO crypto_orders (
+           id, org_id, user_id, user_email, plan_id, plan_name, billing_interval,
+           currency, network, amount, deposit_address, qr_data_url, status, tx_id,
+           detected_at, confirmed_at, expires_at, verification_log, created_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+         ON CONFLICT (id) DO UPDATE SET
+           status = EXCLUDED.status,
+           tx_id = EXCLUDED.tx_id,
+           confirmed_at = EXCLUDED.confirmed_at,
+           verification_log = EXCLUDED.verification_log`,
+        [
+          ord.id,
+          ord.orgId,
+          ord.userId,
+          ord.userEmail,
+          ord.planId,
+          ord.planName,
+          ord.billingInterval,
+          ord.currency,
+          ord.network,
+          ord.amount,
+          ord.depositAddress,
+          ord.qrDataUrl || null,
+          ord.status,
+          ord.txId || null,
+          ord.detectedAt ? new Date(ord.detectedAt).toISOString() : null,
+          ord.confirmedAt ? new Date(ord.confirmedAt).toISOString() : null,
+          new Date(ord.expiresAt).toISOString(),
+          ord.verificationLog || null,
+          ord.createdAt ? new Date(ord.createdAt).toISOString() : new Date().toISOString(),
+        ]
+      );
+    }
+    counts['cryptoOrders'] = cryptoOrders.length;
+    details.push(`Crypto Orders: ${cryptoOrders.length} transactions imported`);
+
+    // 11. API Keys
+    const apiKeys = data.apiKeys || [];
+    for (const key of apiKeys) {
+      await client.query(
+        `INSERT INTO api_keys (id, org_id, name, prefix, hashed_secret, scopes, created_at, last_used_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          key.id,
+          key.orgId,
+          key.name,
+          key.prefix,
+          key.hashedSecret,
+          JSON.stringify(key.scopes || []),
+          key.createdAt ? new Date(key.createdAt).toISOString() : new Date().toISOString(),
+          key.lastUsedAt ? new Date(key.lastUsedAt).toISOString() : null,
+        ]
+      );
+    }
+    counts['apiKeys'] = apiKeys.length;
+    details.push(`API Keys: ${apiKeys.length} keys imported`);
+
+    // 12. Support Tickets
+    const tickets = data.tickets || [];
+    for (const tkt of tickets) {
+      await client.query(
+        `INSERT INTO support_tickets (id, user_id, name, email, subject, category, message, status, priority, created_at, replies)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT (id) DO UPDATE SET
+           status = EXCLUDED.status,
+           replies = EXCLUDED.replies`,
+        [
+          tkt.id,
+          tkt.userId || null,
+          tkt.name,
+          tkt.email,
+          tkt.subject,
+          tkt.category,
+          tkt.message,
+          tkt.status,
+          tkt.priority,
+          tkt.createdAt ? new Date(tkt.createdAt).toISOString() : new Date().toISOString(),
+          JSON.stringify(tkt.replies || []),
+        ]
+      );
+    }
+    counts['tickets'] = tickets.length;
+    details.push(`Support Tickets: ${tickets.length} tickets imported`);
+
+    // 13. Audit Logs
+    const auditLogs = data.auditLogs || [];
+    for (const log of auditLogs) {
+      await client.query(
+        `INSERT INTO audit_logs (id, org_id, user_id, user_email, action, target, details, timestamp)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          log.id,
+          log.orgId,
+          log.userId || null,
+          log.userEmail || null,
+          log.action,
+          log.target,
+          log.details,
+          log.timestamp ? new Date(log.timestamp).toISOString() : new Date().toISOString(),
+        ]
+      );
+    }
+    counts['auditLogs'] = auditLogs.length;
+    details.push(`Audit Logs: ${auditLogs.length} events imported`);
+
+    // 14. PageSpeed Records
+    const pageSpeedRecords = data.pageSpeedRecords || [];
+    for (const ps of pageSpeedRecords) {
+      await client.query(
+        `INSERT INTO pagespeed_records (id, website_id, url, domain, device, performance, accessibility, best_practices, seo, data, scanned_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT (id) DO UPDATE SET
+           performance = EXCLUDED.performance,
+           accessibility = EXCLUDED.accessibility,
+           best_practices = EXCLUDED.best_practices,
+           seo = EXCLUDED.seo,
+           data = EXCLUDED.data,
+           scanned_at = EXCLUDED.scanned_at`,
+        [
+          ps.id,
+          ps.websiteId || null,
+          ps.url,
+          ps.domain || '',
+          ps.device || 'mobile',
+          ps.performance ?? null,
+          ps.accessibility ?? null,
+          ps.bestPractices ?? null,
+          ps.seo ?? null,
+          JSON.stringify(ps),
+          ps.scannedAt ? new Date(ps.scannedAt).toISOString() : new Date().toISOString(),
+        ]
+      );
+    }
+    counts['pageSpeedRecords'] = pageSpeedRecords.length;
+    details.push(`PageSpeed Records: ${pageSpeedRecords.length} records imported`);
+
+    // 15. Settings
+    const settings = data.settings || {
+      maintenanceMode: false,
+      defaultCurrency: 'USD',
+      stripeConfigured: false,
+      workerIntervalSec: 60,
+      maxFreeScansPerHour: 10,
+    };
+    await client.query(
+      `INSERT INTO app_settings (id, maintenance_mode, default_currency, stripe_configured, worker_interval_sec, max_free_scans_per_hour, updated_at)
+       VALUES ('default', $1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (id) DO UPDATE SET
+         maintenance_mode = EXCLUDED.maintenance_mode,
+         default_currency = EXCLUDED.default_currency,
+         stripe_configured = EXCLUDED.stripe_configured,
+         worker_interval_sec = EXCLUDED.worker_interval_sec,
+         max_free_scans_per_hour = EXCLUDED.max_free_scans_per_hour,
+         updated_at = NOW()`,
+      [
+        Boolean(settings.maintenanceMode),
+        settings.defaultCurrency || 'USD',
+        Boolean(settings.stripeConfigured),
+        settings.workerIntervalSec || 60,
+        settings.maxFreeScansPerHour || 10,
+      ]
+    );
+    counts['settings'] = 1;
+    details.push('Application Settings: 1 record imported');
+
+    // 16. Record migration in history
+    await client.query(
+      `INSERT INTO migration_history (id, applied_at, source, record_counts)
+       VALUES ($1, NOW(), $2, $3)
+       ON CONFLICT (id) DO UPDATE SET
+         applied_at = NOW(),
+         record_counts = EXCLUDED.record_counts`,
+      ['init_from_json', jsonPath, JSON.stringify(counts)]
+    );
+  });
+
+  return {
+    success: true,
+    source: jsonPath,
+    timestamp: new Date().toISOString(),
+    counts,
+    details,
+  };
+}

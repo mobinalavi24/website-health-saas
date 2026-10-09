@@ -2,6 +2,9 @@ import dns from 'node:dns/promises';
 import net from 'node:net';
 import tls from 'node:tls';
 import { URL } from 'node:url';
+import type { CombinedPageSpeedResult } from './pagespeedTypes.ts';
+import type { AdvancedSeoResult, SeoIssue } from './seoTypes.ts';
+import { runAdvancedSeoAnalysis } from './advancedSeo.ts';
 
 export interface ScanResult {
   url: string;
@@ -10,6 +13,8 @@ export interface ScanResult {
   timestamp: string;
   overallScore: number;
   grade: 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
+  pageSpeed?: CombinedPageSpeedResult | null;
+  advancedSeo?: AdvancedSeoResult;
   summary: {
     passed: number;
     warnings: number;
@@ -79,6 +84,16 @@ export interface ScanResult {
     lang?: string;
     imageCount: number;
     imagesWithAltCount: number;
+    score?: number;
+    overview?: AdvancedSeoResult['overview'];
+    onPage?: AdvancedSeoResult['onPage'];
+    social?: AdvancedSeoResult['social'];
+    structuredData?: AdvancedSeoResult['structuredData'];
+    crawlability?: AdvancedSeoResult['crawlability'];
+    indexability?: AdvancedSeoResult['indexability'];
+    technical?: AdvancedSeoResult['technical'];
+    issues?: SeoIssue[];
+    advanced?: AdvancedSeoResult;
   };
   technologies: {
     name: string;
@@ -123,8 +138,18 @@ function isPrivateOrReservedIP(ip: string): boolean {
   }
   if (net.isIPv6(ip)) {
     const lower = ip.toLowerCase();
-    if (lower === '::1' || lower === '::' || lower.startsWith('fe80:') || lower.startsWith('fc00:') || lower.startsWith('fd00:')) {
+    if (
+      lower === '::1' ||
+      lower === '::' ||
+      lower.startsWith('fe80:') ||
+      lower.startsWith('fc00:') ||
+      lower.startsWith('fd00:')
+    ) {
       return true;
+    }
+    if (lower.startsWith('::ffff:')) {
+      const v4part = lower.replace('::ffff:', '');
+      return isPrivateOrReservedIP(v4part);
     }
   }
   return false;
@@ -144,6 +169,14 @@ export function normalizeInputUrl(rawUrl: string): { url: string; domain: string
 
 export async function validateTargetSecurity(domain: string): Promise<void> {
   const lower = domain.toLowerCase();
+
+  // If domain is directly an IP literal, validate immediately
+  if (net.isIP(lower)) {
+    if (isPrivateOrReservedIP(lower)) {
+      throw new Error(`Access to private or reserved IP address "${domain}" is blocked for security.`);
+    }
+  }
+
   const forbiddenDomains = [
     'localhost',
     '127.0.0.1',
@@ -160,17 +193,81 @@ export async function validateTargetSecurity(domain: string): Promise<void> {
     }
   }
 
-  // Resolve DNS to verify public IP
+  // Resolve DNS to verify public IP (both IPv4 and IPv6)
   try {
-    const ipv4s = await dns.resolve4(domain).catch(() => []);
+    const [ipv4s, ipv6s] = await Promise.all([
+      dns.resolve4(domain).catch(() => []),
+      dns.resolve6(domain).catch(() => []),
+    ]);
     for (const ip of ipv4s) {
       if (isPrivateOrReservedIP(ip)) {
         throw new Error(`Domain resolves to protected/private IP (${ip}). Scanning disallowed.`);
       }
     }
+    for (const ip of ipv6s) {
+      if (isPrivateOrReservedIP(ip)) {
+        throw new Error(`Domain resolves to protected/private IPv6 (${ip}). Scanning disallowed.`);
+      }
+    }
   } catch (err: any) {
     if (err.message.includes('protected/private')) throw err;
-    // Domain could be ipv6 only or temporary resolution issue; continue
+    // Domain could have temporary resolution issue; continue
+  }
+}
+
+// SSRF-safe text fetcher for robots.txt and sitemap.xml with timeout, size limits, and redirect validation
+export async function fetchSafeText(
+  targetUrl: string,
+  maxBytes = 512 * 1024,
+  timeoutMs = 3500,
+  maxRedirects = 3
+): Promise<{ status: number; text: string } | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  let currentUrl = targetUrl;
+  let hopsRemaining = maxRedirects;
+
+  try {
+    while (hopsRemaining >= 0) {
+      const parsed = new URL(currentUrl);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return null;
+      }
+      await validateTargetSecurity(parsed.hostname);
+
+      const resp = await fetch(currentUrl, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'PulseVanguard-Monitor/1.0 (+https://pulsevanguard.com/bot; website health check)',
+          Accept: 'text/plain,text/xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+        signal: controller.signal,
+        redirect: 'manual',
+      });
+
+      if (resp.status >= 300 && resp.status < 400) {
+        const location = resp.headers.get('location');
+        if (!location || hopsRemaining === 0) {
+          return { status: resp.status, text: '' };
+        }
+        currentUrl = new URL(location, currentUrl).toString();
+        hopsRemaining--;
+        continue;
+      }
+
+      if (resp.status !== 200) {
+        return { status: resp.status, text: '' };
+      }
+
+      const text = await resp.text();
+      return { status: resp.status, text: text.substring(0, maxBytes) };
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -321,7 +418,7 @@ export async function performWebsiteScan(rawUrl: string): Promise<ScanResult> {
     // No DMARC
   }
 
-  // 4. HTTP Fetch Check with redirection and timing
+  // 4. HTTP Fetch Check with SSRF-safe redirection and timing
   const httpStart = Date.now();
   let httpStatus = 0;
   let httpStatusText = 'Connection Error';
@@ -334,26 +431,51 @@ export async function performWebsiteScan(rawUrl: string): Promise<ScanResult> {
   const timeoutId = setTimeout(() => controller.abort(), 8000);
 
   try {
-    const resp = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'PulseVanguard-Monitor/1.0 (+https://pulsevanguard.com/bot; website health check)',
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Encoding': 'gzip, deflate, br',
-      },
-      signal: controller.signal,
-      redirect: 'follow',
-    });
-    responseTimeMs = Date.now() - httpStart;
-    httpStatus = resp.status;
-    httpStatusText = resp.statusText || (resp.status === 200 ? 'OK' : `Status ${resp.status}`);
-    finalUrl = resp.url;
+    let currentFetchUrl = url;
+    let hops = 0;
+    const maxHops = 5;
 
-    resp.headers.forEach((val, key) => {
-      responseHeaders[key.toLowerCase()] = val;
-    });
+    while (hops <= maxHops) {
+      const parsedFetch = new URL(currentFetchUrl);
+      if (parsedFetch.protocol !== 'http:' && parsedFetch.protocol !== 'https:') {
+        throw new Error(`Unsupported protocol: ${parsedFetch.protocol}`);
+      }
+      await validateTargetSecurity(parsedFetch.hostname);
 
-    responseBody = await resp.text().catch(() => '');
+      const resp = await fetch(currentFetchUrl, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'PulseVanguard-Monitor/1.0 (+https://pulsevanguard.com/bot; website health check)',
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Encoding': 'gzip, deflate, br',
+        },
+        signal: controller.signal,
+        redirect: 'manual',
+      });
+
+      responseTimeMs = Date.now() - httpStart;
+      httpStatus = resp.status;
+      httpStatusText = resp.statusText || (resp.status === 200 ? 'OK' : `Status ${resp.status}`);
+      finalUrl = currentFetchUrl;
+
+      // Handle redirect
+      if (resp.status >= 300 && resp.status < 400) {
+        const location = resp.headers.get('location');
+        if (location && hops < maxHops) {
+          currentFetchUrl = new URL(location, currentFetchUrl).toString();
+          hops++;
+          continue;
+        }
+      }
+
+      resp.headers.forEach((val, key) => {
+        responseHeaders[key.toLowerCase()] = val;
+      });
+
+      const fullText = await resp.text().catch(() => '');
+      responseBody = fullText.substring(0, 1024 * 1024); // 1MB maximum size limit
+      break;
+    }
   } catch (err: any) {
     responseTimeMs = Date.now() - httpStart;
     httpStatus = 0;
@@ -364,20 +486,36 @@ export async function performWebsiteScan(rawUrl: string): Promise<ScanResult> {
 
   const ssl = await sslPromise;
 
-  // 5. Robots.txt and Sitemap.xml probing
-  let robotsTxtPresent = false;
-  let sitemapPresent = false;
+  // 5. Robots.txt and Sitemap.xml probing with SSRF protections
+  let robotsResult: { status: number; text: string } | null = null;
+  let defaultSitemapResult: { status: number; text: string } | null = null;
+  let candidateSitemapUrl = '';
+
   try {
     const baseOrigin = new URL(finalUrl || url).origin;
-    const [robotsResp, sitemapResp] = await Promise.all([
-      fetch(`${baseOrigin}/robots.txt`, { method: 'HEAD', signal: AbortSignal.timeout(3000) }).catch(() => null),
-      fetch(`${baseOrigin}/sitemap.xml`, { method: 'HEAD', signal: AbortSignal.timeout(3000) }).catch(() => null),
+    const robotsUrl = `${baseOrigin}/robots.txt`;
+    const defaultSitemapUrl = `${baseOrigin}/sitemap.xml`;
+    candidateSitemapUrl = defaultSitemapUrl;
+
+    [robotsResult, defaultSitemapResult] = await Promise.all([
+      fetchSafeText(robotsUrl, 256 * 1024, 3000),
+      fetchSafeText(defaultSitemapUrl, 512 * 1024, 3000),
     ]);
-    if (robotsResp && robotsResp.status === 200) robotsTxtPresent = true;
-    if (sitemapResp && sitemapResp.status === 200) sitemapPresent = true;
+
+    // If default sitemap.xml is not 200, check if robots.txt declared a custom Sitemap: URL
+    if ((!defaultSitemapResult || defaultSitemapResult.status !== 200) && robotsResult?.text) {
+      const sitemapMatch = robotsResult.text.match(/sitemap:\s*(https?:\/\/[^\s]+)/i);
+      if (sitemapMatch && sitemapMatch[1]) {
+        candidateSitemapUrl = sitemapMatch[1].trim();
+        defaultSitemapResult = await fetchSafeText(candidateSitemapUrl, 512 * 1024, 3000);
+      }
+    }
   } catch {
-    // Ignore probing error
+    // Ignore probing error safely
   }
+
+  const robotsTxtPresent = Boolean(robotsResult && robotsResult.status === 200);
+  const sitemapPresent = Boolean(defaultSitemapResult && defaultSitemapResult.status === 200);
 
   // 6. Security Headers Analysis
   const hstsHeader = responseHeaders['strict-transport-security'];
@@ -388,37 +526,43 @@ export async function performWebsiteScan(rawUrl: string): Promise<ScanResult> {
   const permissionsPolicy = Boolean(responseHeaders['permissions-policy']);
   const serverHeaderLeak = responseHeaders['server'] || responseHeaders['x-powered-by'];
 
-  // 7. HTML Body Inspection for SEO and Best Practices
-  const titleMatch = responseBody.match(/<title[^>]*>([^<]*)<\/title>/i);
-  const title = titleMatch ? titleMatch[1].trim() : undefined;
-  const titleLen = title ? title.length : 0;
+  // 7. Run Advanced SEO Analysis
+  const advancedSeo = runAdvancedSeoAnalysis({
+    url,
+    domain,
+    finalUrl,
+    httpStatus,
+    httpStatusText,
+    responseHeaders,
+    responseBody,
+    responseTimeMs,
+    ssl,
+    robotsTxtBody: robotsResult?.text,
+    robotsTxtStatus: robotsResult?.status,
+    sitemapBody: defaultSitemapResult?.text,
+    sitemapStatus: defaultSitemapResult?.status,
+    sitemapUrl: candidateSitemapUrl,
+  });
+
+  const title = advancedSeo.onPage.title.value;
+  const titleLen = advancedSeo.onPage.title.characterCount;
   const titleStatus: ScanResult['seo']['titleStatus'] =
-    !title ? 'missing' : titleLen >= 30 && titleLen <= 65 ? 'optimal' : 'warning';
+    !advancedSeo.onPage.title.exists ? 'missing' : advancedSeo.onPage.title.severity === 'good' ? 'optimal' : 'warning';
 
-  const descMatch = responseBody.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']*)["'][^>]*>/i);
-  const description = descMatch ? descMatch[1].trim() : undefined;
-  const descLen = description ? description.length : 0;
+  const description = advancedSeo.onPage.description.value;
+  const descLen = advancedSeo.onPage.description.characterCount;
   const descriptionStatus: ScanResult['seo']['descriptionStatus'] =
-    !description ? 'missing' : descLen >= 70 && descLen <= 160 ? 'optimal' : 'warning';
+    !advancedSeo.onPage.description.exists ? 'missing' : advancedSeo.onPage.description.severity === 'good' ? 'optimal' : 'warning';
 
-  const canonicalMatch = responseBody.match(/<link[^>]*rel=["']canonical["'][^>]*href=["']([^"']*)["'][^>]*>/i);
-  const canonical = canonicalMatch ? canonicalMatch[1].trim() : undefined;
+  const canonical = advancedSeo.onPage.canonical.url;
+  const viewportConfigured = advancedSeo.technical.mobileViewport.configured;
+  const hasLangAttr = advancedSeo.onPage.internationalization.htmlLang.exists;
+  const lang = advancedSeo.onPage.internationalization.htmlLang.value;
 
-  const viewportConfigured = /<meta[^>]*name=["']viewport["'][^>]*>/i.test(responseBody);
-  const langMatch = responseBody.match(/<html[^>]*lang=["']([^"']*)["'][^>]*>/i);
-  const lang = langMatch ? langMatch[1] : undefined;
-  const hasLangAttr = Boolean(lang);
-
-  const h1Matches = responseBody.match(/<h1[^>]*>/gi) || [];
-  const h2Matches = responseBody.match(/<h2[^>]*>/gi) || [];
-
-  const imgMatches = responseBody.match(/<img[^>]*>/gi) || [];
-  let imagesWithAltCount = 0;
-  for (const img of imgMatches) {
-    if (/alt=["'][^"']*["']/i.test(img)) {
-      imagesWithAltCount++;
-    }
-  }
+  const h1Matches = advancedSeo.onPage.headings.h1Texts;
+  const h2Count = advancedSeo.onPage.headings.h2Count;
+  const imgCount = advancedSeo.onPage.images.totalImages;
+  const imagesWithAltCount = advancedSeo.onPage.images.imagesWithAlt + advancedSeo.onPage.images.decorativeImages;
 
   // 8. Publicly Observable Technology Fingerprinting
   const technologies: ScanResult['technologies'] = [];
@@ -718,6 +862,7 @@ export async function performWebsiteScan(rawUrl: string): Promise<ScanResult> {
       dmarcConfigured,
       dmarcRecord,
     },
+    advancedSeo,
     seo: {
       title,
       titleLength: titleLen,
@@ -730,11 +875,21 @@ export async function performWebsiteScan(rawUrl: string): Promise<ScanResult> {
       robotsTxtPresent,
       sitemapPresent,
       h1Count: h1Matches.length,
-      h2Count: h2Matches.length,
+      h2Count,
       hasLangAttr,
       lang,
-      imageCount: imgMatches.length,
+      imageCount: imgCount,
       imagesWithAltCount,
+      score: advancedSeo.score,
+      overview: advancedSeo.overview,
+      onPage: advancedSeo.onPage,
+      social: advancedSeo.social,
+      structuredData: advancedSeo.structuredData,
+      crawlability: advancedSeo.crawlability,
+      indexability: advancedSeo.indexability,
+      technical: advancedSeo.technical,
+      issues: advancedSeo.issues,
+      advanced: advancedSeo,
     },
     technologies,
     categoryScores: {

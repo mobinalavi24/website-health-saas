@@ -14,6 +14,8 @@ import type {
   ApiKey,
   SupportTicket,
   AuditLog,
+  CombinedPageSpeedResult,
+  AccountStatus,
 } from '../types.ts';
 
 const TOKEN_KEY = 'pv_auth_token';
@@ -48,16 +50,33 @@ export const apiClient = {
 
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      throw new Error(data.error || `HTTP error ${res.status}`);
+      const err = new Error(data.message || data.error || `HTTP error ${res.status}`);
+      (err as any).status = res.status;
+      (err as any).code = data.error;
+      throw err;
     }
     return data as T;
   },
 
-  // Public Free Scanner
+  // Scanner
   async scanWebsite(url: string): Promise<ScanResult> {
     return this.request<ScanResult>('/api/scan', {
       method: 'POST',
       body: JSON.stringify({ url }),
+    });
+  },
+
+  async runScanner(url: string): Promise<ScanResult> {
+    return this.request<ScanResult>('/api/scanner/run', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    });
+  },
+
+  async getPageSpeedAnalysis(url: string, forceRefresh = false): Promise<CombinedPageSpeedResult> {
+    return this.request<CombinedPageSpeedResult>('/api/scanner/pagespeed', {
+      method: 'POST',
+      body: JSON.stringify({ url, forceRefresh }),
     });
   },
 
@@ -84,8 +103,12 @@ export const apiClient = {
     return res;
   },
 
-  async getMe(): Promise<{ user: User; organization: Organization }> {
-    return this.request<{ user: User; organization: Organization }>('/api/auth/me');
+  async getMe(): Promise<{ user: User; organization: Organization; accountStatus?: AccountStatus }> {
+    return this.request<{ user: User; organization: Organization; accountStatus?: AccountStatus }>('/api/auth/me');
+  },
+
+  async getAccountStatus(): Promise<AccountStatus> {
+    return this.request<AccountStatus>('/api/account/status');
   },
 
   async resetPassword(email: string): Promise<{ message: string }> {
@@ -241,6 +264,10 @@ export const apiClient = {
 
   async getCryptoOrders(): Promise<CryptoPaymentOrder[]> {
     return this.request<CryptoPaymentOrder[]>('/api/crypto/orders');
+  },
+
+  async getAdminCryptoOrders(): Promise<CryptoPaymentOrder[]> {
+    return this.request<CryptoPaymentOrder[]>('/api/admin/crypto/orders');
   },
 
   async testLBankConnection(): Promise<LBankConnectionTestResult> {

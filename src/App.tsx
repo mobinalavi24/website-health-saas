@@ -10,6 +10,7 @@ import { ReportsView } from './components/ReportsView.tsx';
 import { BillingView } from './components/BillingView.tsx';
 import { ApiDocsView } from './components/ApiDocsView.tsx';
 import { AdminView } from './components/AdminView.tsx';
+import { AdminCryptoTransactionsView } from './components/AdminCryptoTransactionsView.tsx';
 import { MyCryptoPaymentsView } from './components/MyCryptoPaymentsView.tsx';
 import { AddWebsiteModal } from './components/AddWebsiteModal.tsx';
 import { AuthModal } from './components/AuthModal.tsx';
@@ -312,6 +313,8 @@ export default function App() {
           {activeView === 'website-detail' && selectedWebsite && (
             <WebsiteDetailView
               website={selectedWebsite}
+              organization={organization}
+              onNavigate={setActiveView}
               onBack={() => {
                 setSelectedWebsiteId(null);
                 setActiveView('dashboard');
@@ -354,6 +357,10 @@ export default function App() {
 
           {activeView === 'my-crypto-payments' && user?.email?.toLowerCase() === 'mobinalavi7491@gmail.com' && (
             <MyCryptoPaymentsView onNavigateToBilling={() => setActiveView('billing')} />
+          )}
+
+          {activeView === 'admin-crypto-transactions' && (user?.role === 'admin' || user?.role === 'super_admin' || user?.email?.toLowerCase() === 'mobinalavi7491@gmail.com') && (
+            <AdminCryptoTransactionsView />
           )}
 
           {activeView === 'admin' && <AdminView />}

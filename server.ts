@@ -4,6 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handleApiRoute } from './server/api.ts';
 import { monitorEngine } from './server/monitor.ts';
+import { runMigration } from './server/db/migrate.ts';
+import { db } from './server/db.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,6 +14,19 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
   const isProd = process.env.NODE_ENV === 'production';
+
+  // 1. Initialize PostgreSQL schema and apply database migrations
+  try {
+    const migrationResult = await runMigration();
+    console.log('[PulseVanguard] PostgreSQL migration ready:', migrationResult.details.join('; ') || 'Up to date');
+    await db.initFromPostgres();
+    console.log('[PulseVanguard] PostgreSQL repositories synchronized.');
+  } catch (dbErr: any) {
+    console.error('[PulseVanguard] PostgreSQL startup warning:', dbErr.message);
+    if (isProd) {
+      throw dbErr;
+    }
+  }
 
   // Start background monitoring worker
   monitorEngine.start(25000);

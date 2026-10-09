@@ -2,13 +2,27 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import type { ScanResult } from './scanner.ts';
+import type { StoredPageSpeedRecord } from './pagespeedTypes.ts';
+import {
+  UserRepo,
+  OrgRepo,
+  WebsiteRepo,
+  MetricRepo,
+  IncidentRepo,
+  AlertRepo,
+  PageSpeedRepo,
+  CryptoOrderRepo,
+  PlanRepo,
+  GenericRepo,
+} from './db/repositories.ts';
+import { initSchema } from './db/init.ts';
 
 export interface User {
   id: string;
   email: string;
   name: string;
   passwordHash: string;
-  role: 'super_admin' | 'agency_admin' | 'team_member' | 'client_viewer';
+  role: 'super_admin' | 'admin' | 'agency_admin' | 'team_member' | 'client_viewer';
   orgId: string;
   avatarUrl?: string;
   emailVerified: boolean;
@@ -22,6 +36,9 @@ export interface Organization {
   billingInterval: 'monthly' | 'annual';
   currency: 'USD' | 'EUR' | 'GBP';
   ownerId: string;
+  trialStartedAt?: string;
+  trialEndsAt?: string;
+  trialUsed?: boolean;
   whiteLabel: {
     enabled: boolean;
     brandName: string;
@@ -239,6 +256,7 @@ interface DatabaseSchema {
   apiKeys: ApiKey[];
   tickets: SupportTicket[];
   auditLogs: AuditLog[];
+  pageSpeedRecords?: StoredPageSpeedRecord[];
   settings: {
     maintenanceMode: boolean;
     defaultCurrency: 'USD' | 'EUR' | 'GBP';
@@ -292,9 +310,33 @@ export function verifyPassword(plain: string, hash: string): boolean {
 
 class Database {
   private data: DatabaseSchema;
+  private schemaInitPromise: Promise<void> | null = null;
 
   constructor() {
     this.data = this.loadOrInit();
+    this.persist();
+    this.ensureSchema().catch(() => {});
+  }
+
+  public async ensureSchema(): Promise<void> {
+    if (!this.schemaInitPromise) {
+      this.schemaInitPromise = (async () => {
+        try {
+          await initSchema();
+        } catch (e: any) {
+          // Schema init error handled gracefully
+        }
+      })();
+    }
+    return this.schemaInitPromise;
+  }
+
+  private syncToDb(op: () => Promise<any>, errorContext: string) {
+    this.ensureSchema()
+      .then(op)
+      .catch((err) => {
+        console.error(`[PostgreSQL Sync Error] ${errorContext}:`, err.message);
+      });
   }
 
   public generatePlans(): SubscriptionPlan[] {
@@ -375,6 +417,24 @@ class Database {
             if (org.planId !== 'free' && org.planId !== 'pro') {
               org.planId = 'pro';
             }
+            // Safely migrate missing trial fields based on immutable account creation timestamp
+            if (!org.trialStartedAt) {
+              org.trialStartedAt = org.createdAt || '2026-01-01T00:00:00.000Z';
+            }
+            if (!org.trialEndsAt) {
+              const startMs = new Date(org.trialStartedAt).getTime();
+              org.trialEndsAt = new Date(startMs + 24 * 60 * 60 * 1000).toISOString();
+            }
+            if (org.trialUsed === undefined) {
+              org.trialUsed = true;
+            }
+          }
+        }
+        if (parsed.users) {
+          for (const u of parsed.users) {
+            if (u.email && u.email.trim().toLowerCase() === 'mobinalavi7491@gmail.com') {
+              u.role = 'admin';
+            }
           }
         }
         return parsed;
@@ -443,6 +503,9 @@ class Database {
         billingInterval: 'annual',
         currency: 'USD',
         ownerId: 'usr_admin',
+        trialStartedAt: '2026-01-10T08:00:00.000Z',
+        trialEndsAt: '2026-01-11T08:00:00.000Z',
+        trialUsed: true,
         whiteLabel: {
           enabled: true,
           brandName: 'PulseVanguard Global',
@@ -460,6 +523,9 @@ class Database {
         billingInterval: 'monthly',
         currency: 'USD',
         ownerId: 'usr_agency',
+        trialStartedAt: '2026-02-14T10:30:00.000Z',
+        trialEndsAt: '2026-02-15T10:30:00.000Z',
+        trialUsed: true,
         whiteLabel: {
           enabled: true,
           brandName: 'Acme Web Sentinel',
@@ -793,24 +859,127 @@ class Database {
   public getAuditLogs() { return this.data.auditLogs; }
   public getSettings() { return this.data.settings; }
 
+  public async initFromPostgres(): Promise<void> {
+    try {
+      const [
+        users,
+        organizations,
+        websites,
+        metrics,
+        incidents,
+        alerts,
+        reports,
+        plans,
+        invoices,
+        cryptoOrders,
+        apiKeys,
+        tickets,
+        auditLogs,
+        pageSpeedRecords,
+        settings,
+      ] = await Promise.all([
+        UserRepo.getAll(),
+        OrgRepo.getAll(),
+        WebsiteRepo.getAll(),
+        MetricRepo.getAll(),
+        IncidentRepo.getAll(),
+        AlertRepo.getAll(),
+        GenericRepo.getAllReports(),
+        PlanRepo.getAll(),
+        GenericRepo.getAllInvoices(),
+        CryptoOrderRepo.getAll(),
+        GenericRepo.getAllApiKeys(),
+        GenericRepo.getAllTickets(),
+        GenericRepo.getAllAuditLogs(),
+        PageSpeedRepo.getAll(),
+        GenericRepo.getSettings(),
+      ]);
+
+      if (users.length > 0) this.data.users = users;
+      if (organizations.length > 0) this.data.organizations = organizations;
+      if (websites.length > 0) this.data.websites = websites;
+      if (metrics.length > 0) this.data.metrics = metrics;
+      if (incidents.length > 0) this.data.incidents = incidents;
+      if (alerts.length > 0) this.data.alerts = alerts;
+      if (reports.length > 0) this.data.reports = reports;
+      if (plans.length > 0) this.data.plans = plans;
+      if (invoices.length > 0) this.data.invoices = invoices;
+      if (cryptoOrders.length > 0) this.data.cryptoOrders = cryptoOrders;
+      if (apiKeys.length > 0) this.data.apiKeys = apiKeys;
+      if (tickets.length > 0) this.data.tickets = tickets;
+      if (auditLogs.length > 0) this.data.auditLogs = auditLogs;
+      if (pageSpeedRecords.length > 0) this.data.pageSpeedRecords = pageSpeedRecords;
+      if (settings) this.data.settings = settings;
+
+      console.log(`[Database]: Synchronized ${users.length} users, ${organizations.length} organizations, ${websites.length} websites from PostgreSQL.`);
+    } catch (err: any) {
+      console.warn('[Database]: Note - could not synchronize initial state from PostgreSQL (using cached JSON state):', err.message);
+    }
+  }
+
+  public reloadFromDisk() {
+    this.data = this.loadOrInit();
+  }
+
   public findUserByEmail(email: string) {
     if (!email || typeof email !== 'string') return undefined;
     const clean = email.trim().toLowerCase();
-    return this.data.users.find((u) => u.email && u.email.trim().toLowerCase() === clean);
+    
+    // Always check in-memory first
+    let user = this.data.users.find((u) => u.email && u.email.trim().toLowerCase() === clean);
+    
+    // If found, double check against disk in case disk was updated
+    if (user && fs.existsSync(DB_FILE)) {
+      try {
+        const raw = fs.readFileSync(DB_FILE, 'utf-8');
+        const parsed: DatabaseSchema = JSON.parse(raw);
+        const existsOnDisk = parsed.users && parsed.users.some((u) => u.email && u.email.trim().toLowerCase() === clean);
+        if (!existsOnDisk) {
+          // Sync in-memory state with disk
+          this.data.users = this.data.users.filter((u) => !u.email || u.email.trim().toLowerCase() !== clean);
+          user = undefined;
+        }
+      } catch {}
+    }
+    
+    return user;
   }
 
   public findUserById(id: string) {
     return this.data.users.find((u) => u.id === id);
   }
 
+  public removeUserByEmail(email: string): boolean {
+    if (!email) return false;
+    const clean = email.trim().toLowerCase();
+    const userIndex = this.data.users.findIndex((u) => u.email && u.email.trim().toLowerCase() === clean);
+    if (userIndex === -1) return false;
+
+    const [deletedUser] = this.data.users.splice(userIndex, 1);
+    
+    // Also remove the user's isolated workspace organization if it was auto-created for this user
+    if (deletedUser.orgId) {
+      const orgIdx = this.data.organizations.findIndex((o) => o.id === deletedUser.orgId && (o.ownerId === deletedUser.id || o.id === 'org_mobin_7491'));
+      if (orgIdx !== -1) {
+        this.data.organizations.splice(orgIdx, 1);
+      }
+    }
+
+    this.persist();
+    this.syncToDb(() => UserRepo.deleteByEmail(clean), 'UserRepo.deleteByEmail');
+    return true;
+  }
+
   public addUser(user: User) {
     this.data.users.push(user);
     this.persist();
+    this.syncToDb(() => UserRepo.insert(user), 'UserRepo.insert');
   }
 
   public addOrganization(org: Organization) {
     this.data.organizations.push(org);
     this.persist();
+    this.syncToDb(() => OrgRepo.insert(org), 'OrgRepo.insert');
   }
 
   public findOrgById(id: string) {
@@ -822,6 +991,7 @@ class Database {
     if (org) {
       Object.assign(org, updates);
       this.persist();
+      this.syncToDb(() => OrgRepo.update(id, updates), 'OrgRepo.update');
     }
     return org;
   }
@@ -829,6 +999,7 @@ class Database {
   public addWebsite(website: Website) {
     this.data.websites.push(website);
     this.persist();
+    this.syncToDb(() => WebsiteRepo.insert(website), 'WebsiteRepo.insert');
   }
 
   public findWebsiteById(id: string) {
@@ -840,6 +1011,7 @@ class Database {
     if (site) {
       Object.assign(site, updates);
       this.persist();
+      this.syncToDb(() => WebsiteRepo.update(id, updates), 'WebsiteRepo.update');
     }
     return site;
   }
@@ -851,6 +1023,7 @@ class Database {
       // clean metrics
       this.data.metrics = this.data.metrics.filter((m) => m.websiteId !== id);
       this.persist();
+      this.syncToDb(() => WebsiteRepo.delete(id), 'WebsiteRepo.delete');
       return true;
     }
     return false;
@@ -863,11 +1036,13 @@ class Database {
       this.data.metrics = this.data.metrics.slice(-8000);
     }
     this.persist();
+    this.syncToDb(() => MetricRepo.insert(point), 'MetricRepo.insert');
   }
 
   public addIncident(incident: Incident) {
     this.data.incidents.unshift(incident);
     this.persist();
+    this.syncToDb(() => IncidentRepo.insert(incident), 'IncidentRepo.insert');
   }
 
   public updateIncident(id: string, updates: Partial<Incident>) {
@@ -875,6 +1050,7 @@ class Database {
     if (inc) {
       Object.assign(inc, updates);
       this.persist();
+      this.syncToDb(() => IncidentRepo.update(id, updates), 'IncidentRepo.update');
     }
     return inc;
   }
@@ -882,6 +1058,7 @@ class Database {
   public addAlert(alert: AlertNotification) {
     this.data.alerts.unshift(alert);
     this.persist();
+    this.syncToDb(() => AlertRepo.insert(alert), 'AlertRepo.insert');
   }
 
   public markAlertRead(id: string) {
@@ -889,12 +1066,14 @@ class Database {
     if (alert) {
       alert.read = true;
       this.persist();
+      this.syncToDb(() => AlertRepo.markRead(id), 'AlertRepo.markRead');
     }
   }
 
   public addReport(report: ReportItem) {
     this.data.reports.unshift(report);
     this.persist();
+    this.syncToDb(() => GenericRepo.addReport(report), 'GenericRepo.addReport');
   }
 
   public addAuditLog(log: AuditLog) {
@@ -903,11 +1082,13 @@ class Database {
       this.data.auditLogs = this.data.auditLogs.slice(0, 500);
     }
     this.persist();
+    this.syncToDb(() => GenericRepo.addAuditLog(log), 'GenericRepo.addAuditLog');
   }
 
   public addTicket(ticket: SupportTicket) {
     this.data.tickets.unshift(ticket);
     this.persist();
+    this.syncToDb(() => GenericRepo.addTicket(ticket), 'GenericRepo.addTicket');
   }
 
   public updateTicket(id: string, updates: Partial<SupportTicket>) {
@@ -915,6 +1096,7 @@ class Database {
     if (ticket) {
       Object.assign(ticket, updates);
       this.persist();
+      this.syncToDb(() => GenericRepo.updateTicket(id, updates), 'GenericRepo.updateTicket');
     }
     return ticket;
   }
@@ -922,16 +1104,19 @@ class Database {
   public addInvoice(inv: Invoice) {
     this.data.invoices.unshift(inv);
     this.persist();
+    this.syncToDb(() => GenericRepo.addInvoice(inv), 'GenericRepo.addInvoice');
   }
 
   public addApiKey(apiKey: ApiKey) {
     this.data.apiKeys.unshift(apiKey);
     this.persist();
+    this.syncToDb(() => GenericRepo.addApiKey(apiKey), 'GenericRepo.addApiKey');
   }
 
   public revokeApiKey(id: string) {
     this.data.apiKeys = this.data.apiKeys.filter((k) => k.id !== id);
     this.persist();
+    this.syncToDb(() => GenericRepo.revokeApiKey(id), 'GenericRepo.revokeApiKey');
   }
 
   public getCryptoOrders(): CryptoPaymentOrder[] {
@@ -952,6 +1137,7 @@ class Database {
     if (!this.data.cryptoOrders) this.data.cryptoOrders = [];
     this.data.cryptoOrders.unshift(order);
     this.persist();
+    this.syncToDb(() => CryptoOrderRepo.insert(order), 'CryptoOrderRepo.insert');
   }
 
   public updateCryptoOrder(id: string, updates: Partial<CryptoPaymentOrder>): CryptoPaymentOrder | undefined {
@@ -960,8 +1146,34 @@ class Database {
     if (order) {
       Object.assign(order, updates);
       this.persist();
+      this.syncToDb(() => CryptoOrderRepo.update(id, updates), 'CryptoOrderRepo.update');
     }
     return order;
+  }
+
+  public getPageSpeedRecords(): StoredPageSpeedRecord[] {
+    return this.data.pageSpeedRecords || [];
+  }
+
+  public addPageSpeedRecord(record: StoredPageSpeedRecord) {
+    if (!this.data.pageSpeedRecords) this.data.pageSpeedRecords = [];
+    // Keep max 200 PageSpeed records
+    this.data.pageSpeedRecords.unshift(record);
+    if (this.data.pageSpeedRecords.length > 200) {
+      this.data.pageSpeedRecords = this.data.pageSpeedRecords.slice(0, 200);
+    }
+    this.persist();
+    this.syncToDb(() => PageSpeedRepo.insert(record), 'PageSpeedRepo.insert');
+  }
+
+  public findLatestPageSpeedRecord(urlOrDomain: string, device?: 'mobile' | 'desktop'): StoredPageSpeedRecord | undefined {
+    const clean = urlOrDomain.trim().toLowerCase();
+    return (this.data.pageSpeedRecords || []).find((r) => {
+      const matchUrl = r.url.toLowerCase() === clean || r.domain.toLowerCase() === clean;
+      if (!matchUrl) return false;
+      if (device) return r.device === device;
+      return true;
+    });
   }
 }
 

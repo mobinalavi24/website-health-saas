@@ -5,34 +5,67 @@ import crypto from 'node:crypto';
 import dns from 'node:dns/promises';
 import { db, hashPassword, verifyPassword, type User, type Website, type Organization, type AlertNotification, type ReportItem, type SupportTicket, type ApiKey } from './db.ts';
 import { performWebsiteScan, normalizeInputUrl, validateTargetSecurity } from './scanner.ts';
+import { performPageSpeedAnalysis } from './pagespeed.ts';
+import type { CombinedPageSpeedResult } from './pagespeedTypes.ts';
+import { getAccountTrialStatus, TRIAL_EXPIRED_RESPONSE } from './trial.ts';
 import { monitorEngine } from './monitor.ts';
 import { createCryptoPaymentOrder, verifyPaymentOrder, testLBankConnection } from './lbank.ts';
+import {
+  createSession as createDbSession,
+  findSessionByToken,
+  deleteSessionByToken,
+} from './db/sessionRepo.ts';
 
-// Simple token mechanism for authenticated sessions
+// Token mechanism with in-memory caching + PostgreSQL persistence
 const sessionStore = new Map<string, { userId: string; orgId: string; expiresAt: number }>();
 
 function createSession(userId: string, orgId: string): string {
   const token = `pv_sess_${crypto.randomBytes(24).toString('hex')}`;
+  const expiresAt = Date.now() + 7 * 24 * 3600 * 1000;
   sessionStore.set(token, {
     userId,
     orgId,
-    expiresAt: Date.now() + 7 * 24 * 3600 * 1000,
+    expiresAt,
   });
+  db.ensureSchema()
+    .then(() => createDbSession(token, userId, orgId, expiresAt))
+    .catch((err) =>
+      console.warn('[Session DB Notice] Note saving session to PostgreSQL:', err.message)
+    );
   return token;
 }
 
-function resolveSession(req: IncomingMessage): { user: User; org: Organization } | null {
+async function resolveSession(req: IncomingMessage): Promise<{ user: User; org: Organization } | null> {
   const authHeader = req.headers['authorization'];
   if (!authHeader) return null;
   const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-  const session = sessionStore.get(token);
-  if (!session || session.expiresAt < Date.now()) return null;
 
-  const user = db.findUserById(session.userId);
-  if (!user) return null;
-  const org = db.findOrgById(user.orgId);
-  if (!org) return null;
-  return { user, org };
+  // 1. Check in-memory session cache first for fast response
+  const session = sessionStore.get(token);
+  if (session && session.expiresAt > Date.now()) {
+    const user = db.findUserById(session.userId);
+    if (user) {
+      const org = db.findOrgById(user.orgId);
+      if (org) return { user, org };
+    }
+  }
+
+  // 2. Fall back to PostgreSQL persistent sessions table (e.g. surviving server restart)
+  try {
+    const dbSession = await findSessionByToken(token);
+    if (dbSession && dbSession.expiresAt > Date.now()) {
+      sessionStore.set(token, {
+        userId: dbSession.userId,
+        orgId: dbSession.orgId,
+        expiresAt: dbSession.expiresAt,
+      });
+      return { user: dbSession.user, org: dbSession.org };
+    }
+  } catch (err: any) {
+    console.warn('[Session DB Warning] Failed looking up session in PostgreSQL:', err.message);
+  }
+
+  return null;
 }
 
 // Helper to read JSON body
@@ -92,8 +125,24 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       return true;
     }
 
-    // 1. FREE PUBLIC SCANNER
-    if (path === '/api/scan' && method === 'POST') {
+    // 1. FREE PUBLIC SCANNER & PAGESPEED INSIGHTS / AUTHENTICATED SCANNER
+    if ((path === '/api/scan' || path === '/api/scanner/run') && method === 'POST') {
+      const session = await resolveSession(req);
+      // Protected Scanner endpoint requires authentication
+      if (path === '/api/scanner/run' && !session) {
+        sendJson(res, 401, { error: 'Unauthenticated. Please log in to run scans.' });
+        return true;
+      }
+
+      // If request has authentication (or is /api/scanner/run), enforce Free Trial restriction
+      if (session && session.org.planId === 'free' && session.user.role !== 'super_admin') {
+        const trial = getAccountTrialStatus(session.org);
+        if (trial.isExpired) {
+          sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
+          return true;
+        }
+      }
+
       const body = await readJsonBody(req);
       const target = body.url;
       if (!target || typeof target !== 'string') {
@@ -102,10 +151,142 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       }
 
       try {
+        // Run core health scan
         const scanResult = await performWebsiteScan(target);
+
+        // Run PageSpeed analysis in parallel or safely attached without failing core scan
+        try {
+          const pageSpeedData = await performPageSpeedAnalysis(target);
+          scanResult.pageSpeed = pageSpeedData;
+
+          // Save PageSpeed records in db for persistence
+          if (pageSpeedData.mobile) {
+            db.addPageSpeedRecord({
+              id: `ps_mob_${Date.now()}`,
+              url: pageSpeedData.url,
+              domain: pageSpeedData.domain,
+              device: 'mobile',
+              performance: pageSpeedData.mobile.scores.performance,
+              accessibility: pageSpeedData.mobile.scores.accessibility,
+              bestPractices: pageSpeedData.mobile.scores.bestPractices,
+              seo: pageSpeedData.mobile.scores.seo,
+              lcp: pageSpeedData.mobile.metrics.lcp,
+              inp: pageSpeedData.mobile.metrics.inp,
+              cls: pageSpeedData.mobile.metrics.cls,
+              fcp: pageSpeedData.mobile.metrics.fcp,
+              ttfb: pageSpeedData.mobile.metrics.ttfb,
+              speedIndex: pageSpeedData.mobile.metrics.speedIndex,
+              opportunities: pageSpeedData.mobile.opportunities,
+              scannedAt: pageSpeedData.scannedAt,
+            });
+          }
+          if (pageSpeedData.desktop) {
+            db.addPageSpeedRecord({
+              id: `ps_desk_${Date.now()}`,
+              url: pageSpeedData.url,
+              domain: pageSpeedData.domain,
+              device: 'desktop',
+              performance: pageSpeedData.desktop.scores.performance,
+              accessibility: pageSpeedData.desktop.scores.accessibility,
+              bestPractices: pageSpeedData.desktop.scores.bestPractices,
+              seo: pageSpeedData.desktop.scores.seo,
+              lcp: pageSpeedData.desktop.metrics.lcp,
+              inp: pageSpeedData.desktop.metrics.inp,
+              cls: pageSpeedData.desktop.metrics.cls,
+              fcp: pageSpeedData.desktop.metrics.fcp,
+              ttfb: pageSpeedData.desktop.metrics.ttfb,
+              speedIndex: pageSpeedData.desktop.metrics.speedIndex,
+              opportunities: pageSpeedData.desktop.opportunities,
+              scannedAt: pageSpeedData.scannedAt,
+            });
+          }
+        } catch (psErr: any) {
+          console.warn('[PageSpeed Background Notice]', psErr.message);
+          scanResult.pageSpeed = {
+            url: scanResult.url,
+            domain: scanResult.domain,
+            scannedAt: new Date().toISOString(),
+            mobile: null,
+            desktop: null,
+            error: psErr.message || 'PageSpeed analysis is temporarily unavailable.',
+          };
+        }
+
         sendJson(res, 200, scanResult);
       } catch (err: any) {
         sendJson(res, 422, { error: err.message || 'Scan failed for given URL.' });
+      }
+      return true;
+    }
+
+    // Dedicated PageSpeed endpoint (Mobile + Desktop, Core Web Vitals, Opportunities)
+    if (path === '/api/scanner/pagespeed' && method === 'POST') {
+      const session = await resolveSession(req);
+      if (session && session.org.planId === 'free' && session.user.role !== 'super_admin') {
+        const trial = getAccountTrialStatus(session.org);
+        if (trial.isExpired) {
+          sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
+          return true;
+        }
+      }
+
+      const body = await readJsonBody(req);
+      const target = body.url;
+      if (!target || typeof target !== 'string') {
+        sendJson(res, 400, { error: 'Please provide a valid website URL.' });
+        return true;
+      }
+
+      try {
+        const pageSpeedResult = await performPageSpeedAnalysis(target, {
+          forceRefresh: Boolean(body.forceRefresh),
+        });
+
+        // Persist records
+        if (pageSpeedResult.mobile) {
+          db.addPageSpeedRecord({
+            id: `ps_mob_${Date.now()}`,
+            url: pageSpeedResult.url,
+            domain: pageSpeedResult.domain,
+            device: 'mobile',
+            performance: pageSpeedResult.mobile.scores.performance,
+            accessibility: pageSpeedResult.mobile.scores.accessibility,
+            bestPractices: pageSpeedResult.mobile.scores.bestPractices,
+            seo: pageSpeedResult.mobile.scores.seo,
+            lcp: pageSpeedResult.mobile.metrics.lcp,
+            inp: pageSpeedResult.mobile.metrics.inp,
+            cls: pageSpeedResult.mobile.metrics.cls,
+            fcp: pageSpeedResult.mobile.metrics.fcp,
+            ttfb: pageSpeedResult.mobile.metrics.ttfb,
+            speedIndex: pageSpeedResult.mobile.metrics.speedIndex,
+            opportunities: pageSpeedResult.mobile.opportunities,
+            scannedAt: pageSpeedResult.scannedAt,
+          });
+        }
+        if (pageSpeedResult.desktop) {
+          db.addPageSpeedRecord({
+            id: `ps_desk_${Date.now()}`,
+            url: pageSpeedResult.url,
+            domain: pageSpeedResult.domain,
+            device: 'desktop',
+            performance: pageSpeedResult.desktop.scores.performance,
+            accessibility: pageSpeedResult.desktop.scores.accessibility,
+            bestPractices: pageSpeedResult.desktop.scores.bestPractices,
+            seo: pageSpeedResult.desktop.scores.seo,
+            lcp: pageSpeedResult.desktop.metrics.lcp,
+            inp: pageSpeedResult.desktop.metrics.inp,
+            cls: pageSpeedResult.desktop.metrics.cls,
+            fcp: pageSpeedResult.desktop.metrics.fcp,
+            ttfb: pageSpeedResult.desktop.metrics.ttfb,
+            speedIndex: pageSpeedResult.desktop.metrics.speedIndex,
+            opportunities: pageSpeedResult.desktop.opportunities,
+            scannedAt: pageSpeedResult.scannedAt,
+          });
+        }
+
+        sendJson(res, 200, pageSpeedResult);
+      } catch (err: any) {
+        sendJson(res, 422, { error: err.message || 'PageSpeed analysis failed.' });
       }
       return true;
     }
@@ -125,37 +306,46 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     // 3. AUTHENTICATION ENDPOINTS
     if (path === '/api/auth/register' && method === 'POST') {
       const { email, password, name, orgName } = await readJsonBody(req);
-      if (!email || !password || !name) {
+      const cleanEmail = typeof email === 'string' ? email.trim() : '';
+      const cleanPassword = typeof password === 'string' ? password : '';
+      const cleanName = typeof name === 'string' ? name.trim() : '';
+      if (!cleanEmail || !cleanPassword || !cleanName) {
         sendJson(res, 400, { error: 'Name, email, and password are required.' });
         return true;
       }
-      if (db.findUserByEmail(email)) {
+      if (db.findUserByEmail(cleanEmail)) {
         sendJson(res, 409, { error: 'An account with this email address already exists.' });
         return true;
       }
 
       const orgId = `org_${Date.now()}`;
       const userId = `usr_${Date.now()}`;
+      const nowIso = new Date().toISOString();
+      const trialEndsIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
       const newOrg: Organization = {
         id: orgId,
-        name: orgName || `${name}'s Workspace`,
+        name: orgName ? String(orgName).trim() : `${cleanName}'s Workspace`,
         planId: 'free',
         billingInterval: 'monthly',
         currency: 'USD',
         ownerId: userId,
-        whiteLabel: { enabled: false, brandName: orgName || name },
+        trialStartedAt: nowIso,
+        trialEndsAt: trialEndsIso,
+        trialUsed: true,
+        whiteLabel: { enabled: false, brandName: orgName ? String(orgName).trim() : cleanName },
         clients: [],
-        createdAt: new Date().toISOString(),
+        createdAt: nowIso,
       };
       db.addOrganization(newOrg);
 
+      const isPrivilegedAdmin = cleanEmail.toLowerCase() === 'mobinalavi7491@gmail.com';
       const newUser: User = {
         id: userId,
-        email: email.trim().toLowerCase(),
-        name: name.trim(),
-        passwordHash: hashPassword(password),
-        role: 'team_member',
+        email: cleanEmail.toLowerCase(),
+        name: cleanName,
+        passwordHash: hashPassword(cleanPassword),
+        role: isPrivilegedAdmin ? 'admin' : 'team_member',
         orgId,
         emailVerified: true,
         createdAt: new Date().toISOString(),
@@ -223,14 +413,43 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path === '/api/auth/me' && method === 'GET') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
+      const trialStatus = getAccountTrialStatus(session.org);
       sendJson(res, 200, {
         user: { id: session.user.id, email: session.user.email, name: session.user.name, role: session.user.role, orgId: session.user.orgId, avatarUrl: session.user.avatarUrl },
         organization: session.org,
+        accountStatus: {
+          plan: session.org.planId,
+          trial: {
+            startedAt: trialStatus.trialStartedAt || session.org.createdAt,
+            endsAt: trialStatus.trialEndsAt || session.org.createdAt,
+            expired: trialStatus.isExpired,
+            remainingMs: trialStatus.remainingMs,
+          },
+        },
+      });
+      return true;
+    }
+
+    if (path === '/api/account/status' && method === 'GET') {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      const trialStatus = getAccountTrialStatus(session.org);
+      sendJson(res, 200, {
+        plan: session.org.planId,
+        trial: {
+          startedAt: trialStatus.trialStartedAt || session.org.createdAt,
+          endsAt: trialStatus.trialEndsAt || session.org.createdAt,
+          expired: trialStatus.isExpired,
+          remainingMs: trialStatus.remainingMs,
+        },
       });
       return true;
     }
@@ -242,9 +461,22 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       return true;
     }
 
+    if (path === '/api/auth/logout' && method === 'POST') {
+      const authHeader = req.headers['authorization'];
+      if (authHeader) {
+        const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+        sessionStore.delete(token);
+        try {
+          await deleteSessionByToken(token);
+        } catch {}
+      }
+      sendJson(res, 200, { success: true, message: 'Logged out successfully' });
+      return true;
+    }
+
     // 4. WEBSITES RESOURCE
     if (path === '/api/websites' && method === 'GET') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
@@ -258,10 +490,19 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path === '/api/websites' && method === 'POST') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
+      }
+
+      // Enforce Free Trial restriction
+      if (session.org.planId === 'free' && session.user.role !== 'super_admin') {
+        const trial = getAccountTrialStatus(session.org);
+        if (trial.isExpired) {
+          sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
+          return true;
+        }
       }
 
       const orgSites = db.getWebsites().filter((w) => w.orgId === session.org.id);
@@ -335,7 +576,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path.startsWith('/api/websites/') && method === 'GET') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
@@ -359,10 +600,17 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path.startsWith('/api/websites/') && method === 'PATCH') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
+      }
+      if (session.org.planId === 'free' && session.user.role !== 'super_admin') {
+        const trial = getAccountTrialStatus(session.org);
+        if (trial.isExpired) {
+          sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
+          return true;
+        }
       }
       const siteId = path.split('/')[3];
       const site = db.findWebsiteById(siteId);
@@ -378,7 +626,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path.startsWith('/api/websites/') && method === 'DELETE') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
@@ -396,10 +644,17 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
     // Trigger on-demand rapid check
     if (path.match(/\/api\/websites\/[^/]+\/check-now/) && method === 'POST') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
+      }
+      if (session.org.planId === 'free' && session.user.role !== 'super_admin') {
+        const trial = getAccountTrialStatus(session.org);
+        if (trial.isExpired) {
+          sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
+          return true;
+        }
       }
       const siteId = path.split('/')[3];
       const site = db.findWebsiteById(siteId);
@@ -414,10 +669,17 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
     // Trigger full deep health audit
     if (path.match(/\/api\/websites\/[^/]+\/audit-now/) && method === 'POST') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
+      }
+      if (session.org.planId === 'free' && session.user.role !== 'super_admin') {
+        const trial = getAccountTrialStatus(session.org);
+        if (trial.isExpired) {
+          sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
+          return true;
+        }
       }
       const siteId = path.split('/')[3];
       try {
@@ -431,10 +693,17 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
     // Verify domain ownership
     if (path.match(/\/api\/websites\/[^/]+\/verify/) && method === 'POST') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
+      }
+      if (session.org.planId === 'free' && session.user.role !== 'super_admin') {
+        const trial = getAccountTrialStatus(session.org);
+        if (trial.isExpired) {
+          sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
+          return true;
+        }
       }
       const siteId = path.split('/')[3];
       const site = db.findWebsiteById(siteId);
@@ -495,7 +764,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
     // 5. INCIDENTS & ALERTS
     if (path === '/api/incidents' && method === 'GET') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
@@ -508,7 +777,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path === '/api/alerts' && method === 'GET') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
@@ -521,7 +790,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path.match(/\/api\/alerts\/[^/]+\/read/) && method === 'POST') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
@@ -534,7 +803,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
     // 6. REPORTS
     if (path === '/api/reports' && method === 'GET') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
@@ -547,10 +816,17 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path === '/api/reports/generate' && method === 'POST') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
+      }
+      if (session.org.planId === 'free' && session.user.role !== 'super_admin') {
+        const trial = getAccountTrialStatus(session.org);
+        if (trial.isExpired) {
+          sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
+          return true;
+        }
       }
       const body = await readJsonBody(req);
       const site = db.findWebsiteById(body.websiteId);
@@ -588,7 +864,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
     // 7. AGENCY WORKSPACE & CLIENTS
     if (path === '/api/agency/clients' && method === 'GET') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
@@ -598,10 +874,17 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path === '/api/agency/clients' && method === 'POST') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
+      }
+      if (session.org.planId === 'free' && session.user.role !== 'super_admin') {
+        const trial = getAccountTrialStatus(session.org);
+        if (trial.isExpired) {
+          sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
+          return true;
+        }
       }
       const body = await readJsonBody(req);
       if (!body.name) {
@@ -624,7 +907,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path === '/api/agency/branding' && method === 'PATCH') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
@@ -646,7 +929,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path === '/api/billing/change-plan' && method === 'POST') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
@@ -656,6 +939,20 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       if (!plan) {
         sendJson(res, 400, { error: 'Invalid plan selected' });
         return true;
+      }
+
+      // Security rule: Prevent trial reactivation or resetting trialUsed.
+      // If user switches back to 'free', their trial start/end timestamps are permanently preserved.
+      // They cannot get a new 24h trial.
+      if (planId === 'free' && session.org.trialUsed) {
+        const trial = getAccountTrialStatus(session.org);
+        if (trial.isExpired) {
+          sendJson(res, 403, {
+            error: 'TRIAL_EXPIRED',
+            message: 'Your 24-hour free trial has already been used and cannot be restarted. Please upgrade to Pro to continue.',
+          });
+          return true;
+        }
       }
 
       session.org.planId = planId;
@@ -687,7 +984,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path === '/api/billing/invoices' && method === 'GET') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
@@ -699,7 +996,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
     // --- CRYPTO PAYMENT SYSTEM (USDT TRC20 / LBank Integration) ---
     if (path === '/api/crypto/create-order' && method === 'POST') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
@@ -726,7 +1023,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path.startsWith('/api/crypto/order/') && method === 'GET') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
@@ -745,7 +1042,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path === '/api/crypto/check-order' && method === 'POST') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
@@ -785,7 +1082,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path === '/api/crypto/orders' && method === 'GET') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
@@ -802,7 +1099,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path === '/api/crypto/lbank-test' && (method === 'GET' || method === 'POST')) {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
@@ -826,7 +1123,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
     // 9. SUPPORT TICKETS
     if (path === '/api/tickets' && method === 'GET') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
@@ -865,7 +1162,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
     // 10. ADMIN DASHBOARD METRICS & CONTROL
     if (path === '/api/admin/overview' && method === 'GET') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session || session.user.role !== 'super_admin') {
         sendJson(res, 403, { error: 'Super Admin privilege required' });
         return true;
@@ -894,7 +1191,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path === '/api/admin/users' && method === 'GET') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session || session.user.role !== 'super_admin') {
         sendJson(res, 403, { error: 'Super Admin privilege required' });
         return true;
@@ -910,8 +1207,32 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       return true;
     }
 
+    if (path === '/api/admin/crypto/orders' && method === 'GET') {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+
+      // Backend role enforcement: strictly ADMIN or SUPER_ADMIN
+      const role = session.user.role;
+      const isAdmin = role === 'admin' || role === 'super_admin';
+      if (!isAdmin) {
+        sendJson(res, 403, { error: 'Admin access required to view global platform transactions' });
+        return true;
+      }
+
+      // Return all crypto payment orders from the database, newest first
+      const orders = [...db.getCryptoOrders()].sort((a, b) => {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+
+      sendJson(res, 200, orders);
+      return true;
+    }
+
     if (path === '/api/admin/trigger-worker' && method === 'POST') {
-      const session = resolveSession(req);
+      const session = await resolveSession(req);
       if (!session || session.user.role !== 'super_admin') {
         sendJson(res, 403, { error: 'Super Admin privilege required' });
         return true;
@@ -929,7 +1250,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       const matchedKey = db.getApiKeys().find((k) => k.prefix && keyString.startsWith(k.prefix));
 
       if (path === '/api/v1/api-keys' && method === 'GET') {
-        const session = resolveSession(req);
+        const session = await resolveSession(req);
         if (!session) {
           sendJson(res, 401, { error: 'Unauthenticated' });
           return true;
@@ -939,10 +1260,17 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       }
 
       if (path === '/api/v1/api-keys' && method === 'POST') {
-        const session = resolveSession(req);
+        const session = await resolveSession(req);
         if (!session) {
           sendJson(res, 401, { error: 'Unauthenticated' });
           return true;
+        }
+        if (session.org.planId === 'free' && session.user.role !== 'super_admin') {
+          const trial = getAccountTrialStatus(session.org);
+          if (trial.isExpired) {
+            sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
+            return true;
+          }
         }
         const body = await readJsonBody(req);
         const secret = `pv_live_${crypto.randomBytes(16).toString('hex')}`;
@@ -964,7 +1292,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       // API Key-protected endpoints
       if (!matchedKey) {
         // Also allow active session
-        const session = resolveSession(req);
+        const session = await resolveSession(req);
         if (!session) {
           sendJson(res, 401, { error: 'Valid X-API-Key header or Bearer session token is required.' });
           return true;
