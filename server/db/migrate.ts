@@ -11,6 +11,87 @@ export interface MigrationSummary {
   details: string[];
 }
 
+export async function applyAuthCleanupMigration(): Promise<{ removedUsers: number; superAdminUpdated: boolean }> {
+  let removedUsers = 0;
+  let superAdminUpdated = false;
+
+  await withTransaction(async (client) => {
+    // 1. Revoke existing sessions for the removed default accounts
+    await client.query(
+      `DELETE FROM sessions 
+       WHERE user_id IN (
+         SELECT id FROM users 
+         WHERE LOWER(email) IN ('admin@pulsevanguard.com', 'agency@acmedigital.com')
+       )`
+    );
+
+    // 2. Remove default accounts from PostgreSQL users table
+    const deleteRes = await client.query(
+      `DELETE FROM users 
+       WHERE LOWER(email) IN ('admin@pulsevanguard.com', 'agency@acmedigital.com')`
+    );
+    removedUsers = deleteRes.rowCount || 0;
+
+    // 3. Promote mobinalavi7491@gmail.com to super_admin
+    const updateRes = await client.query(
+      `UPDATE users 
+       SET role = 'super_admin' 
+       WHERE LOWER(email) = 'mobinalavi7491@gmail.com'`
+    );
+    superAdminUpdated = (updateRes.rowCount || 0) > 0;
+
+    // 4. Update owner_id of legacy orgs to target super admin if present
+    const mobinUser = await client.query(
+      `SELECT id FROM users WHERE LOWER(email) = 'mobinalavi7491@gmail.com' LIMIT 1`
+    );
+    if (mobinUser.rows.length > 0) {
+      const mobinId = mobinUser.rows[0].id;
+      await client.query(
+        `UPDATE organizations 
+         SET owner_id = $1 
+         WHERE owner_id IN ('usr_admin', 'usr_agency')`,
+        [mobinId]
+      );
+    }
+
+    // 5. Record migration in migration_history
+    await client.query(
+      `INSERT INTO migration_history (id, applied_at, source, record_counts)
+       VALUES ('002_auth_cleanup', NOW(), 'auth_cleanup_migration', $1)
+       ON CONFLICT (id) DO UPDATE SET
+         applied_at = NOW(),
+         record_counts = EXCLUDED.record_counts`,
+      [
+        JSON.stringify({
+          removedUsers,
+          superAdminUpdated,
+          targetEmail: 'mobinalavi7491@gmail.com',
+        }),
+      ]
+    );
+  });
+
+  return { removedUsers, superAdminUpdated };
+}
+
+export async function applyPaymentApprovalSchemaMigration(): Promise<void> {
+  const statements = [
+    'ALTER TABLE crypto_orders ADD COLUMN IF NOT EXISTS approved_by TEXT',
+    'ALTER TABLE crypto_orders ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ',
+    'ALTER TABLE crypto_orders ADD COLUMN IF NOT EXISTS rejected_by TEXT',
+    'ALTER TABLE crypto_orders ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ',
+    'ALTER TABLE crypto_orders ADD COLUMN IF NOT EXISTS rejection_reason TEXT',
+  ];
+
+  for (const st of statements) {
+    try {
+      await query(st);
+    } catch {
+      // Column may already exist or pg-mem handled
+    }
+  }
+}
+
 export async function runMigration(options: { force?: boolean } = {}): Promise<MigrationSummary> {
   const jsonPath = path.resolve(process.cwd(), 'data/pulsevanguard.db.json');
 
@@ -34,12 +115,21 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
   if (existingHistory.rows.length > 0 && !options.force) {
     const row = existingHistory.rows[0];
     console.log('[Migration]: JSON database was already migrated at', row.applied_at);
+    // Always apply idempotent auth cleanup migration
+    const cleanupResult = await applyAuthCleanupMigration();
+    if (cleanupResult.removedUsers > 0 || cleanupResult.superAdminUpdated) {
+      console.log(`[Migration]: Auth cleanup applied: removed ${cleanupResult.removedUsers} default users, super admin assigned: ${cleanupResult.superAdminUpdated}`);
+    }
+    await applyPaymentApprovalSchemaMigration();
     return {
       success: true,
       source: jsonPath,
       timestamp: row.applied_at,
       counts: row.record_counts,
-      details: ['Migration already applied. Skipped re-inserting to preserve idempotency.'],
+      details: [
+        'Migration already applied. Skipped re-inserting to preserve idempotency.',
+        `Auth cleanup verified (removed default accounts: ${cleanupResult.removedUsers}, super admin updated: ${cleanupResult.superAdminUpdated})`,
+      ],
     };
   }
 
@@ -114,9 +204,15 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
     counts['organizations'] = orgs.length;
     details.push(`Organizations: ${orgs.length} records imported with trial state`);
 
-    // 3. Users
-    const users = data.users || [];
+    // 3. Users (filtering out removed default/demo accounts)
+    const rawUsers = data.users || [];
+    const users = rawUsers.filter((u: any) => {
+      const clean = (u.email || '').trim().toLowerCase();
+      return clean !== 'admin@pulsevanguard.com' && clean !== 'agency@acmedigital.com';
+    });
     for (const user of users) {
+      const cleanEmail = user.email.toLowerCase();
+      const role = cleanEmail === 'mobinalavi7491@gmail.com' ? 'super_admin' : user.role;
       await client.query(
         `INSERT INTO users (id, email, name, password_hash, role, org_id, avatar_url, email_verified, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -130,10 +226,10 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
            email_verified = EXCLUDED.email_verified`,
         [
           user.id,
-          user.email.toLowerCase(),
+          cleanEmail,
           user.name,
           user.passwordHash,
-          user.role,
+          role,
           user.orgId,
           user.avatarUrl || null,
           user.emailVerified ?? true,
@@ -331,14 +427,21 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
         `INSERT INTO crypto_orders (
            id, org_id, user_id, user_email, plan_id, plan_name, billing_interval,
            currency, network, amount, deposit_address, qr_data_url, status, tx_id,
-           detected_at, confirmed_at, expires_at, verification_log, created_at
+           detected_at, confirmed_at, expires_at, verification_log,
+           approved_by, approved_at, rejected_by, rejected_at, rejection_reason,
+           created_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
          ON CONFLICT (id) DO UPDATE SET
            status = EXCLUDED.status,
            tx_id = EXCLUDED.tx_id,
            confirmed_at = EXCLUDED.confirmed_at,
-           verification_log = EXCLUDED.verification_log`,
+           verification_log = EXCLUDED.verification_log,
+           approved_by = EXCLUDED.approved_by,
+           approved_at = EXCLUDED.approved_at,
+           rejected_by = EXCLUDED.rejected_by,
+           rejected_at = EXCLUDED.rejected_at,
+           rejection_reason = EXCLUDED.rejection_reason`,
         [
           ord.id,
           ord.orgId,
@@ -358,6 +461,11 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
           ord.confirmedAt ? new Date(ord.confirmedAt).toISOString() : null,
           new Date(ord.expiresAt).toISOString(),
           ord.verificationLog || null,
+          ord.approvedBy || null,
+          ord.approvedAt ? new Date(ord.approvedAt).toISOString() : null,
+          ord.rejectedBy || null,
+          ord.rejectedAt ? new Date(ord.rejectedAt).toISOString() : null,
+          ord.rejectionReason || null,
           ord.createdAt ? new Date(ord.createdAt).toISOString() : new Date().toISOString(),
         ]
       );

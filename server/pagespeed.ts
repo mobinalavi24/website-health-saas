@@ -131,13 +131,43 @@ function extractOpportunities(audits: Record<string, any>): PageSpeedOpportunity
   return list;
 }
 
+/**
+ * Retrieves Google PageSpeed API key from server environment variables.
+ * Checks PAGESPEED_API_KEY, GOOGLE_PAGESPEED_API_KEY, GOOGLE_API_KEY, and GEMINI_API_KEY.
+ * Filters out placeholder values from .env.example.
+ */
+export function getPageSpeedApiKey(): { key?: string; diagnosticError?: string } {
+  const candidate =
+    process.env.PAGESPEED_API_KEY ||
+    process.env.GOOGLE_PAGESPEED_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    process.env.GEMINI_API_KEY;
+
+  if (!candidate || !candidate.trim()) {
+    return {
+      diagnosticError:
+        'Google PageSpeed Insights API key is not configured. Please set the PAGESPEED_API_KEY or GOOGLE_API_KEY environment variable in your production server configuration.',
+    };
+  }
+
+  const clean = candidate.trim();
+  if (clean === 'MY_GEMINI_API_KEY' || clean.startsWith('MY_')) {
+    return {
+      diagnosticError:
+        'Google PageSpeed Insights API key contains a placeholder value. Please set a valid PAGESPEED_API_KEY or GOOGLE_API_KEY in your production server configuration.',
+    };
+  }
+
+  return { key: clean };
+}
+
 // Call Google PageSpeed API for a single strategy ('mobile' or 'desktop')
 async function runSingleStrategyAnalysis(
   url: string,
   strategy: 'mobile' | 'desktop',
   apiKey?: string
 ): Promise<PageSpeedDeviceData> {
-  const apiUrl = new URL('https://www.googleapis.com/pagespeedonline/v5/runPagespeed');
+  const apiUrl = new URL('https://pagespeedonline.googleapis.com/pagespeedonline/v5/runPagespeed');
   apiUrl.searchParams.set('url', url);
   apiUrl.searchParams.set('strategy', strategy);
   apiUrl.searchParams.append('category', 'performance');
@@ -153,14 +183,24 @@ async function runSingleStrategyAnalysis(
   const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s timeout for deep lighthouse audit
 
   try {
-    const response = await fetch(apiUrl.toString(), {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'PulseVanguard-Monitor/1.0 (+https://pulsevanguard.com; pagespeed-audit)',
-      },
-      signal: controller.signal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(apiUrl.toString(), {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'PulseVanguard-Monitor/1.0 (+https://pulsevanguard.com; pagespeed-audit)',
+        },
+        signal: controller.signal,
+      });
+    } catch (fetchErr: any) {
+      if (fetchErr.name === 'AbortError') {
+        throw new Error(
+          `Google PageSpeed analysis timed out after 45 seconds for ${strategy} strategy. The target website took too long to load.`
+        );
+      }
+      throw new Error(`Google PageSpeed network error: ${fetchErr.message || 'Unable to connect to Google API'}`);
+    }
 
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
@@ -168,12 +208,24 @@ async function runSingleStrategyAnalysis(
       try {
         const json = JSON.parse(errText);
         const rawMsg = json.error?.message || '';
-        if (response.status === 429 || rawMsg.toLowerCase().includes('quota')) {
-          parsedErr = 'Google PageSpeed Insights rate limit/quota reached. Please retry in a few moments.';
-        } else if (response.status === 400 || rawMsg.toLowerCase().includes('invalid url')) {
-          parsedErr = 'Unable to analyze the specified URL with Google PageSpeed. Please check that the website is publicly accessible.';
+        const lowerMsg = rawMsg.toLowerCase();
+
+        if (response.status === 429 || lowerMsg.includes('quota') || lowerMsg.includes('ratelimit')) {
+          parsedErr = 'Google PageSpeed Insights rate limit/quota reached. Please retry in a few moments or verify your API key quota.';
+        } else if (response.status === 400 || lowerMsg.includes('invalid url') || lowerMsg.includes('could not be retrieved')) {
+          parsedErr = 'Unable to analyze the specified URL with Google PageSpeed. Please check that the website is publicly accessible and responding.';
         } else if (response.status === 403 || response.status === 401) {
-          parsedErr = 'Google PageSpeed API service authentication error. Please verify configuration.';
+          if (lowerMsg.includes('api key not valid') || lowerMsg.includes('invalid key') || lowerMsg.includes('key is invalid')) {
+            parsedErr = 'Invalid Google PageSpeed API key. Please check your PAGESPEED_API_KEY or GOOGLE_API_KEY environment variable.';
+          } else if (lowerMsg.includes('disabled') || lowerMsg.includes('has not been used')) {
+            parsedErr = 'Google PageSpeed Insights API is not enabled in your Google Cloud project. Please enable it in Google Cloud Console.';
+          } else if (lowerMsg.includes('quota') || lowerMsg.includes('limit')) {
+            parsedErr = 'Google PageSpeed Insights API quota exceeded. Please check quota limits in Google Cloud Console.';
+          } else {
+            parsedErr = 'Google PageSpeed API service authentication error. Please verify your server API key configuration.';
+          }
+        } else if (response.status >= 500) {
+          parsedErr = 'Google PageSpeed Insights API is temporarily experiencing server issues. Please retry in a few moments.';
         } else if (rawMsg) {
           // Strip out internal GCP project numbers or identifiers
           parsedErr = rawMsg.replace(/for consumer '[^']+'/g, '').trim();
@@ -336,7 +388,7 @@ async function runSingleStrategyAnalysis(
  */
 export async function performPageSpeedAnalysis(
   rawUrl: string,
-  options: { forceRefresh?: boolean } = {}
+  options: { forceRefresh?: boolean; strategy?: 'mobile' | 'desktop' | 'both' } = {}
 ): Promise<CombinedPageSpeedResult> {
   const trimmed = rawUrl.trim();
   if (trimmed.includes('://') && !trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
@@ -354,14 +406,28 @@ export async function performPageSpeedAnalysis(
   // SSRF Validation: Block localhost, 127.0.0.1, private IPs, cloud metadata
   await validateTargetSecurity(domain);
 
-  // Cache Check
+  // Validate API key configuration with clear diagnostic error
+  const keyConfig = getPageSpeedApiKey();
+  if (keyConfig.diagnosticError) {
+    console.error(`[PageSpeed Diagnostic]: ${keyConfig.diagnosticError}`);
+    throw new Error(keyConfig.diagnosticError);
+  }
+  const apiKey = keyConfig.key;
+
+  const targetStrategy = options.strategy || 'both';
+  const shouldRunMobile = targetStrategy === 'both' || targetStrategy === 'mobile';
+  const shouldRunDesktop = targetStrategy === 'both' || targetStrategy === 'desktop';
+
+  // Cache Check (when both are requested)
   const cacheKey = url.toLowerCase();
   const cached = pageSpeedCache.get(cacheKey);
   if (!options.forceRefresh && cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-    return {
-      ...cached.data,
-      cached: true,
-    };
+    if (targetStrategy === 'both' || (targetStrategy === 'mobile' && cached.data.mobile) || (targetStrategy === 'desktop' && cached.data.desktop)) {
+      return {
+        ...cached.data,
+        cached: true,
+      };
+    }
   }
 
   // Rate Limiting Check
@@ -375,12 +441,10 @@ export async function performPageSpeedAnalysis(
     throw new Error('Google PageSpeed analysis rate limit reached. Please wait a minute before requesting another analysis.');
   }
 
-  const apiKey = process.env.PAGESPEED_API_KEY || undefined;
-
-  // Execute Mobile and Desktop concurrently
+  // Execute requested strategies
   const [mobileSettled, desktopSettled] = await Promise.allSettled([
-    runSingleStrategyAnalysis(url, 'mobile', apiKey),
-    runSingleStrategyAnalysis(url, 'desktop', apiKey),
+    shouldRunMobile ? runSingleStrategyAnalysis(url, 'mobile', apiKey) : Promise.resolve(null),
+    shouldRunDesktop ? runSingleStrategyAnalysis(url, 'desktop', apiKey) : Promise.resolve(null),
   ]);
 
   const mobileData = mobileSettled.status === 'fulfilled' ? mobileSettled.value : null;
@@ -388,12 +452,12 @@ export async function performPageSpeedAnalysis(
 
   const errors: string[] = [];
   const rawErrors: string[] = [];
-  if (mobileSettled.status === 'rejected') {
+  if (shouldRunMobile && mobileSettled.status === 'rejected') {
     const raw = mobileSettled.reason?.message || 'Unknown error';
     errors.push(`Mobile: ${raw}`);
     rawErrors.push(raw);
   }
-  if (desktopSettled.status === 'rejected') {
+  if (shouldRunDesktop && desktopSettled.status === 'rejected') {
     const raw = desktopSettled.reason?.message || 'Unknown error';
     errors.push(`Desktop: ${raw}`);
     rawErrors.push(raw);
@@ -416,10 +480,12 @@ export async function performPageSpeedAnalysis(
   };
 
   // Cache valid result
-  pageSpeedCache.set(cacheKey, {
-    data: combinedResult,
-    timestamp: Date.now(),
-  });
+  if (mobileData || desktopData) {
+    pageSpeedCache.set(cacheKey, {
+      data: combinedResult,
+      timestamp: Date.now(),
+    });
+  }
 
   return combinedResult;
 }

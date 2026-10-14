@@ -72,6 +72,8 @@ export const PageSpeedSection: React.FC<PageSpeedSectionProps> = ({
       setData(result);
       if (result.error && !result.mobile && !result.desktop) {
         setError(result.error);
+      } else {
+        setError(null);
       }
       if (onDataUpdated) {
         onDataUpdated(result);
@@ -260,8 +262,28 @@ export const PageSpeedSection: React.FC<PageSpeedSectionProps> = ({
         </div>
       )}
 
+      {/* Device-specific unavailable state when partial data loaded */}
+      {!loading && !currentDeviceData && !error && data && (
+        <div className="p-6 rounded-xl border border-slate-800 bg-slate-900/50 text-center space-y-3">
+          <AlertTriangle className="h-6 w-6 text-amber-400 mx-auto" />
+          <h3 className="text-sm font-semibold text-white">
+            {device === 'desktop' ? 'Desktop' : 'Mobile'} Analysis Unavailable
+          </h3>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            {data.error || `Lighthouse was unable to complete the ${device} audit for this website.`}
+          </p>
+          <button
+            onClick={() => handleRunAnalysis(true)}
+            className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white border border-slate-700 transition-colors"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Retry {device === 'desktop' ? 'Desktop' : 'Mobile'} Analysis
+          </button>
+        </div>
+      )}
+
       {/* Empty / Unanalyzed state */}
-      {!loading && !currentDeviceData && !error && (
+      {!loading && !currentDeviceData && !error && !data && (
         <div className="p-8 rounded-xl border border-dashed border-slate-800 text-center space-y-3">
           <Gauge className="h-8 w-8 text-slate-600 mx-auto" />
           <h3 className="text-sm font-semibold text-white">Google PageSpeed Data Available On-Demand</h3>
@@ -281,6 +303,12 @@ export const PageSpeedSection: React.FC<PageSpeedSectionProps> = ({
       {/* Analyzed Device Content */}
       {currentDeviceData && (
         <div className="space-y-6">
+          {data?.error && (
+            <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center gap-2 text-xs text-amber-300">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+              <span>Notice: {data.error}</span>
+            </div>
+          )}
           {/* Lighthouse Category Scores */}
           <div>
             <div className="flex items-center justify-between mb-3">

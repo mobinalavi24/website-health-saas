@@ -55,18 +55,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  // Demo account quick filler
-  const handleFillDemo = (type: 'admin' | 'agency') => {
-    setTab('login');
-    if (type === 'admin') {
-      setEmail('admin@pulsevanguard.com');
-      setPassword('admin123');
-    } else {
-      setEmail('agency@acmedigital.com');
-      setPassword('agency123');
-    }
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-[#0F172A] p-6 shadow-2xl space-y-5">
@@ -106,29 +94,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           >
             Create Account
           </button>
-        </div>
-
-        {/* Quick Demo Credentials for Instant Review */}
-        <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-1.5 text-xs">
-          <span className="text-slate-400 font-semibold block text-[11px] uppercase tracking-wider">
-            Quick One-Click Test Accounts:
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => handleFillDemo('admin')}
-              className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-mono border border-slate-700"
-            >
-              Super Admin (admin@pulsevanguard.com)
-            </button>
-            <button
-              type="button"
-              onClick={() => handleFillDemo('agency')}
-              className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-mono border border-slate-700"
-            >
-              Agency Partner (agency@acmedigital.com)
-            </button>
-          </div>
         </div>
 
         {error && (

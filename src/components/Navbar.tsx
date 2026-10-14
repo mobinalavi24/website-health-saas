@@ -118,7 +118,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 API Keys
               </button>
-              {user.email?.toLowerCase() === 'mobinalavi7491@gmail.com' && (
+              {user && (
                 <button
                   onClick={() => onNavigate('my-crypto-payments')}
                   className={`transition-colors hover:text-white ${activeView === 'my-crypto-payments' ? 'text-[#E6A05A]' : ''}`}
@@ -126,7 +126,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   My Crypto Payments
                 </button>
               )}
-              {(user.role === 'admin' || user.role === 'super_admin' || user.email?.toLowerCase() === 'mobinalavi7491@gmail.com') && (
+              {(user.role === 'admin' || user.role === 'super_admin') && (
                 <button
                   onClick={() => onNavigate('admin-crypto-transactions')}
                   className={`transition-colors hover:text-white flex items-center gap-1.5 ${
@@ -134,7 +134,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   }`}
                 >
                   <Coins className="h-3.5 w-3.5" />
-                  Crypto Transactions
+                  Payment Review
                 </button>
               )}
               {user.role === 'super_admin' && (
@@ -199,7 +199,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <span className="text-[11px] text-slate-400 capitalize">{organization?.planId || 'free'} plan</span>
                 )}
               </div>
-              {(user.role === 'admin' || user.role === 'super_admin' || user.email?.toLowerCase() === 'mobinalavi7491@gmail.com') && (
+              {(user.role === 'admin' || user.role === 'super_admin') && (
                 <button
                   onClick={() => onNavigate('admin-crypto-transactions')}
                   title="Crypto Transactions (Admin)"
@@ -213,7 +213,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <span className="hidden sm:inline">Transactions</span>
                 </button>
               )}
-              {user.email?.toLowerCase() === 'mobinalavi7491@gmail.com' && (
+              {user && (
                 <button
                   onClick={() => onNavigate('my-crypto-payments')}
                   title="My Crypto Payments"

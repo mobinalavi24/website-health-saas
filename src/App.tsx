@@ -355,15 +355,17 @@ export default function App() {
 
           {activeView === 'api-docs' && <ApiDocsView />}
 
-          {activeView === 'my-crypto-payments' && user?.email?.toLowerCase() === 'mobinalavi7491@gmail.com' && (
+          {activeView === 'my-crypto-payments' && user && (
             <MyCryptoPaymentsView onNavigateToBilling={() => setActiveView('billing')} />
           )}
 
-          {activeView === 'admin-crypto-transactions' && (user?.role === 'admin' || user?.role === 'super_admin' || user?.email?.toLowerCase() === 'mobinalavi7491@gmail.com') && (
+          {activeView === 'admin-crypto-transactions' && (user?.role === 'admin' || user?.role === 'super_admin') && (
             <AdminCryptoTransactionsView />
           )}
 
-          {activeView === 'admin' && <AdminView />}
+          {activeView === 'admin' && user?.role === 'super_admin' && (
+            <AdminView onNavigate={setActiveView} />
+          )}
         </div>
       </main>
 

@@ -12,6 +12,7 @@ export interface DbConfig {
 let activePool: pg.Pool | null = null;
 let isDevInMemory = false;
 let activeMemDb: any = null;
+let poolInitPromise: Promise<pg.Pool> | null = null;
 
 export function getDbConfig(): DbConfig {
   const connectionString = process.env.DATABASE_URL;
@@ -41,50 +42,75 @@ export function getDbConfig(): DbConfig {
 
 export async function getPool(): Promise<pg.Pool> {
   if (activePool) return activePool;
+  if (poolInitPromise) return poolInitPromise;
 
-  const config = getDbConfig();
+  poolInitPromise = (async () => {
+    const config = getDbConfig();
 
-  if (config.connectionString) {
-    activePool = new Pool({
-      connectionString: config.connectionString,
-      ssl: config.ssl ? config.ssl : undefined,
-      max: config.maxConnections || 20,
-      connectionTimeoutMillis: config.connectionTimeoutMillis || 10000,
-      idleTimeoutMillis: 30000,
+    if (config.connectionString) {
+      const candidatePool = new Pool({
+        connectionString: config.connectionString,
+        ssl: config.ssl ? config.ssl : undefined,
+        max: config.maxConnections || 20,
+        connectionTimeoutMillis: Math.min(config.connectionTimeoutMillis || 10000, 3000),
+        idleTimeoutMillis: 30000,
+      });
+
+      candidatePool.on('error', (err) => {
+        console.error('[PostgreSQL Pool Error]: Unexpected idle client error:', err.message);
+      });
+
+      try {
+        // Validate connectivity before adopting candidatePool
+        const client = await candidatePool.connect();
+        client.release();
+        activePool = candidatePool;
+        isDevInMemory = false;
+        return activePool;
+      } catch (connErr: any) {
+        await candidatePool.end().catch(() => {});
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(
+            `[PostgreSQL Error]: Failed to connect to DATABASE_URL in production: ${connErr.message}`
+          );
+        }
+        console.warn(
+          `[PostgreSQL Notice]: Could not connect to DATABASE_URL in non-production (${connErr.message}). ` +
+          `Initializing development/test in-memory PostgreSQL instance...`
+        );
+      }
+    }
+
+    // Development / Testing fallback using in-memory PostgreSQL engine
+    // This satisfies Rule 17: Explicitly development/test only, strictly disallowed in production
+    console.log('[PostgreSQL]: Initializing development/test in-memory PostgreSQL instance...');
+    
+    const { newDb } = await import('pg-mem');
+    const memDb = newDb({
+      autoCreateForeignKeyIndices: true,
+      noAstCoverageCheck: true,
     });
 
-    activePool.on('error', (err) => {
-      console.error('[PostgreSQL Pool Error]: Unexpected idle client error:', err.message);
+    // Register common PostgreSQL functions
+    memDb.public.registerFunction({
+      name: 'version',
+      args: [],
+      returns: memDb.public.getType('text' as any) || undefined,
+      implementation: () => 'PostgreSQL 16.0 (PulseVanguard Dev/Test In-Memory Engine)',
     });
 
-    isDevInMemory = false;
+    const adapter = memDb.adapters.createPg();
+    activePool = new adapter.Pool() as unknown as pg.Pool;
+    activeMemDb = memDb;
+    isDevInMemory = true;
+
     return activePool;
-  }
-
-  // Development / Testing fallback using in-memory PostgreSQL engine
-  // This satisfies Rule 17: Explicitly development/test only, strictly disallowed in production
-  console.log('[PostgreSQL]: DATABASE_URL not set in non-production. Initializing development/test PostgreSQL instance...');
-  
-  const { newDb } = await import('pg-mem');
-  const memDb = newDb({
-    autoCreateForeignKeyIndices: true,
-    noAstCoverageCheck: true,
+  })().catch((err) => {
+    poolInitPromise = null;
+    throw err;
   });
 
-  // Register common PostgreSQL functions
-  memDb.public.registerFunction({
-    name: 'version',
-    args: [],
-    returns: memDb.public.getType('text' as any) || undefined,
-    implementation: () => 'PostgreSQL 16.0 (PulseVanguard Dev/Test In-Memory Engine)',
-  });
-
-  const adapter = memDb.adapters.createPg();
-  activePool = new adapter.Pool() as unknown as pg.Pool;
-  activeMemDb = memDb;
-  isDevInMemory = true;
-
-  return activePool;
+  return poolInitPromise;
 }
 
 export function isUsingDevInMemory(): boolean {

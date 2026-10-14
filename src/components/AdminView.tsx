@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Users, Server, Play, Check, AlertTriangle, RefreshCw, MessageSquare, Clock } from 'lucide-react';
+import { Shield, Users, Server, Play, Check, AlertTriangle, RefreshCw, MessageSquare, Clock, Coins, CheckCircle2, ArrowRight } from 'lucide-react';
 import { apiClient } from '../api/client.ts';
-import type { SupportTicket } from '../types.ts';
+import type { SupportTicket, CryptoPaymentOrder } from '../types.ts';
 
-export const AdminView: React.FC = () => {
+interface AdminViewProps {
+  onNavigate?: (view: any) => void;
+}
+
+export const AdminView: React.FC<AdminViewProps> = ({ onNavigate }) => {
   const [stats, setStats] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [paymentOrders, setPaymentOrders] = useState<CryptoPaymentOrder[]>([]);
   const [loading, setLoading] = useState(false);
   const [triggeringWorker, setTriggeringWorker] = useState(false);
   const [workerToast, setWorkerToast] = useState<string | null>(null);
@@ -18,14 +23,16 @@ export const AdminView: React.FC = () => {
   const loadAdminData = async () => {
     setLoading(true);
     try {
-      const [st, u, t] = await Promise.all([
+      const [st, u, t, orders] = await Promise.all([
         apiClient.getAdminOverview(),
         apiClient.getAdminUsers(),
         apiClient.getTickets(),
+        apiClient.getAdminCryptoOrders().catch(() => []),
       ]);
       setStats(st);
       setUsers(u);
       setTickets(t);
+      setPaymentOrders(Array.isArray(orders) ? orders : []);
     } catch (e) {
       console.error('Failed to load admin telemetry', e);
     } finally {
@@ -47,6 +54,10 @@ export const AdminView: React.FC = () => {
     }
   };
 
+  const pendingPayments = paymentOrders.filter(
+    (o) => o.status === 'Pending' || o.status === 'Confirming' || o.status === 'Manual Review'
+  );
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -59,14 +70,29 @@ export const AdminView: React.FC = () => {
             </h1>
           </div>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Global system health, background monitoring workers, user tenant management, and customer support.
+            Global system health, background monitoring workers, user tenant management, customer support, and payment approval.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('admin-crypto-transactions')}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-[#0B1120] bg-[#E6A05A] rounded-lg hover:bg-[#cf863c] transition-colors cursor-pointer"
+            >
+              <Coins className="h-3.5 w-3.5" />
+              <span>Review Payments</span>
+              {pendingPayments.length > 0 && (
+                <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-black text-[#E6A05A] font-extrabold">
+                  {pendingPayments.length}
+                </span>
+              )}
+            </button>
+          )}
+
           <button
             onClick={loadAdminData}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-300 bg-slate-900 border border-slate-800 rounded-lg hover:text-white"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-300 bg-slate-900 border border-slate-800 rounded-lg hover:text-white cursor-pointer"
           >
             <RefreshCw className="h-3.5 w-3.5" />
             <span>Refresh Telemetry</span>
@@ -74,9 +100,9 @@ export const AdminView: React.FC = () => {
           <button
             onClick={handleTriggerWorker}
             disabled={triggeringWorker}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[#0B1120] bg-[#E6A05A] rounded-lg hover:bg-[#cf863c] transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-200 bg-slate-800 border border-slate-700 rounded-lg hover:bg-slate-700 transition-colors disabled:opacity-50 cursor-pointer"
           >
-            <Play className="h-3.5 w-3.5" />
+            <Play className="h-3.5 w-3.5 text-[#E6A05A]" />
             <span>{triggeringWorker ? 'Triggering...' : 'Force Worker Tick'}</span>
           </button>
         </div>
@@ -127,6 +153,36 @@ export const AdminView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Payment Approval & Review Alert Banner */}
+      <div className="rounded-xl border border-[#E6A05A]/30 bg-gradient-to-r from-[#0F172A] via-slate-900 to-[#1e1710] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <Coins className="h-5 w-5 text-[#E6A05A]" />
+            <h2 className="text-sm font-bold text-white">Cryptocurrency Payment Management & Approvals</h2>
+            {pendingPayments.length > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-400 text-black animate-pulse">
+                {pendingPayments.length} Awaiting Review
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-slate-400 max-w-xl">
+            {pendingPayments.length > 0
+              ? `There are ${pendingPayments.length} customer payment order(s) awaiting review. You can manually inspect and approve or reject subscriptions.`
+              : 'All customer payment orders have been processed. Review historical settlement logs and transaction hashes.'}
+          </p>
+        </div>
+
+        {onNavigate && (
+          <button
+            onClick={() => onNavigate('admin-crypto-transactions')}
+            className="px-4 py-2 rounded-xl bg-[#E6A05A] hover:bg-[#cf863c] text-[#0B1120] text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0 shadow-md cursor-pointer"
+          >
+            <span>Open Payment Console</span>
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
 
       {/* Worker Queue Engine Status */}
       {stats?.workerStats && (

@@ -182,7 +182,7 @@ export interface Invoice {
   planName: string;
 }
 
-export type CryptoPaymentStatus = 'Pending' | 'Confirming' | 'Paid' | 'Failed' | 'Expired' | 'Manual Review';
+export type CryptoPaymentStatus = 'Pending' | 'Confirming' | 'Paid' | 'Failed' | 'Expired' | 'Manual Review' | 'Rejected' | 'Cancelled';
 
 export interface CryptoPaymentOrder {
   id: string;
@@ -203,6 +203,11 @@ export interface CryptoPaymentOrder {
   confirmedAt?: string;
   expiresAt: string;
   verificationLog?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  rejectedBy?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
   createdAt: string;
 }
 
@@ -431,9 +436,48 @@ class Database {
           }
         }
         if (parsed.users) {
+          // Permanently filter out removed default demo accounts
+          parsed.users = parsed.users.filter((u: any) => {
+            const clean = (u.email || '').trim().toLowerCase();
+            return clean !== 'admin@pulsevanguard.com' && clean !== 'agency@acmedigital.com';
+          });
+          // Guarantee mobinalavi7491@gmail.com is Super Admin
           for (const u of parsed.users) {
             if (u.email && u.email.trim().toLowerCase() === 'mobinalavi7491@gmail.com') {
-              u.role = 'admin';
+              u.role = 'super_admin';
+            }
+          }
+        }
+        if (parsed.organizations) {
+          for (const org of parsed.organizations) {
+            if (org.ownerId === 'usr_admin' || org.ownerId === 'usr_agency') {
+              org.ownerId = 'usr_1790775111622';
+            }
+          }
+        }
+        if (parsed.websites) {
+          for (const w of parsed.websites) {
+            if (w.notificationSettings?.alertEmail) {
+              const lower = w.notificationSettings.alertEmail.toLowerCase();
+              if (lower === 'admin@pulsevanguard.com' || lower === 'agency@acmedigital.com') {
+                w.notificationSettings.alertEmail = 'mobinalavi7491@gmail.com';
+              }
+            }
+          }
+        }
+        if (parsed.tickets) {
+          for (const t of parsed.tickets) {
+            if (t.email?.toLowerCase() === 'agency@acmedigital.com' || t.email?.toLowerCase() === 'admin@pulsevanguard.com') {
+              t.email = 'support@acmedigital.com';
+              t.userId = 'usr_1790775111622';
+            }
+          }
+        }
+        if (parsed.auditLogs) {
+          for (const a of parsed.auditLogs) {
+            if (a.userEmail?.toLowerCase() === 'admin@pulsevanguard.com' || a.userEmail?.toLowerCase() === 'agency@acmedigital.com') {
+              a.userEmail = 'mobinalavi7491@gmail.com';
+              a.userId = 'usr_1790775111622';
             }
           }
         }
@@ -470,30 +514,8 @@ class Database {
     const orgIdAdmin = 'org_admin_001';
     const orgIdAgency = 'org_agency_002';
 
-    const users: User[] = [
-      {
-        id: 'usr_admin',
-        email: 'admin@pulsevanguard.com',
-        name: 'Alexandre Sterling (Super Admin)',
-        passwordHash: hashPassword('admin123'),
-        role: 'super_admin',
-        orgId: orgIdAdmin,
-        avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
-        emailVerified: true,
-        createdAt: '2026-01-10T08:00:00.000Z',
-      },
-      {
-        id: 'usr_agency',
-        email: 'agency@acmedigital.com',
-        name: 'Sarah Jenkins (Agency Partner)',
-        passwordHash: hashPassword('agency123'),
-        role: 'agency_admin',
-        orgId: orgIdAgency,
-        avatarUrl: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=256&q=80',
-        emailVerified: true,
-        createdAt: '2026-02-14T10:30:00.000Z',
-      },
-    ];
+    // No default demo accounts or passwords created
+    const users: User[] = [];
 
     const organizations: Organization[] = [
       {
@@ -502,7 +524,7 @@ class Database {
         planId: 'pro',
         billingInterval: 'annual',
         currency: 'USD',
-        ownerId: 'usr_admin',
+        ownerId: 'usr_1790775111622',
         trialStartedAt: '2026-01-10T08:00:00.000Z',
         trialEndsAt: '2026-01-11T08:00:00.000Z',
         trialUsed: true,
@@ -522,7 +544,7 @@ class Database {
         planId: 'free',
         billingInterval: 'monthly',
         currency: 'USD',
-        ownerId: 'usr_agency',
+        ownerId: 'usr_1790775111622',
         trialStartedAt: '2026-02-14T10:30:00.000Z',
         trialEndsAt: '2026-02-15T10:30:00.000Z',
         trialUsed: true,
@@ -561,7 +583,7 @@ class Database {
         enabledChecks: { uptime: true, ssl: true, dns: true, seo: true, security: true, brokenLinks: true },
         notificationSettings: {
           email: true,
-          alertEmail: 'admin@pulsevanguard.com',
+          alertEmail: 'mobinalavi7491@gmail.com',
           alertOnDown: true,
           alertOnRecovery: true,
           alertOnSslExpiry: true,
@@ -589,7 +611,7 @@ class Database {
         enabledChecks: { uptime: true, ssl: true, dns: true, seo: true, security: true, brokenLinks: false },
         notificationSettings: {
           email: true,
-          alertEmail: 'admin@pulsevanguard.com',
+          alertEmail: 'mobinalavi7491@gmail.com',
           alertOnDown: true,
           alertOnRecovery: true,
           alertOnSslExpiry: true,
@@ -618,7 +640,7 @@ class Database {
         enabledChecks: { uptime: true, ssl: true, dns: true, seo: true, security: true, brokenLinks: true },
         notificationSettings: {
           email: true,
-          alertEmail: 'agency@acmedigital.com',
+          alertEmail: 'alerts@pulsevanguard.com',
           alertOnDown: true,
           alertOnRecovery: true,
           alertOnSslExpiry: true,
@@ -647,7 +669,7 @@ class Database {
         enabledChecks: { uptime: true, ssl: true, dns: true, seo: true, security: true, brokenLinks: false },
         notificationSettings: {
           email: true,
-          alertEmail: 'agency@acmedigital.com',
+          alertEmail: 'alerts@pulsevanguard.com',
           alertOnDown: true,
           alertOnRecovery: true,
           alertOnSslExpiry: false,
@@ -758,9 +780,9 @@ class Database {
     const tickets: SupportTicket[] = [
       {
         id: 'tkt_901',
-        userId: 'usr_agency',
+        userId: 'usr_1790775111622',
         name: 'Sarah Jenkins',
-        email: 'agency@acmedigital.com',
+        email: 'support@acmedigital.com',
         subject: 'Inquiry regarding custom CNAME for white-label report URLs',
         category: 'feature',
         message: 'Hello PulseVanguard team, we are planning to map status.acmedigital.com to our white-labeled client dashboards. Could you confirm the DNS CNAME record target?',
@@ -782,8 +804,8 @@ class Database {
       {
         id: 'aud_001',
         orgId: orgIdAdmin,
-        userId: 'usr_admin',
-        userEmail: 'admin@pulsevanguard.com',
+        userId: 'usr_1790775111622',
+        userEmail: 'mobinalavi7491@gmail.com',
         action: 'WEBSITE_CREATED',
         target: 'github.com',
         details: 'Configured continuous uptime checks at 1m interval.',
@@ -792,8 +814,8 @@ class Database {
       {
         id: 'aud_002',
         orgId: orgIdAgency,
-        userId: 'usr_agency',
-        userEmail: 'agency@acmedigital.com',
+        userId: 'usr_1790775111622',
+        userEmail: 'mobinalavi7491@gmail.com',
         action: 'CLIENT_WORKSPACE_CREATED',
         target: 'Starlight E-Commerce',
         details: 'Assigned 1 website to client workspace.',
@@ -895,7 +917,18 @@ class Database {
         GenericRepo.getSettings(),
       ]);
 
-      if (users.length > 0) this.data.users = users;
+      if (users.length > 0) {
+        // Enforce removal of default accounts and ensure target super_admin on hydration
+        this.data.users = users.filter((u) => {
+          const clean = (u.email || '').trim().toLowerCase();
+          return clean !== 'admin@pulsevanguard.com' && clean !== 'agency@acmedigital.com';
+        });
+        for (const u of this.data.users) {
+          if (u.email && u.email.trim().toLowerCase() === 'mobinalavi7491@gmail.com') {
+            u.role = 'super_admin';
+          }
+        }
+      }
       if (organizations.length > 0) this.data.organizations = organizations;
       if (websites.length > 0) this.data.websites = websites;
       if (metrics.length > 0) this.data.metrics = metrics;
@@ -911,7 +944,7 @@ class Database {
       if (pageSpeedRecords.length > 0) this.data.pageSpeedRecords = pageSpeedRecords;
       if (settings) this.data.settings = settings;
 
-      console.log(`[Database]: Synchronized ${users.length} users, ${organizations.length} organizations, ${websites.length} websites from PostgreSQL.`);
+      console.log(`[Database]: Synchronized ${this.data.users.length} users, ${organizations.length} organizations, ${websites.length} websites from PostgreSQL.`);
     } catch (err: any) {
       console.warn('[Database]: Note - could not synchronize initial state from PostgreSQL (using cached JSON state):', err.message);
     }
@@ -924,6 +957,10 @@ class Database {
   public findUserByEmail(email: string) {
     if (!email || typeof email !== 'string') return undefined;
     const clean = email.trim().toLowerCase();
+    // Default demo accounts are permanently disabled and removed
+    if (clean === 'admin@pulsevanguard.com' || clean === 'agency@acmedigital.com') {
+      return undefined;
+    }
     
     // Always check in-memory first
     let user = this.data.users.find((u) => u.email && u.email.trim().toLowerCase() === clean);
@@ -946,6 +983,7 @@ class Database {
   }
 
   public findUserById(id: string) {
+    if (id === 'usr_admin' || id === 'usr_agency') return undefined;
     return this.data.users.find((u) => u.id === id);
   }
 
@@ -971,9 +1009,27 @@ class Database {
   }
 
   public addUser(user: User) {
+    const cleanEmail = (user.email || '').trim().toLowerCase();
+    // Prevent recreation of removed demo accounts
+    if (cleanEmail === 'admin@pulsevanguard.com' || cleanEmail === 'agency@acmedigital.com') {
+      throw new Error('Default demo accounts cannot be created.');
+    }
+    if (cleanEmail === 'mobinalavi7491@gmail.com') {
+      user.role = 'super_admin';
+    }
     this.data.users.push(user);
     this.persist();
     this.syncToDb(() => UserRepo.insert(user), 'UserRepo.insert');
+  }
+
+  public updateUserRole(userId: string, newRole: User['role']) {
+    const user = this.data.users.find((u) => u.id === userId);
+    if (user) {
+      user.role = newRole;
+      this.persist();
+      this.syncToDb(() => UserRepo.updateRole(userId, newRole), 'UserRepo.updateRole');
+    }
+    return user;
   }
 
   public addOrganization(org: Organization) {

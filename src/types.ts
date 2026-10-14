@@ -196,7 +196,7 @@ export interface Invoice {
   planName: string;
 }
 
-export type CryptoPaymentStatus = 'Pending' | 'Confirming' | 'Paid' | 'Failed' | 'Expired' | 'Manual Review';
+export type CryptoPaymentStatus = 'Pending' | 'Confirming' | 'Paid' | 'Failed' | 'Expired' | 'Manual Review' | 'Rejected' | 'Cancelled';
 
 export interface CryptoPaymentOrder {
   id: string;
@@ -217,6 +217,11 @@ export interface CryptoPaymentOrder {
   confirmedAt?: string;
   expiresAt: string;
   verificationLog?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  rejectedBy?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
   createdAt: string;
 }
 

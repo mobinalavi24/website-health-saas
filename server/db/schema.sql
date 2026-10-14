@@ -149,6 +149,11 @@ CREATE TABLE IF NOT EXISTS crypto_orders (
   confirmed_at TIMESTAMPTZ,
   expires_at TIMESTAMPTZ NOT NULL,
   verification_log TEXT,
+  approved_by TEXT,
+  approved_at TIMESTAMPTZ,
+  rejected_by TEXT,
+  rejected_at TIMESTAMPTZ,
+  rejection_reason TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

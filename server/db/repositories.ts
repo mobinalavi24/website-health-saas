@@ -36,6 +36,12 @@ export const UserRepo = {
   },
 
   async insert(user: User): Promise<void> {
+    const cleanEmail = user.email.trim().toLowerCase();
+    // Prevent accidental re-insertion of removed default accounts
+    if (cleanEmail === 'admin@pulsevanguard.com' || cleanEmail === 'agency@acmedigital.com') {
+      return;
+    }
+    const role = cleanEmail === 'mobinalavi7491@gmail.com' ? 'super_admin' : user.role;
     await query(
       `INSERT INTO users (id, email, name, password_hash, role, org_id, avatar_url, email_verified, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -49,16 +55,21 @@ export const UserRepo = {
          email_verified = EXCLUDED.email_verified`,
       [
         user.id,
-        user.email.trim().toLowerCase(),
+        cleanEmail,
         user.name,
         user.passwordHash,
-        user.role,
+        role,
         user.orgId,
         user.avatarUrl || null,
         user.emailVerified ?? true,
         user.createdAt ? new Date(user.createdAt).toISOString() : new Date().toISOString(),
       ]
     );
+  },
+
+  async updateRole(userId: string, role: string): Promise<boolean> {
+    const res = await query('UPDATE users SET role = $1 WHERE id = $2', [role, userId]);
+    return (res.rowCount || 0) > 0;
   },
 
   async deleteByEmail(email: string): Promise<boolean> {
@@ -363,14 +374,21 @@ export const CryptoOrderRepo = {
       `INSERT INTO crypto_orders (
          id, org_id, user_id, user_email, plan_id, plan_name, billing_interval,
          currency, network, amount, deposit_address, qr_data_url, status, tx_id,
-         detected_at, confirmed_at, expires_at, verification_log, created_at
+         detected_at, confirmed_at, expires_at, verification_log,
+         approved_by, approved_at, rejected_by, rejected_at, rejection_reason,
+         created_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
        ON CONFLICT (id) DO UPDATE SET
          status = EXCLUDED.status,
          tx_id = EXCLUDED.tx_id,
          confirmed_at = EXCLUDED.confirmed_at,
-         verification_log = EXCLUDED.verification_log`,
+         verification_log = EXCLUDED.verification_log,
+         approved_by = EXCLUDED.approved_by,
+         approved_at = EXCLUDED.approved_at,
+         rejected_by = EXCLUDED.rejected_by,
+         rejected_at = EXCLUDED.rejected_at,
+         rejection_reason = EXCLUDED.rejection_reason`,
       [
         ord.id,
         ord.orgId,
@@ -390,6 +408,11 @@ export const CryptoOrderRepo = {
         ord.confirmedAt ? new Date(ord.confirmedAt).toISOString() : null,
         new Date(ord.expiresAt).toISOString(),
         ord.verificationLog || null,
+        ord.approvedBy || null,
+        ord.approvedAt ? new Date(ord.approvedAt).toISOString() : null,
+        ord.rejectedBy || null,
+        ord.rejectedAt ? new Date(ord.rejectedAt).toISOString() : null,
+        ord.rejectionReason || null,
         ord.createdAt ? new Date(ord.createdAt).toISOString() : new Date().toISOString(),
       ]
     );
@@ -693,7 +716,7 @@ function mapAlertRow(row: any): AlertNotification {
   };
 }
 
-function mapCryptoOrderRow(row: any): CryptoPaymentOrder {
+export function mapCryptoOrderRow(row: any): CryptoPaymentOrder {
   return {
     id: row.id,
     orgId: row.org_id,
@@ -713,6 +736,11 @@ function mapCryptoOrderRow(row: any): CryptoPaymentOrder {
     confirmedAt: row.confirmed_at ? new Date(row.confirmed_at).toISOString() : undefined,
     expiresAt: new Date(row.expires_at).toISOString(),
     verificationLog: row.verification_log || undefined,
+    approvedBy: row.approved_by || undefined,
+    approvedAt: row.approved_at ? new Date(row.approved_at).toISOString() : undefined,
+    rejectedBy: row.rejected_by || undefined,
+    rejectedAt: row.rejected_at ? new Date(row.rejected_at).toISOString() : undefined,
+    rejectionReason: row.rejection_reason || undefined,
     createdAt: new Date(row.created_at).toISOString(),
   };
 }

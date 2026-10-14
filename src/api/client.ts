@@ -270,6 +270,53 @@ export const apiClient = {
     return this.request<CryptoPaymentOrder[]>('/api/admin/crypto/orders');
   },
 
+  async approveCryptoOrder(orderId: string): Promise<{
+    success: boolean;
+    order: CryptoPaymentOrder;
+    alreadyApproved?: boolean;
+    message: string;
+  }> {
+    return this.request<{
+      success: boolean;
+      order: CryptoPaymentOrder;
+      alreadyApproved?: boolean;
+      message: string;
+    }>(`/api/admin/crypto/orders/${encodeURIComponent(orderId)}/approve`, {
+      method: 'POST',
+    });
+  },
+
+  async rejectCryptoOrder(orderId: string, reason?: string): Promise<{
+    success: boolean;
+    order: CryptoPaymentOrder;
+    alreadyRejected?: boolean;
+    message: string;
+  }> {
+    return this.request<{
+      success: boolean;
+      order: CryptoPaymentOrder;
+      alreadyRejected?: boolean;
+      message: string;
+    }>(`/api/admin/crypto/orders/${encodeURIComponent(orderId)}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async cancelCryptoOrder(orderId: string): Promise<{
+    success: boolean;
+    order: CryptoPaymentOrder;
+    message: string;
+  }> {
+    return this.request<{
+      success: boolean;
+      order: CryptoPaymentOrder;
+      message: string;
+    }>(`/api/crypto/order/${encodeURIComponent(orderId)}/cancel`, {
+      method: 'POST',
+    });
+  },
+
   async testLBankConnection(): Promise<LBankConnectionTestResult> {
     return this.request<LBankConnectionTestResult>('/api/crypto/lbank-test');
   },

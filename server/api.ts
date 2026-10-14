@@ -10,6 +10,7 @@ import type { CombinedPageSpeedResult } from './pagespeedTypes.ts';
 import { getAccountTrialStatus, TRIAL_EXPIRED_RESPONSE } from './trial.ts';
 import { monitorEngine } from './monitor.ts';
 import { createCryptoPaymentOrder, verifyPaymentOrder, testLBankConnection } from './lbank.ts';
+import { approvePaymentOrder, rejectPaymentOrder, cancelPaymentOrder } from './paymentApproval.ts';
 import {
   createSession as createDbSession,
   findSessionByToken,
@@ -45,6 +46,12 @@ async function resolveSession(req: IncomingMessage): Promise<{ user: User; org: 
   if (session && session.expiresAt > Date.now()) {
     const user = db.findUserById(session.userId);
     if (user) {
+      const cleanEmail = (user.email || '').trim().toLowerCase();
+      if (cleanEmail === 'admin@pulsevanguard.com' || cleanEmail === 'agency@acmedigital.com') {
+        sessionStore.delete(token);
+        deleteSessionByToken(token).catch(() => {});
+        return null;
+      }
       const org = db.findOrgById(user.orgId);
       if (org) return { user, org };
     }
@@ -54,6 +61,12 @@ async function resolveSession(req: IncomingMessage): Promise<{ user: User; org: 
   try {
     const dbSession = await findSessionByToken(token);
     if (dbSession && dbSession.expiresAt > Date.now()) {
+      const cleanEmail = (dbSession.user.email || '').trim().toLowerCase();
+      if (cleanEmail === 'admin@pulsevanguard.com' || cleanEmail === 'agency@acmedigital.com') {
+        sessionStore.delete(token);
+        await deleteSessionByToken(token).catch(() => {});
+        return null;
+      }
       sessionStore.set(token, {
         userId: dbSession.userId,
         orgId: dbSession.orgId,
@@ -70,6 +83,9 @@ async function resolveSession(req: IncomingMessage): Promise<{ user: User; org: 
 
 // Helper to read JSON body
 async function readJsonBody(req: IncomingMessage): Promise<any> {
+  if ((req as any).body && typeof (req as any).body === 'object') {
+    return (req as any).body;
+  }
   return new Promise((resolve, reject) => {
     let raw = '';
     req.on('data', (chunk) => {
@@ -101,7 +117,7 @@ function sendJson(res: ServerResponse, status: number, data: any) {
 }
 
 export async function handleApiRoute(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
-  const reqUrl = req.url || '';
+  const reqUrl = req.url || (req as any).originalUrl || '';
   if (!reqUrl.startsWith('/api/')) return false;
 
   const parsedUrl = new URL(reqUrl, 'http://localhost');
@@ -220,7 +236,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     // Dedicated PageSpeed endpoint (Mobile + Desktop, Core Web Vitals, Opportunities)
-    if (path === '/api/scanner/pagespeed' && method === 'POST') {
+    if (path === '/api/scanner/pagespeed' && (method === 'POST' || method === 'GET')) {
       const session = await resolveSession(req);
       if (session && session.org.planId === 'free' && session.user.role !== 'super_admin') {
         const trial = getAccountTrialStatus(session.org);
@@ -230,8 +246,26 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         }
       }
 
-      const body = await readJsonBody(req);
-      const target = body.url;
+      let target = '';
+      let forceRefresh = false;
+      let requestedStrategy: 'mobile' | 'desktop' | 'both' = 'both';
+
+      if (method === 'POST') {
+        const body = await readJsonBody(req);
+        target = body?.url;
+        forceRefresh = Boolean(body?.forceRefresh);
+        if (body?.strategy === 'mobile' || body?.strategy === 'desktop') {
+          requestedStrategy = body.strategy;
+        }
+      } else {
+        target = parsedUrl.searchParams.get('url') || '';
+        forceRefresh = parsedUrl.searchParams.get('forceRefresh') === 'true';
+        const strat = parsedUrl.searchParams.get('strategy');
+        if (strat === 'mobile' || strat === 'desktop') {
+          requestedStrategy = strat;
+        }
+      }
+
       if (!target || typeof target !== 'string') {
         sendJson(res, 400, { error: 'Please provide a valid website URL.' });
         return true;
@@ -239,7 +273,8 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
       try {
         const pageSpeedResult = await performPageSpeedAnalysis(target, {
-          forceRefresh: Boolean(body.forceRefresh),
+          forceRefresh,
+          strategy: requestedStrategy,
         });
 
         // Persist records
@@ -339,13 +374,18 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       };
       db.addOrganization(newOrg);
 
-      const isPrivilegedAdmin = cleanEmail.toLowerCase() === 'mobinalavi7491@gmail.com';
+      if (cleanEmail.toLowerCase() === 'admin@pulsevanguard.com' || cleanEmail.toLowerCase() === 'agency@acmedigital.com') {
+        sendJson(res, 400, { error: 'Registration with this reserved email address is not permitted.' });
+        return true;
+      }
+
+      const isTargetSuperAdmin = cleanEmail.toLowerCase() === 'mobinalavi7491@gmail.com';
       const newUser: User = {
         id: userId,
         email: cleanEmail.toLowerCase(),
         name: cleanName,
         passwordHash: hashPassword(cleanPassword),
-        role: isPrivilegedAdmin ? 'admin' : 'team_member',
+        role: isTargetSuperAdmin ? 'super_admin' : 'team_member',
         orgId,
         emailVerified: true,
         createdAt: new Date().toISOString(),
@@ -382,6 +422,13 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         return true;
       }
 
+      // Default demo accounts are permanently blocked and cannot log in
+      if (cleanEmail.toLowerCase() === 'admin@pulsevanguard.com' || cleanEmail.toLowerCase() === 'agency@acmedigital.com') {
+        console.log(`[AUTH DIAGNOSTIC] Login attempt rejected for decommissioned demo account.`);
+        sendJson(res, 401, { error: 'Invalid credentials. Please verify your email and password.' });
+        return true;
+      }
+
       const user = db.findUserByEmail(cleanEmail);
       if (!user) {
         console.log(`[AUTH DIAGNOSTIC] User not found by email.`);
@@ -400,6 +447,12 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       if (!isValidPassword) {
         sendJson(res, 401, { error: 'Invalid credentials. Please verify your email and password.' });
         return true;
+      }
+
+      // Ensure target account has super_admin role
+      if (user.email.toLowerCase() === 'mobinalavi7491@gmail.com' && user.role !== 'super_admin') {
+        user.role = 'super_admin';
+        db.updateUserRole(user.id, 'super_admin');
       }
 
       const org = db.findOrgById(user.orgId);
@@ -1041,6 +1094,28 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       return true;
     }
 
+    if (path.startsWith('/api/crypto/order/') && path.endsWith('/cancel') && method === 'POST') {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+
+      const orderId = path.replace('/api/crypto/order/', '').replace('/cancel', '').trim();
+      try {
+        const result = await cancelPaymentOrder(orderId, {
+          id: session.user.id,
+          email: session.user.email,
+          role: session.user.role,
+          orgId: session.org.id,
+        });
+        sendJson(res, 200, result);
+      } catch (err: any) {
+        sendJson(res, 400, { error: err.message || 'Failed to cancel order' });
+      }
+      return true;
+    }
+
     if (path === '/api/crypto/check-order' && method === 'POST') {
       const session = await resolveSession(req);
       if (!session) {
@@ -1207,7 +1282,82 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       return true;
     }
 
-    if (path === '/api/admin/crypto/orders' && method === 'GET') {
+    // Approve Payment Order (Admin only)
+    if (
+      (path.startsWith('/api/admin/crypto/orders/') || path.startsWith('/api/admin/payments/')) &&
+      path.endsWith('/approve') &&
+      method === 'POST'
+    ) {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      if (session.user.role !== 'super_admin' && session.user.role !== 'admin') {
+        sendJson(res, 403, { error: 'Admin access required to approve payments.' });
+        return true;
+      }
+      const orderId = path
+        .replace('/api/admin/crypto/orders/', '')
+        .replace('/api/admin/payments/', '')
+        .replace('/approve', '')
+        .trim();
+
+      try {
+        const result = await approvePaymentOrder(orderId, {
+          id: session.user.id,
+          email: session.user.email,
+          role: session.user.role,
+        });
+        sendJson(res, 200, result);
+      } catch (err: any) {
+        sendJson(res, 400, { error: err.message || 'Failed to approve payment.' });
+      }
+      return true;
+    }
+
+    // Reject Payment Order (Admin only)
+    if (
+      (path.startsWith('/api/admin/crypto/orders/') || path.startsWith('/api/admin/payments/')) &&
+      path.endsWith('/reject') &&
+      method === 'POST'
+    ) {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      if (session.user.role !== 'super_admin' && session.user.role !== 'admin') {
+        sendJson(res, 403, { error: 'Admin access required to reject payments.' });
+        return true;
+      }
+      const orderId = path
+        .replace('/api/admin/crypto/orders/', '')
+        .replace('/api/admin/payments/', '')
+        .replace('/reject', '')
+        .trim();
+
+      const body = await readJsonBody(req);
+      const reason = body?.reason;
+
+      try {
+        const result = await rejectPaymentOrder(
+          orderId,
+          {
+            id: session.user.id,
+            email: session.user.email,
+            role: session.user.role,
+          },
+          reason
+        );
+        sendJson(res, 200, result);
+      } catch (err: any) {
+        sendJson(res, 400, { error: err.message || 'Failed to reject payment.' });
+      }
+      return true;
+    }
+
+    if ((path === '/api/admin/crypto/orders' || path === '/api/admin/payments') && method === 'GET') {
       const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
