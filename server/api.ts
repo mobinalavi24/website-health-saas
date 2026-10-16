@@ -11,11 +11,41 @@ import { getAccountTrialStatus, TRIAL_EXPIRED_RESPONSE } from './trial.ts';
 import { monitorEngine } from './monitor.ts';
 import { createCryptoPaymentOrder, verifyPaymentOrder, testLBankConnection } from './lbank.ts';
 import { approvePaymentOrder, rejectPaymentOrder, cancelPaymentOrder } from './paymentApproval.ts';
+import { UserRepo, OrgRepo } from './db/repositories.ts';
+import {
+  generateUniqueReferralCodeForUser,
+  ensureUserReferralCode,
+  validateReferralCodeForRegistration,
+  applyReferralCodeToUser,
+  getUserReferralSummary,
+  createWithdrawalRequest,
+  getUserWithdrawalRequests,
+  getAdminWithdrawalRequests,
+  approveWithdrawalForPayout,
+  markWithdrawalAsPaid,
+  rejectWithdrawalRequest,
+  cancelWithdrawalRequest,
+  getAdminReferralOverview,
+} from './referrals.ts';
 import {
   createSession as createDbSession,
   findSessionByToken,
   deleteSessionByToken,
 } from './db/sessionRepo.ts';
+
+function getPublicOrigin(req: IncomingMessage): string {
+  const configured = process.env.PUBLIC_APP_URL || process.env.APP_URL || process.env.VITE_APP_URL;
+  if (configured && configured.trim()) {
+    return configured.trim().replace(/\/+$/, '');
+  }
+  const originHeader = req.headers['origin'];
+  if (typeof originHeader === 'string' && originHeader.startsWith('http')) {
+    return originHeader.replace(/\/+$/, '');
+  }
+  const proto = (req.headers['x-forwarded-proto'] as string)?.split(',')[0]?.trim() || 'http';
+  const host = (req.headers['x-forwarded-host'] as string)?.split(',')[0]?.trim() || req.headers['host'] || 'localhost:5173';
+  return `${proto}://${host}`;
+}
 
 // Token mechanism with in-memory caching + PostgreSQL persistence
 const sessionStore = new Map<string, { userId: string; orgId: string; expiresAt: number }>();
@@ -340,7 +370,9 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
     // 3. AUTHENTICATION ENDPOINTS
     if (path === '/api/auth/register' && method === 'POST') {
-      const { email, password, name, orgName } = await readJsonBody(req);
+      const body = await readJsonBody(req);
+      const { email, password, name, orgName } = body;
+      const rawRefCode = body.referralCode || body.ref || parsedUrl.searchParams.get('ref') || '';
       const cleanEmail = typeof email === 'string' ? email.trim() : '';
       const cleanPassword = typeof password === 'string' ? password : '';
       const cleanName = typeof name === 'string' ? name.trim() : '';
@@ -348,13 +380,34 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 400, { error: 'Name, email, and password are required.' });
         return true;
       }
+      if (cleanEmail.toLowerCase() === 'admin@pulsevanguard.com' || cleanEmail.toLowerCase() === 'agency@acmedigital.com') {
+        sendJson(res, 400, { error: 'Registration with this reserved email address is not permitted.' });
+        return true;
+      }
       if (db.findUserByEmail(cleanEmail)) {
         sendJson(res, 409, { error: 'An account with this email address already exists.' });
         return true;
       }
 
-      const orgId = `org_${Date.now()}`;
-      const userId = `usr_${Date.now()}`;
+      await db.ensureSchema();
+
+      // Validate referral code if provided during registration
+      let referredByUserId: string | undefined;
+      let referredByCode: string | undefined;
+      if (typeof rawRefCode === 'string' && rawRefCode.trim().length > 0) {
+        const refValidation = await validateReferralCodeForRegistration(rawRefCode, cleanEmail);
+        if (!refValidation.valid) {
+          sendJson(res, 400, { error: refValidation.error || 'Invalid referral code.' });
+          return true;
+        }
+        if (refValidation.referrer) {
+          referredByUserId = refValidation.referrer.id;
+          referredByCode = refValidation.referrer.referralCode;
+        }
+      }
+
+      const orgId = `org_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`;
+      const userId = `usr_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`;
       const nowIso = new Date().toISOString();
       const trialEndsIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
@@ -373,12 +426,11 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         createdAt: nowIso,
       };
       db.addOrganization(newOrg);
+      try {
+        await OrgRepo.insert(newOrg);
+      } catch {}
 
-      if (cleanEmail.toLowerCase() === 'admin@pulsevanguard.com' || cleanEmail.toLowerCase() === 'agency@acmedigital.com') {
-        sendJson(res, 400, { error: 'Registration with this reserved email address is not permitted.' });
-        return true;
-      }
-
+      const uniqueReferralCode = await generateUniqueReferralCodeForUser(userId, cleanEmail);
       const isTargetSuperAdmin = cleanEmail.toLowerCase() === 'mobinalavi7491@gmail.com';
       const newUser: User = {
         id: userId,
@@ -388,14 +440,31 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         role: isTargetSuperAdmin ? 'super_admin' : 'team_member',
         orgId,
         emailVerified: true,
-        createdAt: new Date().toISOString(),
+        referralCode: uniqueReferralCode,
+        referredByUserId,
+        referredByCode,
+        referredAt: referredByUserId ? nowIso : undefined,
+        createdAt: nowIso,
       };
       db.addUser(newUser);
+      try {
+        await UserRepo.insert(newUser);
+      } catch {}
 
       const token = createSession(userId, orgId);
       sendJson(res, 201, {
         token,
-        user: { id: newUser.id, email: newUser.email, name: newUser.name, role: newUser.role, orgId },
+        user: {
+          id: newUser.id,
+          email: newUser.email,
+          name: newUser.name,
+          role: newUser.role,
+          orgId,
+          referralCode: newUser.referralCode,
+          referredByUserId: newUser.referredByUserId,
+          referredByCode: newUser.referredByCode,
+          referredAt: newUser.referredAt,
+        },
         organization: newOrg,
       });
       return true;
@@ -455,11 +524,28 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         db.updateUserRole(user.id, 'super_admin');
       }
 
+      if (!user.referralCode) {
+        try {
+          user.referralCode = await ensureUserReferralCode(user.id);
+        } catch {}
+      }
+
       const org = db.findOrgById(user.orgId);
       const token = createSession(user.id, user.orgId);
       sendJson(res, 200, {
         token,
-        user: { id: user.id, email: user.email, name: user.name, role: user.role, orgId: user.orgId, avatarUrl: user.avatarUrl },
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          orgId: user.orgId,
+          avatarUrl: user.avatarUrl,
+          referralCode: user.referralCode,
+          referredByUserId: user.referredByUserId,
+          referredByCode: user.referredByCode,
+          referredAt: user.referredAt,
+        },
         organization: org,
       });
       return true;
@@ -471,9 +557,25 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
+      if (!session.user.referralCode) {
+        try {
+          session.user.referralCode = await ensureUserReferralCode(session.user.id);
+        } catch {}
+      }
       const trialStatus = getAccountTrialStatus(session.org);
       sendJson(res, 200, {
-        user: { id: session.user.id, email: session.user.email, name: session.user.name, role: session.user.role, orgId: session.user.orgId, avatarUrl: session.user.avatarUrl },
+        user: {
+          id: session.user.id,
+          email: session.user.email,
+          name: session.user.name,
+          role: session.user.role,
+          orgId: session.user.orgId,
+          avatarUrl: session.user.avatarUrl,
+          referralCode: session.user.referralCode,
+          referredByUserId: session.user.referredByUserId,
+          referredByCode: session.user.referredByCode,
+          referredAt: session.user.referredAt,
+        },
         organization: session.org,
         accountStatus: {
           plan: session.org.planId,
@@ -1058,6 +1160,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       const body = await readJsonBody(req);
       const planId = body.planId || 'pro';
       const billingInterval = body.interval === 'annual' ? 'annual' : 'monthly';
+      const referralCode = body.referralCode || body.ref || undefined;
 
       try {
         const order = await createCryptoPaymentOrder({
@@ -1066,6 +1169,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           userEmail: session.user.email,
           planId,
           billingInterval,
+          referralCode,
         });
 
         sendJson(res, 201, { success: true, order });
@@ -1196,6 +1300,104 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       return true;
     }
 
+    // --- 8.5 REFERRAL, COMMISSION WALLET & WITHDRAWAL SYSTEM ---
+    if (path === '/api/referrals/validate' && method === 'POST') {
+      const session = await resolveSession(req);
+      const body = await readJsonBody(req);
+      const code = body?.referralCode || body?.code || '';
+      const email = body?.email || session?.user?.email || '';
+      await db.ensureSchema();
+      const validation = await validateReferralCodeForRegistration(code, email);
+      if (!validation.valid) {
+        sendJson(res, 400, { valid: false, error: validation.error });
+        return true;
+      }
+      sendJson(res, 200, {
+        valid: true,
+        referralCode: validation.referrer?.referralCode,
+        referrerName: validation.referrer?.name,
+      });
+      return true;
+    }
+
+    if ((path === '/api/referrals/me' || path === '/api/profile/referrals') && method === 'GET') {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      await db.ensureSchema();
+      try {
+        const summary = await getUserReferralSummary(session.user.id, getPublicOrigin(req));
+        sendJson(res, 200, summary);
+      } catch (err: any) {
+        sendJson(res, 400, { error: err.message || 'Failed to load referral profile' });
+      }
+      return true;
+    }
+
+    if (path === '/api/referrals/apply' && method === 'POST') {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      const body = await readJsonBody(req);
+      const code = body?.referralCode || body?.code || '';
+      await db.ensureSchema();
+      try {
+        const result = await applyReferralCodeToUser(session.user.id, code);
+        sendJson(res, 200, result);
+      } catch (err: any) {
+        sendJson(res, 400, { error: err.message || 'Failed to apply referral code' });
+      }
+      return true;
+    }
+
+    if ((path === '/api/withdrawals' || path === '/api/referrals/withdrawals') && method === 'GET') {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      await db.ensureSchema();
+      try {
+        const requests = await getUserWithdrawalRequests(session.user.id);
+        sendJson(res, 200, requests);
+      } catch (err: any) {
+        sendJson(res, 400, { error: err.message || 'Failed to fetch withdrawal history' });
+      }
+      return true;
+    }
+
+    if ((path === '/api/withdrawals' || path === '/api/referrals/withdrawals') && method === 'POST') {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      const body = await readJsonBody(req);
+      const amount = body?.amountUsd ?? body?.amount;
+      const walletAddress = body?.walletAddress || body?.address || '';
+      await db.ensureSchema();
+      try {
+        const request = await createWithdrawalRequest({
+          userId: session.user.id,
+          amount,
+          walletAddress,
+        });
+        sendJson(res, 201, {
+          success: true,
+          request,
+          withdrawal: request,
+          message: `Withdrawal request of $${request.amount.toFixed(2)} USD submitted and funds reserved.`,
+        });
+      } catch (err: any) {
+        sendJson(res, 400, { error: err.message || 'Failed to submit withdrawal request' });
+      }
+      return true;
+    }
+
     // 9. SUPPORT TICKETS
     if (path === '/api/tickets' && method === 'GET') {
       const session = await resolveSession(req);
@@ -1243,12 +1445,14 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         return true;
       }
 
+      await db.ensureSchema();
       const users = db.getUsers();
       const orgs = db.getOrganizations();
       const sites = db.getWebsites();
       const incidents = db.getIncidents();
       const invoices = db.getInvoices();
       const totalRevenue = invoices.filter((i) => i.status === 'paid').reduce((acc, curr) => acc + curr.amount, 0);
+      const referralOverview = await getAdminReferralOverview();
 
       sendJson(res, 200, {
         totalUsers: users.length,
@@ -1261,6 +1465,13 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         totalRevenue,
         workerStats: monitorEngine.getStats(),
         settings: db.getSettings(),
+        referralOverview,
+        totalReferralCommissionsGenerated: referralOverview.totalReferralCommissionsGenerated,
+        totalAvailableReferralLiabilities: referralOverview.totalAvailableReferralLiabilities,
+        totalReservedForPendingWithdrawals: referralOverview.totalReservedForPendingWithdrawals,
+        pendingWithdrawalRequestsCount: referralOverview.pendingWithdrawalRequestsCount,
+        totalSuccessfullyPaidWithdrawals: referralOverview.totalSuccessfullyPaidWithdrawals,
+        totalRejectedRequestsCount: referralOverview.totalRejectedRequestsCount,
       });
       return true;
     }
@@ -1277,8 +1488,198 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         name: u.name,
         role: u.role,
         orgId: u.orgId,
+        referralCode: u.referralCode,
+        referredByUserId: u.referredByUserId,
+        referredByCode: u.referredByCode,
         createdAt: u.createdAt,
       })));
+      return true;
+    }
+
+    // Admin Withdrawal Management Endpoints
+    if (path === '/api/admin/referrals/overview' && method === 'GET') {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      if (session.user.role !== 'super_admin' && session.user.role !== 'admin') {
+        sendJson(res, 403, { error: 'Admin privilege required' });
+        return true;
+      }
+      await db.ensureSchema();
+      const overview = await getAdminReferralOverview();
+      sendJson(res, 200, overview);
+      return true;
+    }
+
+    if (path === '/api/admin/withdrawals' && method === 'GET') {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      if (session.user.role !== 'super_admin' && session.user.role !== 'admin') {
+        sendJson(res, 403, { error: 'Admin privilege required to view withdrawal requests' });
+        return true;
+      }
+      await db.ensureSchema();
+      const [requests, overview] = await Promise.all([
+        getAdminWithdrawalRequests({
+          id: session.user.id,
+          email: session.user.email,
+          role: session.user.role,
+        }),
+        getAdminReferralOverview(),
+      ]);
+      sendJson(res, 200, { requests, overview });
+      return true;
+    }
+
+    if (path.startsWith('/api/admin/withdrawals/') && path.endsWith('/approve') && method === 'POST') {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      if (session.user.role !== 'super_admin' && session.user.role !== 'admin') {
+        sendJson(res, 403, { error: 'Admin access required to approve withdrawals.' });
+        return true;
+      }
+      const withdrawalId = path
+        .replace('/api/admin/withdrawals/', '')
+        .replace('/approve', '')
+        .trim();
+
+      await db.ensureSchema();
+      try {
+        const result = await approveWithdrawalForPayout(withdrawalId, {
+          id: session.user.id,
+          email: session.user.email,
+          role: session.user.role,
+        });
+        sendJson(res, 200, {
+          ...result,
+          request: result.withdrawal,
+        });
+      } catch (err: any) {
+        sendJson(res, 400, { error: err.message || 'Failed to approve withdrawal.' });
+      }
+      return true;
+    }
+
+    if (
+      path.startsWith('/api/admin/withdrawals/') &&
+      (path.endsWith('/mark-paid') || path.endsWith('/pay')) &&
+      method === 'POST'
+    ) {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      if (session.user.role !== 'super_admin' && session.user.role !== 'admin') {
+        sendJson(res, 403, { error: 'Admin access required to mark withdrawals as paid.' });
+        return true;
+      }
+      const withdrawalId = path
+        .replace('/api/admin/withdrawals/', '')
+        .replace('/mark-paid', '')
+        .replace('/pay', '')
+        .trim();
+
+      const body = await readJsonBody(req);
+      const txHash = body?.txHash || body?.txId || '';
+
+      await db.ensureSchema();
+      try {
+        const result = await markWithdrawalAsPaid(
+          withdrawalId,
+          {
+            id: session.user.id,
+            email: session.user.email,
+            role: session.user.role,
+          },
+          txHash
+        );
+        sendJson(res, 200, {
+          ...result,
+          request: result.withdrawal,
+        });
+      } catch (err: any) {
+        sendJson(res, 400, { error: err.message || 'Failed to mark withdrawal as paid.' });
+      }
+      return true;
+    }
+
+    if (path.startsWith('/api/admin/withdrawals/') && path.endsWith('/reject') && method === 'POST') {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      if (session.user.role !== 'super_admin' && session.user.role !== 'admin') {
+        sendJson(res, 403, { error: 'Admin access required to reject withdrawals.' });
+        return true;
+      }
+      const withdrawalId = path
+        .replace('/api/admin/withdrawals/', '')
+        .replace('/reject', '')
+        .trim();
+
+      const body = await readJsonBody(req);
+      const reason = body?.reason;
+
+      await db.ensureSchema();
+      try {
+        const result = await rejectWithdrawalRequest(
+          withdrawalId,
+          {
+            id: session.user.id,
+            email: session.user.email,
+            role: session.user.role,
+          },
+          reason
+        );
+        sendJson(res, 200, {
+          ...result,
+          request: result.withdrawal,
+        });
+      } catch (err: any) {
+        sendJson(res, 400, { error: err.message || 'Failed to reject withdrawal.' });
+      }
+      return true;
+    }
+
+    if (path.startsWith('/api/admin/withdrawals/') && path.endsWith('/cancel') && method === 'POST') {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      if (session.user.role !== 'super_admin' && session.user.role !== 'admin') {
+        sendJson(res, 403, { error: 'Admin access required to cancel withdrawals.' });
+        return true;
+      }
+      const withdrawalId = path
+        .replace('/api/admin/withdrawals/', '')
+        .replace('/cancel', '')
+        .trim();
+
+      await db.ensureSchema();
+      try {
+        const result = await cancelWithdrawalRequest(withdrawalId, {
+          id: session.user.id,
+          email: session.user.email,
+          role: session.user.role,
+        });
+        sendJson(res, 200, {
+          ...result,
+          request: result.withdrawal,
+        });
+      } catch (err: any) {
+        sendJson(res, 400, { error: err.message || 'Failed to cancel withdrawal.' });
+      }
       return true;
     }
 

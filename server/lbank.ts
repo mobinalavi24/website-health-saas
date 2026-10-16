@@ -1,6 +1,12 @@
 import crypto from 'node:crypto';
 import QRCode from 'qrcode';
 import { db, type CryptoPaymentOrder, type CryptoPaymentStatus } from './db.ts';
+import { CryptoOrderRepo, OrgRepo } from './db/repositories.ts';
+import {
+  applyReferralCodeToUser,
+  normalizeReferralCode,
+  processOrderReferralCommission,
+} from './referrals.ts';
 
 // USDT TRC20 Contract Address on TRON Mainnet
 export const TRON_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
@@ -298,6 +304,7 @@ export async function createCryptoPaymentOrder(params: {
   userEmail: string;
   planId: 'pro' | 'agency' | 'enterprise';
   billingInterval: 'monthly' | 'annual';
+  referralCode?: string;
 }): Promise<CryptoPaymentOrder> {
   const plan = db.getPlans().find((p) => p.id === params.planId);
   if (!plan) throw new Error('Invalid plan selected');
@@ -308,6 +315,17 @@ export async function createCryptoPaymentOrder(params: {
 
   if (amount <= 0) {
     throw new Error('Selected plan is free and does not require cryptocurrency payment.');
+  }
+
+  let user = db.findUserById(params.userId) || db.findUserByEmail(params.userEmail);
+
+  // If a referral code was provided during checkout, validate and apply it if not already referred by the same code
+  if (params.referralCode && params.referralCode.trim().length > 0) {
+    const cleanRef = normalizeReferralCode(params.referralCode);
+    if (!user?.referredByCode || normalizeReferralCode(user.referredByCode) !== cleanRef) {
+      await applyReferralCodeToUser(params.userId, cleanRef);
+      user = db.findUserById(params.userId) || db.findUserByEmail(params.userEmail);
+    }
   }
 
   const depositAddress = await getLBankDepositAddress();
@@ -345,10 +363,17 @@ export async function createCryptoPaymentOrder(params: {
     qrDataUrl,
     status: 'Pending',
     expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 60 minutes
+    referralCode: user?.referredByCode || undefined,
+    referrerUserId: user?.referredByUserId || undefined,
     createdAt: new Date().toISOString(),
   };
 
   db.addCryptoOrder(order);
+  try {
+    await CryptoOrderRepo.insert(order);
+  } catch {
+    // Synced asynchronously by db.addCryptoOrder as fallback
+  }
   return order;
 }
 
@@ -426,7 +451,7 @@ export async function verifyPaymentOrder(orderId: string, manualTxId?: string): 
       }
 
       // Valid on-chain payment confirmed!
-      return activatePaidOrder(order, cleanTxId, 'Verified via TRON blockchain transaction inspection');
+      return await activatePaidOrder(order, cleanTxId, 'Verified via TRON blockchain transaction inspection');
     }
   }
 
@@ -452,7 +477,7 @@ export async function verifyPaymentOrder(orderId: string, manualTxId?: string): 
       }
 
       const txIdentifier = depTxId || `lbank_dep_${Date.now()}`;
-      return activatePaidOrder(order, txIdentifier, 'Verified via LBank Official Deposit History API');
+      return await activatePaidOrder(order, txIdentifier, 'Verified via LBank Official Deposit History API');
     }
   }
 
@@ -481,7 +506,7 @@ export async function verifyPaymentOrder(orderId: string, manualTxId?: string): 
         };
       }
 
-      return activatePaidOrder(order, transfer.txId, 'Verified via TRON TRC20 Blockchain Transfer');
+      return await activatePaidOrder(order, transfer.txId, 'Verified via TRON TRC20 Blockchain Transfer');
     }
   }
 
@@ -493,20 +518,25 @@ export async function verifyPaymentOrder(orderId: string, manualTxId?: string): 
 }
 
 /**
- * Marks order as Paid and activates user plan atomically
+ * Marks order as Paid, activates user plan atomically, and credits 40% referral commission if eligible
  */
-function activatePaidOrder(
+async function activatePaidOrder(
   order: CryptoPaymentOrder,
   txId: string,
   verificationLog: string
-): { order: CryptoPaymentOrder; activated: boolean; message: string } {
+): Promise<{ order: CryptoPaymentOrder; activated: boolean; message: string }> {
+  const confirmedAt = new Date().toISOString();
   // Update order status
   const updatedOrder = db.updateCryptoOrder(order.id, {
     status: 'Paid',
     txId,
-    confirmedAt: new Date().toISOString(),
+    confirmedAt,
     verificationLog,
-  }) || { ...order, status: 'Paid', txId };
+  }) || { ...order, status: 'Paid', txId, confirmedAt, verificationLog };
+
+  try {
+    await CryptoOrderRepo.insert(updatedOrder);
+  } catch {}
 
   // Activate organization plan
   const org = db.getOrganizations().find((o) => o.id === order.orgId);
@@ -514,14 +544,18 @@ function activatePaidOrder(
     org.planId = order.planId;
     org.billingInterval = order.billingInterval;
     org.currency = 'USD';
+    org.trialUsed = true;
     db.persist();
+    try {
+      await OrgRepo.insert(org);
+    } catch {}
 
     // Create official invoice record
     db.addInvoice({
       id: `inv_crypto_${Date.now()}`,
       orgId: org.id,
       invoiceNumber: `INV-USDT-${Math.floor(1000 + Math.random() * 9000)}`,
-      date: new Date().toISOString(),
+      date: confirmedAt,
       amount: order.amount,
       currency: 'USDT',
       status: 'paid',
@@ -537,8 +571,15 @@ function activatePaidOrder(
       action: 'CRYPTO_SUBSCRIPTION_ACTIVATED',
       target: order.planName,
       details: `Plan upgraded to ${order.planId.toUpperCase()} via ${order.amount} USDT (TRC20). TXID: ${txId}`,
-      timestamp: new Date().toISOString(),
+      timestamp: confirmedAt,
     });
+  }
+
+  // Credit 40% referral commission idempotently in PostgreSQL
+  try {
+    await processOrderReferralCommission(updatedOrder);
+  } catch (err: any) {
+    console.error('[Referral] Error crediting commission in activatePaidOrder:', err?.message);
   }
 
   return {

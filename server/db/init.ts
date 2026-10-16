@@ -16,17 +16,35 @@ export function cleanSqlStatements(sql: string): string[] {
     .filter((s) => s.length > 0);
 }
 
-export async function initSchema(): Promise<void> {
-  const schemaPath = path.resolve(process.cwd(), 'server/db/schema.sql');
-  const sql = fs.readFileSync(schemaPath, 'utf8');
-  const statements = cleanSqlStatements(sql);
+let initInFlight: Promise<void> | null = null;
 
-  for (const statement of statements) {
-    try {
-      await query(statement);
-    } catch (err: any) {
-      console.error(`[PostgreSQL Init Error]: Failed executing statement:\n${statement.substring(0, 100)}...\nError:`, err.message);
-      throw err;
+export async function initSchema(): Promise<void> {
+  if (initInFlight) {
+    return initInFlight;
+  }
+
+  initInFlight = (async () => {
+    const schemaPath = path.resolve(process.cwd(), 'server/db/schema.sql');
+    const sql = fs.readFileSync(schemaPath, 'utf8');
+    const statements = cleanSqlStatements(sql);
+
+    for (const statement of statements) {
+      try {
+        await query(statement);
+      } catch (err: any) {
+        // Ignore benign PostgreSQL concurrent IF NOT EXISTS catalog race (23505 pg_class_relname_nsp_index / 42P07 duplicate_table)
+        if (err?.code === '23505' || err?.code === '42P07') {
+          continue;
+        }
+        console.error(`[PostgreSQL Init Error]: Failed executing statement:\n${statement.substring(0, 100)}...\nError:`, err.message);
+        throw err;
+      }
     }
+  })();
+
+  try {
+    await initInFlight;
+  } finally {
+    initInFlight = null;
   }
 }

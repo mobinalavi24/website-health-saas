@@ -26,6 +26,10 @@ export interface User {
   orgId: string;
   avatarUrl?: string;
   emailVerified: boolean;
+  referralCode?: string;
+  referredByUserId?: string;
+  referredByCode?: string;
+  referredAt?: string;
   createdAt: string;
 }
 
@@ -128,7 +132,7 @@ export interface AlertNotification {
   orgId: string;
   websiteId?: string;
   websiteName?: string;
-  type: 'downtime' | 'recovery' | 'ssl_expiry' | 'latency' | 'security';
+  type: 'downtime' | 'recovery' | 'ssl_expiry' | 'latency' | 'security' | 'referral' | 'withdrawal';
   severity: 'critical' | 'warning' | 'info';
   title: string;
   message: string;
@@ -208,6 +212,8 @@ export interface CryptoPaymentOrder {
   rejectedBy?: string;
   rejectedAt?: string;
   rejectionReason?: string;
+  referralCode?: string;
+  referrerUserId?: string;
   createdAt: string;
 }
 
@@ -441,10 +447,17 @@ class Database {
             const clean = (u.email || '').trim().toLowerCase();
             return clean !== 'admin@pulsevanguard.com' && clean !== 'agency@acmedigital.com';
           });
-          // Guarantee mobinalavi7491@gmail.com is Super Admin
+          const usedCodes = new Set<string>();
+          for (const u of parsed.users) {
+            if (u.referralCode) usedCodes.add(String(u.referralCode).toUpperCase());
+          }
+          // Guarantee mobinalavi7491@gmail.com is Super Admin and backfill referralCode
           for (const u of parsed.users) {
             if (u.email && u.email.trim().toLowerCase() === 'mobinalavi7491@gmail.com') {
               u.role = 'super_admin';
+            }
+            if (!u.referralCode) {
+              u.referralCode = this.generateUniqueCodeSync(`${u.id}:${u.email}`, usedCodes);
             }
           }
         }
@@ -881,6 +894,24 @@ class Database {
   public getAuditLogs() { return this.data.auditLogs; }
   public getSettings() { return this.data.settings; }
 
+  private generateUniqueCodeSync(seed: string, usedCodes: Set<string>): string {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const hash = crypto.createHash('sha256').update(`${seed}:${attempt}`).digest();
+      let code = 'PV';
+      for (let i = 0; i < 6; i++) {
+        code += alphabet[hash[i] % alphabet.length];
+      }
+      if (!usedCodes.has(code)) {
+        usedCodes.add(code);
+        return code;
+      }
+    }
+    const fallback = 'PV' + crypto.randomBytes(4).toString('hex').toUpperCase().slice(0, 6);
+    usedCodes.add(fallback);
+    return fallback;
+  }
+
   public async initFromPostgres(): Promise<void> {
     try {
       const [
@@ -923,9 +954,16 @@ class Database {
           const clean = (u.email || '').trim().toLowerCase();
           return clean !== 'admin@pulsevanguard.com' && clean !== 'agency@acmedigital.com';
         });
+        const usedCodes = new Set<string>();
+        for (const u of this.data.users) {
+          if (u.referralCode) usedCodes.add(String(u.referralCode).toUpperCase());
+        }
         for (const u of this.data.users) {
           if (u.email && u.email.trim().toLowerCase() === 'mobinalavi7491@gmail.com') {
             u.role = 'super_admin';
+          }
+          if (!u.referralCode) {
+            u.referralCode = this.generateUniqueCodeSync(`${u.id}:${u.email}`, usedCodes);
           }
         }
       }
@@ -987,6 +1025,12 @@ class Database {
     return this.data.users.find((u) => u.id === id);
   }
 
+  public findUserByReferralCode(code: string) {
+    if (!code || typeof code !== 'string') return undefined;
+    const clean = code.trim().toUpperCase();
+    return this.data.users.find((u) => u.referralCode && u.referralCode.trim().toUpperCase() === clean);
+  }
+
   public removeUserByEmail(email: string): boolean {
     if (!email) return false;
     const clean = email.trim().toLowerCase();
@@ -1016,6 +1060,12 @@ class Database {
     }
     if (cleanEmail === 'mobinalavi7491@gmail.com') {
       user.role = 'super_admin';
+    }
+    if (!user.referralCode) {
+      const usedCodes = new Set(
+        this.data.users.map((u) => (u.referralCode ? u.referralCode.toUpperCase() : '')).filter(Boolean)
+      );
+      user.referralCode = this.generateUniqueCodeSync(`${user.id}:${user.email}`, usedCodes);
     }
     this.data.users.push(user);
     this.persist();

@@ -12,6 +12,8 @@ import { ApiDocsView } from './components/ApiDocsView.tsx';
 import { AdminView } from './components/AdminView.tsx';
 import { AdminCryptoTransactionsView } from './components/AdminCryptoTransactionsView.tsx';
 import { MyCryptoPaymentsView } from './components/MyCryptoPaymentsView.tsx';
+import { ProfileReferralView } from './components/ProfileReferralView.tsx';
+import { AdminWithdrawalsView } from './components/AdminWithdrawalsView.tsx';
 import { AddWebsiteModal } from './components/AddWebsiteModal.tsx';
 import { AuthModal } from './components/AuthModal.tsx';
 import { ContactModal } from './components/ContactModal.tsx';
@@ -36,6 +38,7 @@ export default function App() {
   // Modals
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState<'login' | 'register'>('login');
+  const [initialReferralCode, setInitialReferralCode] = useState<string>('');
   const [addWebsiteModalOpen, setAddWebsiteModalOpen] = useState(false);
   const [prefilledAddUrl, setPrefilledAddUrl] = useState('');
   const [contactModalOpen, setContactModalOpen] = useState(false);
@@ -50,6 +53,17 @@ export default function App() {
   }, []);
 
   const bootstrapSession = async () => {
+    const params = new URLSearchParams(window.location.search);
+    const refParam = (params.get('ref') || params.get('referral') || '').trim().toUpperCase();
+    const isRegisterPath = window.location.pathname.toLowerCase() === '/register';
+
+    if (refParam) {
+      setInitialReferralCode(refParam);
+      try {
+        sessionStorage.setItem('pv_referral_code', refParam);
+      } catch {}
+    }
+
     try {
       const p = await apiClient.getPlans();
       setPlans(p);
@@ -60,9 +74,16 @@ export default function App() {
         setOrganization(me.organization);
         setActiveView('dashboard');
         await loadUserData();
+      } else if (refParam || isRegisterPath) {
+        setAuthModalTab('register');
+        setAuthModalOpen(true);
       }
     } catch {
-      // User is unauthenticated guest; stay on home view
+      // User is unauthenticated guest; open register modal if arrived via referral link
+      if (refParam || isRegisterPath) {
+        setAuthModalTab('register');
+        setAuthModalOpen(true);
+      }
     }
   };
 
@@ -239,6 +260,7 @@ export default function App() {
             <div className="space-y-6">
               <BillingView
                 organization={organization}
+                user={user}
                 currency={currency}
                 onCurrencyChange={setCurrency}
                 onRefreshOrg={loadUserData}
@@ -347,6 +369,7 @@ export default function App() {
           {activeView === 'billing' && (
             <BillingView
               organization={organization}
+              user={user}
               currency={currency}
               onCurrencyChange={setCurrency}
               onRefreshOrg={loadUserData}
@@ -355,12 +378,24 @@ export default function App() {
 
           {activeView === 'api-docs' && <ApiDocsView />}
 
+          {activeView === 'profile-referrals' && user && (
+            <ProfileReferralView
+              user={user}
+              organization={organization}
+              onRefreshUser={bootstrapSession}
+            />
+          )}
+
           {activeView === 'my-crypto-payments' && user && (
             <MyCryptoPaymentsView onNavigateToBilling={() => setActiveView('billing')} />
           )}
 
           {activeView === 'admin-crypto-transactions' && (user?.role === 'admin' || user?.role === 'super_admin') && (
             <AdminCryptoTransactionsView />
+          )}
+
+          {activeView === 'admin-withdrawals' && (user?.role === 'admin' || user?.role === 'super_admin') && (
+            <AdminWithdrawalsView />
           )}
 
           {activeView === 'admin' && user?.role === 'super_admin' && (
@@ -390,6 +425,7 @@ export default function App() {
         onClose={() => setAuthModalOpen(false)}
         onSuccess={handleLoginSuccess}
         initialTab={authModalTab}
+        initialReferralCode={initialReferralCode}
       />
 
       {/* Contact & Support Modal */}

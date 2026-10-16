@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Check, CreditCard, Download, FileText, ArrowRight, Sparkles, QrCode, ExternalLink, RefreshCw, AlertCircle, X, Lock } from 'lucide-react';
+import { Shield, Check, CreditCard, Download, FileText, ArrowRight, Sparkles, QrCode, ExternalLink, RefreshCw, AlertCircle, X, Lock, Gift } from 'lucide-react';
 import { apiClient } from '../api/client.ts';
-import type { SubscriptionPlan, Organization, Invoice, CryptoPaymentOrder, LBankConnectionTestResult } from '../types.ts';
+import type { SubscriptionPlan, Organization, Invoice, CryptoPaymentOrder, LBankConnectionTestResult, User } from '../types.ts';
 import { CryptoPaymentModal } from './CryptoPaymentModal.tsx';
 
 interface BillingViewProps {
   organization: Organization | null;
+  user?: User | null;
   currency: 'USD' | 'EUR' | 'GBP';
   onCurrencyChange: (c: 'USD' | 'EUR' | 'GBP') => void;
   onRefreshOrg: () => void;
@@ -13,6 +14,7 @@ interface BillingViewProps {
 
 export const BillingView: React.FC<BillingViewProps> = ({
   organization,
+  user,
   currency,
   onCurrencyChange,
   onRefreshOrg,
@@ -27,6 +29,23 @@ export const BillingView: React.FC<BillingViewProps> = ({
   const [testingLBank, setTestingLBank] = useState(false);
   const [lbankTestResult, setLbankTestResult] = useState<LBankConnectionTestResult | null>(null);
   const [showTestModal, setShowTestModal] = useState(false);
+
+  // Checkout referral code state
+  const [checkoutReferralCode, setCheckoutReferralCode] = useState('');
+  const [applyingReferral, setApplyingReferral] = useState(false);
+  const [referralError, setReferralError] = useState<string | null>(null);
+  const [referralAppliedCode, setReferralAppliedCode] = useState<string | null>(user?.referredByCode || null);
+
+  useEffect(() => {
+    if (user?.referredByCode) {
+      setReferralAppliedCode(user.referredByCode);
+    } else {
+      try {
+        const savedRef = sessionStorage.getItem('pv_referral_code');
+        if (savedRef) setCheckoutReferralCode(savedRef);
+      } catch {}
+    }
+  }, [user?.referredByCode]);
 
   useEffect(() => {
     loadBillingData();
@@ -44,6 +63,28 @@ export const BillingView: React.FC<BillingViewProps> = ({
       setCryptoOrders(cryptOrders);
     } catch (e) {
       console.error('Failed to load billing data', e);
+    }
+  };
+
+  const handleApplyCheckoutReferral = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = checkoutReferralCode.trim().toUpperCase();
+    if (!code) return;
+    setApplyingReferral(true);
+    setReferralError(null);
+    try {
+      const res = await apiClient.applyReferralCode(code);
+      setReferralAppliedCode(res.referralCode || code);
+      setActionSuccessToast(res.message || `Referral code ${code} applied!`);
+      setTimeout(() => setActionSuccessToast(null), 4000);
+      try {
+        sessionStorage.removeItem('pv_referral_code');
+      } catch {}
+      onRefreshOrg();
+    } catch (err: any) {
+      setReferralError(err.message || 'Invalid or ineligible referral code.');
+    } finally {
+      setApplyingReferral(false);
     }
   };
 
@@ -91,12 +132,20 @@ export const BillingView: React.FC<BillingViewProps> = ({
 
     // Cryptocurrency Payment Flow (USDT TRC20 / LBank)
     setLoading(true);
+    setReferralError(null);
     try {
-      const res = await apiClient.createCryptoOrder(planId, interval);
+      const pendingRef = !referralAppliedCode && checkoutReferralCode.trim()
+        ? checkoutReferralCode.trim().toUpperCase()
+        : undefined;
+      const res = await apiClient.createCryptoOrder(planId, interval, pendingRef);
       if (res.success && res.order) {
+        if (pendingRef) {
+          setReferralAppliedCode(pendingRef);
+        }
         setCryptoModalOrder(res.order);
       }
     } catch (err: any) {
+      setReferralError(err.message || null);
       alert(`Error creating crypto payment order: ${err.message}`);
     } finally {
       setLoading(false);
@@ -186,6 +235,59 @@ export const BillingView: React.FC<BillingViewProps> = ({
         <div className="p-3 rounded-lg bg-emerald-950/30 border border-emerald-800 text-xs text-emerald-300 flex items-center gap-2">
           <Check className="h-4 w-4" />
           <span>{actionSuccessToast}</span>
+        </div>
+      )}
+
+      {/* Checkout Referral Code Section (for authenticated users without an assigned referrer) */}
+      {user && (
+        <div className="max-w-4xl mx-auto rounded-xl border border-slate-800 bg-[#0F172A]/90 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-[#E6A05A]/10 border border-[#E6A05A]/20 text-[#E6A05A]">
+              <Gift className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-xs font-bold text-white">
+                {referralAppliedCode ? 'Referral Partner Linked' : 'Have a Partner Referral Code?'}
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                {referralAppliedCode
+                  ? `Your account is permanently linked to referral code ${referralAppliedCode}.`
+                  : 'Apply a referral code before checkout if you did not register with a referral link.'}
+              </p>
+            </div>
+          </div>
+
+          {referralAppliedCode ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-xs font-mono font-bold text-emerald-400">
+              <Check className="h-3.5 w-3.5" />
+              {referralAppliedCode}
+            </span>
+          ) : (
+            <div className="flex flex-col gap-1 sm:items-end">
+              <form onSubmit={handleApplyCheckoutReferral} className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={checkoutReferralCode}
+                  onChange={(e) => {
+                    setCheckoutReferralCode(e.target.value.toUpperCase());
+                    setReferralError(null);
+                  }}
+                  placeholder="Enter code (e.g. PV-ABCD1234)"
+                  className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono text-white uppercase placeholder-slate-500 focus:outline-none focus:border-[#E6A05A]"
+                />
+                <button
+                  type="submit"
+                  disabled={applyingReferral || !checkoutReferralCode.trim()}
+                  className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-[#E6A05A] border border-slate-700 transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  {applyingReferral ? 'Applying...' : 'Apply Code'}
+                </button>
+              </form>
+              {referralError && (
+                <span className="text-[11px] text-rose-400 font-medium">{referralError}</span>
+              )}
+            </div>
+          )}
         </div>
       )}
 

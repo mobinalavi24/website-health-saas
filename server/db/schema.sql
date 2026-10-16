@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS users (
   org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   avatar_url TEXT,
   email_verified BOOLEAN NOT NULL DEFAULT true,
+  referral_code TEXT UNIQUE,
+  referred_by_user_id TEXT,
+  referred_by_code TEXT,
+  referred_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -154,6 +158,8 @@ CREATE TABLE IF NOT EXISTS crypto_orders (
   rejected_by TEXT,
   rejected_at TIMESTAMPTZ,
   rejection_reason TEXT,
+  referral_code TEXT,
+  referrer_user_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -224,9 +230,81 @@ CREATE TABLE IF NOT EXISTS migration_history (
   record_counts JSONB NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS referral_wallets (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  currency TEXT NOT NULL DEFAULT 'USD',
+  total_earned_cents INTEGER NOT NULL DEFAULT 0,
+  available_balance_cents INTEGER NOT NULL DEFAULT 0,
+  reserved_balance_cents INTEGER NOT NULL DEFAULT 0,
+  withdrawn_balance_cents INTEGER NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS referral_commissions (
+  id TEXT PRIMARY KEY,
+  order_id TEXT UNIQUE NOT NULL,
+  referrer_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  referred_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  referred_user_email TEXT NOT NULL,
+  referral_code TEXT NOT NULL,
+  plan_id TEXT NOT NULL,
+  plan_name TEXT NOT NULL,
+  purchase_amount_cents INTEGER NOT NULL,
+  commission_rate_bps INTEGER NOT NULL DEFAULT 4000,
+  commission_amount_cents INTEGER NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'USD',
+  status TEXT NOT NULL DEFAULT 'credited',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS referral_wallet_ledger (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'USD',
+  reference_id TEXT NOT NULL,
+  idempotency_key TEXT UNIQUE NOT NULL,
+  balance_after_cents INTEGER NOT NULL,
+  reserved_after_cents INTEGER NOT NULL,
+  description TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS withdrawal_requests (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_email TEXT NOT NULL,
+  referral_code TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'USD',
+  network TEXT NOT NULL DEFAULT 'USDT — TRC20 (TRON)',
+  wallet_address TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  available_balance_before_cents INTEGER NOT NULL,
+  approved_by_id TEXT,
+  approved_by_email TEXT,
+  approved_at TIMESTAMPTZ,
+  paid_by_id TEXT,
+  paid_by_email TEXT,
+  paid_at TIMESTAMPTZ,
+  tx_hash TEXT,
+  rejected_by_id TEXT,
+  rejected_by_email TEXT,
+  rejected_at TIMESTAMPTZ,
+  rejection_reason TEXT,
+  cancelled_by_id TEXT,
+  cancelled_by_email TEXT,
+  cancelled_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Indexes for performance and query patterns
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_org ON users(org_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code);
+CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by_user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_websites_org ON websites(org_id);
@@ -238,3 +316,8 @@ CREATE INDEX IF NOT EXISTS idx_reports_share_token ON reports(share_token);
 CREATE INDEX IF NOT EXISTS idx_crypto_orders_tx ON crypto_orders(tx_id);
 CREATE INDEX IF NOT EXISTS idx_crypto_orders_org ON crypto_orders(org_id);
 CREATE INDEX IF NOT EXISTS idx_pagespeed_url ON pagespeed_records(url);
+CREATE INDEX IF NOT EXISTS idx_referral_commissions_referrer ON referral_commissions(referrer_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_referral_commissions_referred ON referral_commissions(referred_user_id);
+CREATE INDEX IF NOT EXISTS idx_referral_wallet_ledger_user ON referral_wallet_ledger(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_withdrawal_requests_user ON withdrawal_requests(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_withdrawal_requests_status ON withdrawal_requests(status, created_at DESC);

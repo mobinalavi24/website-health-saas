@@ -92,6 +92,98 @@ export async function applyPaymentApprovalSchemaMigration(): Promise<void> {
   }
 }
 
+export async function applyReferralSchemaMigration(): Promise<void> {
+  const statements = [
+    'ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code TEXT UNIQUE',
+    'ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_user_id TEXT',
+    'ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_code TEXT',
+    'ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_at TIMESTAMPTZ',
+    'ALTER TABLE crypto_orders ADD COLUMN IF NOT EXISTS referral_code TEXT',
+    'ALTER TABLE crypto_orders ADD COLUMN IF NOT EXISTS referrer_user_id TEXT',
+    `CREATE TABLE IF NOT EXISTS referral_wallets (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      currency TEXT NOT NULL DEFAULT 'USD',
+      total_earned_cents INTEGER NOT NULL DEFAULT 0,
+      available_balance_cents INTEGER NOT NULL DEFAULT 0,
+      reserved_balance_cents INTEGER NOT NULL DEFAULT 0,
+      withdrawn_balance_cents INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS referral_commissions (
+      id TEXT PRIMARY KEY,
+      order_id TEXT UNIQUE NOT NULL,
+      referrer_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      referred_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      referred_user_email TEXT NOT NULL,
+      referral_code TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      plan_name TEXT NOT NULL,
+      purchase_amount_cents INTEGER NOT NULL,
+      commission_rate_bps INTEGER NOT NULL DEFAULT 4000,
+      commission_amount_cents INTEGER NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'USD',
+      status TEXT NOT NULL DEFAULT 'credited',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS referral_wallet_ledger (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'USD',
+      reference_id TEXT NOT NULL,
+      idempotency_key TEXT UNIQUE NOT NULL,
+      balance_after_cents INTEGER NOT NULL,
+      reserved_after_cents INTEGER NOT NULL,
+      description TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS withdrawal_requests (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_email TEXT NOT NULL,
+      referral_code TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'USD',
+      network TEXT NOT NULL DEFAULT 'USDT — TRC20 (TRON)',
+      wallet_address TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      available_balance_before_cents INTEGER NOT NULL,
+      approved_by_id TEXT,
+      approved_by_email TEXT,
+      approved_at TIMESTAMPTZ,
+      paid_by_id TEXT,
+      paid_by_email TEXT,
+      paid_at TIMESTAMPTZ,
+      tx_hash TEXT,
+      rejected_by_id TEXT,
+      rejected_by_email TEXT,
+      rejected_at TIMESTAMPTZ,
+      rejection_reason TEXT,
+      cancelled_by_id TEXT,
+      cancelled_by_email TEXT,
+      cancelled_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+  ];
+
+  for (const st of statements) {
+    try {
+      await query(st);
+    } catch {
+      // Table/column may already exist
+    }
+  }
+
+  try {
+    const { backfillReferralCodes } = await import('../referrals.ts');
+    await backfillReferralCodes();
+  } catch (err: any) {
+    console.warn('[Migration]: Could not backfill referral codes:', err?.message);
+  }
+}
+
 export async function runMigration(options: { force?: boolean } = {}): Promise<MigrationSummary> {
   const jsonPath = path.resolve(process.cwd(), 'data/pulsevanguard.db.json');
 
@@ -121,6 +213,7 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
       console.log(`[Migration]: Auth cleanup applied: removed ${cleanupResult.removedUsers} default users, super admin assigned: ${cleanupResult.superAdminUpdated}`);
     }
     await applyPaymentApprovalSchemaMigration();
+    await applyReferralSchemaMigration();
     return {
       success: true,
       source: jsonPath,
@@ -214,8 +307,11 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
       const cleanEmail = user.email.toLowerCase();
       const role = cleanEmail === 'mobinalavi7491@gmail.com' ? 'super_admin' : user.role;
       await client.query(
-        `INSERT INTO users (id, email, name, password_hash, role, org_id, avatar_url, email_verified, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `INSERT INTO users (
+           id, email, name, password_hash, role, org_id, avatar_url, email_verified,
+           referral_code, referred_by_user_id, referred_by_code, referred_at, created_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          ON CONFLICT (id) DO UPDATE SET
            email = EXCLUDED.email,
            name = EXCLUDED.name,
@@ -223,7 +319,11 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
            role = EXCLUDED.role,
            org_id = EXCLUDED.org_id,
            avatar_url = EXCLUDED.avatar_url,
-           email_verified = EXCLUDED.email_verified`,
+           email_verified = EXCLUDED.email_verified,
+           referral_code = COALESCE(users.referral_code, EXCLUDED.referral_code),
+           referred_by_user_id = COALESCE(users.referred_by_user_id, EXCLUDED.referred_by_user_id),
+           referred_by_code = COALESCE(users.referred_by_code, EXCLUDED.referred_by_code),
+           referred_at = COALESCE(users.referred_at, EXCLUDED.referred_at)`,
         [
           user.id,
           cleanEmail,
@@ -233,6 +333,10 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
           user.orgId,
           user.avatarUrl || null,
           user.emailVerified ?? true,
+          user.referralCode || null,
+          user.referredByUserId || null,
+          user.referredByCode || null,
+          user.referredAt ? new Date(user.referredAt).toISOString() : null,
           user.createdAt ? new Date(user.createdAt).toISOString() : new Date().toISOString(),
         ]
       );
@@ -614,6 +718,8 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
       ['init_from_json', jsonPath, JSON.stringify(counts)]
     );
   });
+
+  await applyReferralSchemaMigration();
 
   return {
     success: true,

@@ -1,11 +1,13 @@
 import { query, withTransaction } from './db/connection.ts';
 import { db, type CryptoPaymentOrder } from './db.ts';
 import { mapCryptoOrderRow } from './db/repositories.ts';
+import { creditReferralCommissionInTransaction, type ReferralCommission } from './referrals.ts';
 
 export interface AdminApprovalResult {
   success: boolean;
   order: CryptoPaymentOrder;
   alreadyApproved?: boolean;
+  commission?: ReferralCommission | null;
   message: string;
 }
 
@@ -26,7 +28,7 @@ export interface OrderCancelResult {
  * Approve a cryptocurrency payment order.
  * Strictly requires Super Admin or Admin authorization.
  * Executes in a single database transaction with row-level concurrency lock.
- * Atomically updates order, activates customer subscription, issues invoice, and writes audit log.
+ * Atomically updates order, activates customer subscription, issues invoice, credits referral commission (if eligible), and writes audit log.
  */
 export async function approvePaymentOrder(
   orderId: string,
@@ -47,10 +49,12 @@ export async function approvePaymentOrder(
     // Idempotency: If already paid/approved, return cleanly without duplicating actions
     if (row.status === 'Paid') {
       const existing = db.findCryptoOrderById(orderId) || mapCryptoOrderRow(row);
+      const comm = await creditReferralCommissionInTransaction(client, row);
       return {
         success: true,
         order: existing,
         alreadyApproved: true,
+        commission: comm,
         message: 'Order has already been approved and subscription is active.',
       };
     }
@@ -99,7 +103,13 @@ export async function approvePaymentOrder(
       [invId, row.org_id, invNum, nowIso, parseFloat(row.amount), invoicePlanName]
     );
 
-    // 5. Record administrative audit log
+    // 5. Atomically credit 40% referral commission if customer was referred
+    const commResult = await creditReferralCommissionInTransaction(client, {
+      ...row,
+      status: 'Paid',
+    });
+
+    // 6. Record administrative audit log
     const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     await client.query(
       `INSERT INTO audit_logs (id, org_id, user_id, user_email, action, target, details, timestamp)
@@ -110,11 +120,11 @@ export async function approvePaymentOrder(
         adminUser.id,
         adminUser.email,
         orderId,
-        `Payment order ${orderId} (${row.amount} USDT) manually approved by ${adminUser.email}. Plan ${row.plan_id.toUpperCase()} activated for ${row.user_email}.`,
+        `Payment order ${orderId} (${row.amount} USDT) manually approved by ${adminUser.email}. Plan ${row.plan_id.toUpperCase()} activated for ${row.user_email}.${commResult ? ` Referral commission $${commResult.commissionAmount.toFixed(2)} credited to ${commResult.referralCode}.` : ''}`,
       ]
     );
 
-    // 6. Synchronize in-memory runtime DB
+    // 7. Synchronize in-memory runtime DB
     const updatedOrder = db.updateCryptoOrder(orderId, {
       status: 'Paid',
       confirmedAt: nowIso,
@@ -164,6 +174,7 @@ export async function approvePaymentOrder(
     return {
       success: true,
       order: updatedOrder,
+      commission: commResult,
       message: `Payment of ${row.amount} USDT approved successfully! Plan ${row.plan_name} has been activated for ${row.user_email}.`,
     };
   });

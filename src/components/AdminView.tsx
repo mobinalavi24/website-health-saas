@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Users, Server, Play, Check, AlertTriangle, RefreshCw, MessageSquare, Clock, Coins, CheckCircle2, ArrowRight } from 'lucide-react';
+import { Shield, Users, Server, Play, Check, AlertTriangle, RefreshCw, MessageSquare, Clock, Coins, CheckCircle2, ArrowRight, Wallet } from 'lucide-react';
 import { apiClient } from '../api/client.ts';
 import type { SupportTicket, CryptoPaymentOrder } from '../types.ts';
+import { AdminWithdrawalsView } from './AdminWithdrawalsView.tsx';
 
 interface AdminViewProps {
   onNavigate?: (view: any) => void;
@@ -57,6 +58,10 @@ export const AdminView: React.FC<AdminViewProps> = ({ onNavigate }) => {
   const pendingPayments = paymentOrders.filter(
     (o) => o.status === 'Pending' || o.status === 'Confirming' || o.status === 'Manual Review'
   );
+  const pendingWithdrawalsCount =
+    stats?.pendingWithdrawalRequestsCount ??
+    stats?.referralOverview?.pendingWithdrawalRequestsCount ??
+    0;
 
   return (
     <div className="space-y-8">
@@ -70,24 +75,39 @@ export const AdminView: React.FC<AdminViewProps> = ({ onNavigate }) => {
             </h1>
           </div>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Global system health, background monitoring workers, user tenant management, customer support, and payment approval.
+            Global system health, background monitoring workers, user tenant management, referral withdrawals, and payment approval.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {onNavigate && (
-            <button
-              onClick={() => onNavigate('admin-crypto-transactions')}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-[#0B1120] bg-[#E6A05A] rounded-lg hover:bg-[#cf863c] transition-colors cursor-pointer"
-            >
-              <Coins className="h-3.5 w-3.5" />
-              <span>Review Payments</span>
-              {pendingPayments.length > 0 && (
-                <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-black text-[#E6A05A] font-extrabold">
-                  {pendingPayments.length}
-                </span>
-              )}
-            </button>
+            <>
+              <button
+                onClick={() => onNavigate('admin-withdrawals')}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-500 transition-colors cursor-pointer"
+              >
+                <Wallet className="h-3.5 w-3.5" />
+                <span>Withdrawal Requests</span>
+                {pendingWithdrawalsCount > 0 && (
+                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-black text-amber-400 font-extrabold">
+                    {pendingWithdrawalsCount}
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => onNavigate('admin-crypto-transactions')}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-[#0B1120] bg-[#E6A05A] rounded-lg hover:bg-[#cf863c] transition-colors cursor-pointer"
+              >
+                <Coins className="h-3.5 w-3.5" />
+                <span>Review Payments</span>
+                {pendingPayments.length > 0 && (
+                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-black text-[#E6A05A] font-extrabold">
+                    {pendingPayments.length}
+                  </span>
+                )}
+              </button>
+            </>
           )}
 
           <button
@@ -184,6 +204,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ onNavigate }) => {
         )}
       </div>
 
+      {/* Embedded Referral Commissions & Withdrawal Management Console */}
+      <div className="pt-2">
+        <AdminWithdrawalsView />
+      </div>
+
       {/* Worker Queue Engine Status */}
       {stats?.workerStats && (
         <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-6 space-y-4">
@@ -224,6 +249,8 @@ export const AdminView: React.FC<AdminViewProps> = ({ onNavigate }) => {
               <tr>
                 <th className="py-2">User</th>
                 <th className="py-2">Email</th>
+                <th className="py-2">Referral Code</th>
+                <th className="py-2">Referred By</th>
                 <th className="py-2">System Role</th>
                 <th className="py-2">Created</th>
               </tr>
@@ -233,6 +260,8 @@ export const AdminView: React.FC<AdminViewProps> = ({ onNavigate }) => {
                 <tr key={u.id} className="text-slate-300">
                   <td className="py-3 font-sans font-semibold text-white">{u.name}</td>
                   <td className="py-3">{u.email}</td>
+                  <td className="py-3 text-[#E6A05A] font-bold">{u.referralCode || '—'}</td>
+                  <td className="py-3 text-slate-400">{u.referredByCode || '—'}</td>
                   <td className="py-3 font-sans">
                     <span className="px-2 py-0.5 rounded text-[11px] font-mono text-[#E6A05A] bg-[#E6A05A]/10 border border-[#E6A05A]/20">
                       {u.role}

@@ -41,7 +41,9 @@ export async function findSessionByToken(token: string): Promise<PersistentSessi
     `SELECT s.user_id, s.org_id, s.expires_at,
             u.id as u_id, u.email as u_email, u.name as u_name, u.password_hash as u_password_hash,
             u.role as u_role, u.org_id as u_org_id, u.avatar_url as u_avatar_url,
-            u.email_verified as u_email_verified, u.created_at as u_created_at,
+            u.email_verified as u_email_verified, u.referral_code as u_referral_code,
+            u.referred_by_user_id as u_referred_by_user_id, u.referred_by_code as u_referred_by_code,
+            u.referred_at as u_referred_at, u.created_at as u_created_at,
             o.id as o_id, o.name as o_name, o.plan_id as o_plan_id, o.billing_interval as o_billing_interval,
             o.currency as o_currency, o.owner_id as o_owner_id, o.trial_started_at as o_trial_started_at,
             o.trial_ends_at as o_trial_ends_at, o.trial_used as o_trial_used, o.white_label as o_white_label,
@@ -66,6 +68,10 @@ export async function findSessionByToken(token: string): Promise<PersistentSessi
     orgId: row.u_org_id,
     avatarUrl: row.u_avatar_url || undefined,
     emailVerified: Boolean(row.u_email_verified),
+    referralCode: row.u_referral_code || undefined,
+    referredByUserId: row.u_referred_by_user_id || undefined,
+    referredByCode: row.u_referred_by_code || undefined,
+    referredAt: row.u_referred_at ? new Date(row.u_referred_at).toISOString() : undefined,
     createdAt: new Date(row.u_created_at).toISOString(),
   };
 

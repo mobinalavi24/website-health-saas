@@ -8,6 +8,7 @@ interface AuthModalProps {
   onClose: () => void;
   onSuccess: (user: User, organization: Organization) => void;
   initialTab?: 'login' | 'register';
+  initialReferralCode?: string;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -15,17 +16,52 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onClose,
   onSuccess,
   initialTab = 'login',
+  initialReferralCode = '',
 }) => {
   const [tab, setTab] = useState<'login' | 'register' | 'reset'>(initialTab);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [orgName, setOrgName] = useState('');
+  const [referralCode, setReferralCode] = useState(initialReferralCode);
+  const [referralValidationMsg, setReferralValidationMsg] = useState<string | null>(null);
+  const [referralValid, setReferralValid] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resetSent, setResetSent] = useState(false);
 
+  React.useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab, isOpen]);
+
+  React.useEffect(() => {
+    if (initialReferralCode) {
+      setReferralCode(initialReferralCode.toUpperCase());
+    }
+  }, [initialReferralCode]);
+
   if (!isOpen) return null;
+
+  const handleValidateReferralBlur = async () => {
+    const trimmed = referralCode.trim().toUpperCase();
+    if (!trimmed) {
+      setReferralValidationMsg(null);
+      setReferralValid(null);
+      return;
+    }
+    try {
+      const res = await apiClient.validateReferralCode(trimmed);
+      setReferralValid(res.valid);
+      setReferralValidationMsg(
+        res.valid
+          ? `Referral code verified${res.referrerName ? ` (invited by ${res.referrerName})` : ''}.`
+          : res.error || 'Invalid referral code.'
+      );
+    } catch {
+      setReferralValid(null);
+      setReferralValidationMsg(null);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,7 +77,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         onClose();
       } else if (tab === 'register') {
         apiClient.clearToken();
-        const res = await apiClient.register(name.trim(), email.trim(), password, orgName.trim());
+        const cleanRef = referralCode.trim().toUpperCase();
+        const res = await apiClient.register(
+          name.trim(),
+          email.trim(),
+          password,
+          orgName.trim(),
+          cleanRef || undefined
+        );
+        try {
+          sessionStorage.removeItem('pv_referral_code');
+        } catch {}
         onSuccess(res.user, res.organization);
         onClose();
       } else if (tab === 'reset') {
@@ -177,16 +223,46 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             )}
 
             {tab === 'register' && (
-              <div>
-                <label className="text-slate-300 font-semibold block mb-1">Organization / Agency Name</label>
-                <input
-                  type="text"
-                  value={orgName}
-                  onChange={(e) => setOrgName(e.target.value)}
-                  placeholder="e.g. Acme Studio"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-[#E6A05A]"
-                />
-              </div>
+              <>
+                <div>
+                  <label className="text-slate-300 font-semibold block mb-1">Organization / Agency Name</label>
+                  <input
+                    type="text"
+                    value={orgName}
+                    onChange={(e) => setOrgName(e.target.value)}
+                    placeholder="e.g. Acme Studio"
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-[#E6A05A]"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-semibold flex items-center justify-between mb-1">
+                    <span>Referral Code (Optional)</span>
+                    <span className="text-[10px] font-mono text-slate-500">INVITE CODE</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={referralCode}
+                    onChange={(e) => {
+                      setReferralCode(e.target.value.toUpperCase());
+                      setReferralValidationMsg(null);
+                      setReferralValid(null);
+                    }}
+                    onBlur={handleValidateReferralBlur}
+                    placeholder="e.g. PV-ABCD1234"
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-white font-mono uppercase focus:outline-none focus:border-[#E6A05A]"
+                  />
+                  {referralValidationMsg && (
+                    <p
+                      className={`mt-1 text-[11px] font-medium ${
+                        referralValid ? 'text-emerald-400' : 'text-rose-400'
+                      }`}
+                    >
+                      {referralValidationMsg}
+                    </p>
+                  )}
+                </div>
+              </>
             )}
 
             <button

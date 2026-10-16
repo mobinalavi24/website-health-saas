@@ -28,6 +28,10 @@ export interface User {
   orgId: string;
   avatarUrl?: string;
   emailVerified: boolean;
+  referralCode?: string;
+  referredByUserId?: string;
+  referredByCode?: string;
+  referredAt?: string;
   createdAt: string;
 }
 
@@ -142,7 +146,7 @@ export interface AlertNotification {
   orgId: string;
   websiteId?: string;
   websiteName?: string;
-  type: 'downtime' | 'recovery' | 'ssl_expiry' | 'latency' | 'security';
+  type: 'downtime' | 'recovery' | 'ssl_expiry' | 'latency' | 'security' | 'referral' | 'withdrawal';
   severity: 'critical' | 'warning' | 'info';
   title: string;
   message: string;
@@ -222,6 +226,8 @@ export interface CryptoPaymentOrder {
   rejectedBy?: string;
   rejectedAt?: string;
   rejectionReason?: string;
+  referralCode?: string;
+  referrerUserId?: string;
   createdAt: string;
 }
 
@@ -247,6 +253,150 @@ export interface LBankConnectionTestResult {
   errorCode?: number | string;
   diagnostic: string;
   timestamp: string;
+}
+
+export type WithdrawalStatus = 'pending' | 'approved' | 'paid' | 'rejected' | 'cancelled';
+
+export interface ReferralWallet {
+  userId: string;
+  currency: 'USD';
+  totalEarnedCents: number;
+  availableBalanceCents: number;
+  reservedBalanceCents: number;
+  withdrawnBalanceCents: number;
+  totalEarned: number;
+  availableBalance: number;
+  reservedBalance: number;
+  withdrawnBalance: number;
+  updatedAt: string;
+}
+
+export interface ReferralCommission {
+  id: string;
+  orderId: string;
+  referrerUserId: string;
+  referredUserId: string;
+  referredUserEmail: string;
+  referralCode: string;
+  planId: string;
+  planName: string;
+  purchaseAmountCents: number;
+  purchaseAmount: number;
+  commissionRateBps: number;
+  commissionAmountCents: number;
+  commissionAmount: number;
+  currency: 'USD';
+  status: 'credited';
+  createdAt: string;
+}
+
+export interface ReferralWalletLedgerEntry {
+  id: string;
+  userId: string;
+  type: 'commission_credit' | 'withdrawal_reserve' | 'withdrawal_release' | 'withdrawal_paid';
+  amountCents: number;
+  amount: number;
+  currency: 'USD';
+  referenceId: string;
+  idempotencyKey: string;
+  balanceAfterCents: number;
+  balanceAfter: number;
+  reservedAfterCents: number;
+  reservedAfter: number;
+  description: string;
+  createdAt: string;
+}
+
+export interface ReferredCustomerSummary {
+  userId: string;
+  email: string;
+  name: string;
+  orderId?: string;
+  planName?: string;
+  purchaseAmount?: number;
+  commissionAmount?: number;
+  createdAt: string;
+}
+
+export interface WithdrawalRequestRecord {
+  id: string;
+  userId: string;
+  userEmail: string;
+  referralCode: string;
+  amountCents: number;
+  amount: number;
+  currency: 'USD';
+  network: string;
+  walletAddress: string;
+  status: WithdrawalStatus;
+  availableBalanceBeforeCents: number;
+  availableBalanceBefore: number;
+  approvedById?: string;
+  approvedByEmail?: string;
+  approvedAt?: string;
+  paidById?: string;
+  paidByEmail?: string;
+  paidAt?: string;
+  txHash?: string;
+  rejectedById?: string;
+  rejectedByEmail?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  cancelledById?: string;
+  cancelledByEmail?: string;
+  cancelledAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  referredCustomers?: ReferredCustomerSummary[];
+}
+
+export interface UserReferralSummary {
+  userId: string;
+  email: string;
+  referralCode: string;
+  referralUrl: string;
+  referredByUserId?: string;
+  referredByCode?: string;
+  referredAt?: string;
+  canApplyReferralCode: boolean;
+  commissionRatePercent: number;
+  minimumWithdrawalAmount: number;
+  currency: 'USD';
+  payoutNetwork: string;
+  totalSuccessfulReferrals: number;
+  totalEligiblePurchases: number;
+  totalCommissionsEarned: number;
+  availableBalance: number;
+  reservedBalance: number;
+  withdrawnBalance: number;
+  wallet: ReferralWallet;
+  commissions: ReferralCommission[];
+  withdrawals: WithdrawalRequestRecord[];
+  ledger: ReferralWalletLedgerEntry[];
+  referredUsers: Array<{
+    userId: string;
+    email: string;
+    name: string;
+    joinedAt: string;
+    purchasesCount: number;
+    totalCommissionGenerated: number;
+  }>;
+}
+
+export interface AdminReferralOverview {
+  totalReferralCommissionsGenerated: number;
+  totalReferralCommissionsCount: number;
+  totalAvailableReferralLiabilities: number;
+  totalReservedForPendingWithdrawals: number;
+  pendingWithdrawalRequestsCount: number;
+  awaitingReviewCount: number;
+  approvedAwaitingPayoutCount: number;
+  totalSuccessfullyPaidWithdrawals: number;
+  paidWithdrawalsCount: number;
+  totalRejectedRequestsCount: number;
+  totalRejectedAmount: number;
+  totalCancelledRequestsCount: number;
+  currency: 'USD';
 }
 
 export interface ApiKey {

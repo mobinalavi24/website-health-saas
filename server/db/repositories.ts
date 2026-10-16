@@ -43,8 +43,11 @@ export const UserRepo = {
     }
     const role = cleanEmail === 'mobinalavi7491@gmail.com' ? 'super_admin' : user.role;
     await query(
-      `INSERT INTO users (id, email, name, password_hash, role, org_id, avatar_url, email_verified, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO users (
+         id, email, name, password_hash, role, org_id, avatar_url, email_verified,
+         referral_code, referred_by_user_id, referred_by_code, referred_at, created_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        ON CONFLICT (id) DO UPDATE SET
          email = EXCLUDED.email,
          name = EXCLUDED.name,
@@ -52,7 +55,11 @@ export const UserRepo = {
          role = EXCLUDED.role,
          org_id = EXCLUDED.org_id,
          avatar_url = EXCLUDED.avatar_url,
-         email_verified = EXCLUDED.email_verified`,
+         email_verified = EXCLUDED.email_verified,
+         referral_code = COALESCE(users.referral_code, EXCLUDED.referral_code),
+         referred_by_user_id = COALESCE(users.referred_by_user_id, EXCLUDED.referred_by_user_id),
+         referred_by_code = COALESCE(users.referred_by_code, EXCLUDED.referred_by_code),
+         referred_at = COALESCE(users.referred_at, EXCLUDED.referred_at)`,
       [
         user.id,
         cleanEmail,
@@ -62,6 +69,10 @@ export const UserRepo = {
         user.orgId,
         user.avatarUrl || null,
         user.emailVerified ?? true,
+        user.referralCode || null,
+        user.referredByUserId || null,
+        user.referredByCode || null,
+        user.referredAt ? new Date(user.referredAt).toISOString() : null,
         user.createdAt ? new Date(user.createdAt).toISOString() : new Date().toISOString(),
       ]
     );
@@ -376,9 +387,9 @@ export const CryptoOrderRepo = {
          currency, network, amount, deposit_address, qr_data_url, status, tx_id,
          detected_at, confirmed_at, expires_at, verification_log,
          approved_by, approved_at, rejected_by, rejected_at, rejection_reason,
-         created_at
+         referral_code, referrer_user_id, created_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
        ON CONFLICT (id) DO UPDATE SET
          status = EXCLUDED.status,
          tx_id = EXCLUDED.tx_id,
@@ -388,7 +399,9 @@ export const CryptoOrderRepo = {
          approved_at = EXCLUDED.approved_at,
          rejected_by = EXCLUDED.rejected_by,
          rejected_at = EXCLUDED.rejected_at,
-         rejection_reason = EXCLUDED.rejection_reason`,
+         rejection_reason = EXCLUDED.rejection_reason,
+         referral_code = COALESCE(crypto_orders.referral_code, EXCLUDED.referral_code),
+         referrer_user_id = COALESCE(crypto_orders.referrer_user_id, EXCLUDED.referrer_user_id)`,
       [
         ord.id,
         ord.orgId,
@@ -413,6 +426,8 @@ export const CryptoOrderRepo = {
         ord.rejectedBy || null,
         ord.rejectedAt ? new Date(ord.rejectedAt).toISOString() : null,
         ord.rejectionReason || null,
+        ord.referralCode || null,
+        ord.referrerUserId || null,
         ord.createdAt ? new Date(ord.createdAt).toISOString() : new Date().toISOString(),
       ]
     );
@@ -628,6 +643,10 @@ function mapUserRow(row: any): User {
     orgId: row.org_id,
     avatarUrl: row.avatar_url || undefined,
     emailVerified: Boolean(row.email_verified),
+    referralCode: row.referral_code || undefined,
+    referredByUserId: row.referred_by_user_id || undefined,
+    referredByCode: row.referred_by_code || undefined,
+    referredAt: row.referred_at ? new Date(row.referred_at).toISOString() : undefined,
     createdAt: new Date(row.created_at).toISOString(),
   };
 }
@@ -741,6 +760,8 @@ export function mapCryptoOrderRow(row: any): CryptoPaymentOrder {
     rejectedBy: row.rejected_by || undefined,
     rejectedAt: row.rejected_at ? new Date(row.rejected_at).toISOString() : undefined,
     rejectionReason: row.rejection_reason || undefined,
+    referralCode: row.referral_code || undefined,
+    referrerUserId: row.referrer_user_id || undefined,
     createdAt: new Date(row.created_at).toISOString(),
   };
 }
