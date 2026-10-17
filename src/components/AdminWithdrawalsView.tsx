@@ -206,7 +206,7 @@ export const AdminWithdrawalsView: React.FC = () => {
           <div className="flex items-center gap-2.5">
             <Wallet className="h-5 w-5 text-[#E6A05A]" />
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-              Referral Commissions & Withdrawal Requests
+              Withdrawals & Referral Commissions
             </h1>
             {metrics && metrics.pendingWithdrawalRequestsCount > 0 && (
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-400 text-black animate-pulse">
@@ -244,13 +244,13 @@ export const AdminWithdrawalsView: React.FC = () => {
         </div>
       )}
 
-      {/* Admin Referral & Withdrawal Overview Metrics (6 Required KPIs) */}
+      {/* Admin Referral & Withdrawal Overview Metrics */}
       {metrics && (
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
           <div className="p-4 rounded-xl border border-slate-800 bg-[#0F172A] space-y-1">
             <span className="text-[11px] text-slate-400 block">Commissions Generated</span>
             <div className="text-xl font-extrabold font-mono text-[#E6A05A] tabular-nums">
-              ${metrics.totalReferralCommissionsGenerated.toFixed(2)}
+              {metrics.totalReferralCommissionsGenerated.toFixed(2)} USDT
             </div>
             <p className="text-[10px] text-slate-500">40% lifetime total</p>
           </div>
@@ -258,7 +258,7 @@ export const AdminWithdrawalsView: React.FC = () => {
           <div className="p-4 rounded-xl border border-slate-800 bg-[#0F172A] space-y-1">
             <span className="text-[11px] text-slate-400 block">Available Liabilities</span>
             <div className="text-xl font-extrabold font-mono text-white tabular-nums">
-              ${metrics.totalAvailableReferralLiabilities.toFixed(2)}
+              {metrics.totalAvailableReferralLiabilities.toFixed(2)} USDT
             </div>
             <p className="text-[10px] text-slate-500">Unwithdrawn user balances</p>
           </div>
@@ -266,7 +266,7 @@ export const AdminWithdrawalsView: React.FC = () => {
           <div className="p-4 rounded-xl border border-slate-800 bg-[#0F172A] space-y-1">
             <span className="text-[11px] text-slate-400 block">Reserved for Pending</span>
             <div className="text-xl font-extrabold font-mono text-amber-400 tabular-nums">
-              ${metrics.totalReservedForPendingWithdrawals.toFixed(2)}
+              {metrics.totalReservedForPendingWithdrawals.toFixed(2)} USDT
             </div>
             <p className="text-[10px] text-slate-500">Locked for active requests</p>
           </div>
@@ -282,7 +282,7 @@ export const AdminWithdrawalsView: React.FC = () => {
           <div className="p-4 rounded-xl border border-slate-800 bg-[#0F172A] space-y-1">
             <span className="text-[11px] text-slate-400 block">Successfully Paid</span>
             <div className="text-xl font-extrabold font-mono text-emerald-400 tabular-nums">
-              ${metrics.totalSuccessfullyPaidWithdrawals.toFixed(2)}
+              {metrics.totalSuccessfullyPaidWithdrawals.toFixed(2)} USDT
             </div>
             <p className="text-[10px] text-slate-500">Completed TRC20 payouts</p>
           </div>
@@ -388,13 +388,17 @@ export const AdminWithdrawalsView: React.FC = () => {
                       {/* Referred Customer Email(s) with expandable list */}
                       <td className="py-3.5 px-4">
                         {customers.length === 0 ? (
-                          <span className="text-slate-500 text-[11px]">No linked customer records</span>
+                          <span className="text-slate-500 text-[11px]">
+                            No linked customer records
+                          </span>
                         ) : customers.length === 1 ? (
                           <div className="space-y-0.5">
-                            <span className="font-mono text-xs text-slate-200">{customers[0].email}</span>
+                            <span className="font-mono text-xs text-slate-200">
+                              {customers[0].email}
+                            </span>
                             {customers[0].commissionAmount !== undefined && (
                               <div className="text-[10px] text-slate-400 font-mono">
-                                Commission: +${customers[0].commissionAmount.toFixed(2)}
+                                Commission: +{customers[0].commissionAmount.toFixed(2)} USDT
                                 {customers[0].orderId ? ` (Order ${customers[0].orderId})` : ''}
                               </div>
                             )}
@@ -411,9 +415,7 @@ export const AdminWithdrawalsView: React.FC = () => {
                                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-semibold text-[#E6A05A] border border-slate-700 cursor-pointer"
                               >
                                 <span>
-                                  {isExpanded
-                                    ? 'Hide'
-                                    : `+${customers.length - 1} more`}
+                                  {isExpanded ? 'Hide' : `+${customers.length - 1} more`}
                                 </span>
                                 {isExpanded ? (
                                   <ChevronUp className="h-3 w-3" />
@@ -430,11 +432,12 @@ export const AdminWithdrawalsView: React.FC = () => {
                                     className="text-[11px] font-mono text-slate-300 flex items-center justify-between gap-3 border-b border-slate-900 pb-1 last:border-none last:pb-0"
                                   >
                                     <span>{rc.email}</span>
-                                    {rc.commissionAmount !== undefined && rc.commissionAmount > 0 && (
-                                      <span className="text-emerald-400">
-                                        +${rc.commissionAmount.toFixed(2)}
-                                      </span>
-                                    )}
+                                    {rc.commissionAmount !== undefined &&
+                                      rc.commissionAmount > 0 && (
+                                        <span className="text-emerald-400">
+                                          +{rc.commissionAmount.toFixed(2)} USDT
+                                        </span>
+                                      )}
                                   </div>
                                 ))}
                               </div>
@@ -446,10 +449,13 @@ export const AdminWithdrawalsView: React.FC = () => {
                       {/* Requested Amount & Available Balance Before Request */}
                       <td className="py-3.5 px-4 text-right font-mono">
                         <div className="text-sm font-extrabold text-emerald-400 tabular-nums">
-                          ${w.amount.toFixed(2)} {w.currency}
+                          {w.amount.toFixed(2)} USDT
                         </div>
                         <div className="text-[10px] text-slate-400 mt-0.5">
-                          Avail. Before: <span className="text-slate-200">${w.availableBalanceBefore.toFixed(2)}</span>
+                          Avail. Before:{' '}
+                          <span className="text-slate-200">
+                            {w.availableBalanceBefore.toFixed(2)} USDT
+                          </span>
                         </div>
                       </td>
 
@@ -602,9 +608,12 @@ export const AdminWithdrawalsView: React.FC = () => {
             </div>
 
             <p className="text-slate-300 leading-relaxed">
-              You are approving withdrawal request <strong className="font-mono text-white">{approveModalItem.id}</strong> for{' '}
-              <strong className="font-mono text-emerald-400">${approveModalItem.amount.toFixed(2)} USD</strong> to{' '}
-              <strong className="text-white">{approveModalItem.userEmail}</strong>.
+              You are approving withdrawal request{' '}
+              <strong className="font-mono text-white">{approveModalItem.id}</strong> for{' '}
+              <strong className="font-mono text-emerald-400">
+                {approveModalItem.amount.toFixed(2)} USDT
+              </strong>{' '}
+              to <strong className="text-white">{approveModalItem.userEmail}</strong>.
             </p>
 
             <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 space-y-1 font-mono text-[11px]">
@@ -668,7 +677,7 @@ export const AdminWithdrawalsView: React.FC = () => {
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Payout Amount:</span>
                 <span className="font-mono font-bold text-emerald-400 text-sm">
-                  ${markPaidModalItem.amount.toFixed(2)} USD (USDT)
+                  {markPaidModalItem.amount.toFixed(2)} USDT
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -746,9 +755,12 @@ export const AdminWithdrawalsView: React.FC = () => {
             </div>
 
             <p className="text-slate-300 leading-relaxed">
-              Rejecting request <strong className="font-mono text-white">{rejectModalItem.id}</strong> will immediately release the reserved{' '}
-              <strong className="font-mono text-emerald-400">${rejectModalItem.amount.toFixed(2)} USD</strong> back to{' '}
-              <strong className="text-white">{rejectModalItem.userEmail}</strong>'s available referral balance.
+              Rejecting request{' '}
+              <strong className="font-mono text-white">{rejectModalItem.id}</strong> will immediately release the reserved{' '}
+              <strong className="font-mono text-emerald-400">
+                {rejectModalItem.amount.toFixed(2)} USDT
+              </strong>{' '}
+              back to <strong className="text-white">{rejectModalItem.userEmail}</strong>'s available referral balance.
             </p>
 
             <div>

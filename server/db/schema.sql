@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS organizations (
   name TEXT NOT NULL,
   plan_id TEXT NOT NULL,
   billing_interval TEXT NOT NULL DEFAULT 'monthly',
-  currency TEXT NOT NULL DEFAULT 'USD',
+  currency TEXT NOT NULL DEFAULT 'USDT',
   owner_id TEXT NOT NULL,
   trial_started_at TIMESTAMPTZ,
   trial_ends_at TIMESTAMPTZ,
@@ -247,7 +247,7 @@ CREATE TABLE IF NOT EXISTS pagespeed_records (
 CREATE TABLE IF NOT EXISTS app_settings (
   id TEXT PRIMARY KEY DEFAULT 'default',
   maintenance_mode BOOLEAN NOT NULL DEFAULT false,
-  default_currency TEXT NOT NULL DEFAULT 'USD',
+  default_currency TEXT NOT NULL DEFAULT 'USDT',
   stripe_configured BOOLEAN NOT NULL DEFAULT false,
   worker_interval_sec INTEGER NOT NULL DEFAULT 60,
   max_free_scans_per_hour INTEGER NOT NULL DEFAULT 10,
@@ -263,7 +263,7 @@ CREATE TABLE IF NOT EXISTS migration_history (
 
 CREATE TABLE IF NOT EXISTS referral_wallets (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  currency TEXT NOT NULL DEFAULT 'USD',
+  currency TEXT NOT NULL DEFAULT 'USDT',
   total_earned_cents INTEGER NOT NULL DEFAULT 0,
   available_balance_cents INTEGER NOT NULL DEFAULT 0,
   reserved_balance_cents INTEGER NOT NULL DEFAULT 0,
@@ -283,7 +283,7 @@ CREATE TABLE IF NOT EXISTS referral_commissions (
   purchase_amount_cents INTEGER NOT NULL,
   commission_rate_bps INTEGER NOT NULL DEFAULT 4000,
   commission_amount_cents INTEGER NOT NULL,
-  currency TEXT NOT NULL DEFAULT 'USD',
+  currency TEXT NOT NULL DEFAULT 'USDT',
   status TEXT NOT NULL DEFAULT 'credited',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -293,7 +293,7 @@ CREATE TABLE IF NOT EXISTS referral_wallet_ledger (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   type TEXT NOT NULL,
   amount_cents INTEGER NOT NULL,
-  currency TEXT NOT NULL DEFAULT 'USD',
+  currency TEXT NOT NULL DEFAULT 'USDT',
   reference_id TEXT NOT NULL,
   idempotency_key TEXT UNIQUE NOT NULL,
   balance_after_cents INTEGER NOT NULL,
@@ -308,7 +308,7 @@ CREATE TABLE IF NOT EXISTS withdrawal_requests (
   user_email TEXT NOT NULL,
   referral_code TEXT NOT NULL,
   amount_cents INTEGER NOT NULL,
-  currency TEXT NOT NULL DEFAULT 'USD',
+  currency TEXT NOT NULL DEFAULT 'USDT',
   network TEXT NOT NULL DEFAULT 'USDT — TRC20 (TRON)',
   wallet_address TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
@@ -329,6 +329,24 @@ CREATE TABLE IF NOT EXISTS withdrawal_requests (
   cancelled_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS subscription_entitlements (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  plan_id TEXT NOT NULL,
+  plan_name TEXT NOT NULL,
+  billing_interval TEXT NOT NULL DEFAULT 'monthly',
+  website_capacity INTEGER NOT NULL DEFAULT 5,
+  order_id TEXT UNIQUE,
+  status TEXT NOT NULL DEFAULT 'active',
+  purchased_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  starts_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  revoked_at TIMESTAMPTZ,
+  revoked_reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Indexes for performance and query patterns
@@ -356,3 +374,7 @@ CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(user_id, 
 CREATE INDEX IF NOT EXISTS idx_support_tickets_email ON support_tickets(email);
 CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket ON ticket_messages(ticket_id, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_sub_entitlements_user ON subscription_entitlements(user_id);
+CREATE INDEX IF NOT EXISTS idx_sub_entitlements_org ON subscription_entitlements(org_id);
+CREATE INDEX IF NOT EXISTS idx_sub_entitlements_status_exp ON subscription_entitlements(status, expires_at);
+

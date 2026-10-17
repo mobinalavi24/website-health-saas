@@ -38,7 +38,7 @@ export interface Organization {
   name: string;
   planId: 'free' | 'pro' | 'agency' | 'enterprise';
   billingInterval: 'monthly' | 'annual';
-  currency: 'USD' | 'EUR' | 'GBP';
+  currency: 'USDT' | string;
   ownerId: string;
   trialStartedAt?: string;
   trialEndsAt?: string;
@@ -159,9 +159,8 @@ export interface SubscriptionPlan {
   badge: string;
   targetAudience: string;
   pricing: {
-    USD: { monthly: number; annual: number };
-    EUR: { monthly: number; annual: number };
-    GBP: { monthly: number; annual: number };
+    USDT: { monthly: number; annual: number };
+    [key: string]: { monthly: number; annual: number };
   };
   limits: {
     maxWebsites: number;
@@ -289,7 +288,7 @@ interface DatabaseSchema {
   pageSpeedRecords?: StoredPageSpeedRecord[];
   settings: {
     maintenanceMode: boolean;
-    defaultCurrency: 'USD' | 'EUR' | 'GBP';
+    defaultCurrency: string;
     stripeConfigured: boolean;
     workerIntervalSec: number;
     maxFreeScansPerHour: number;
@@ -377,9 +376,7 @@ class Database {
         badge: '24-Hour Trial',
         targetAudience: '24 hour trial only, one time per account',
         pricing: {
-          USD: { monthly: 0, annual: 0 },
-          EUR: { monthly: 0, annual: 0 },
-          GBP: { monthly: 0, annual: 0 },
+          USDT: { monthly: 0, annual: 0 },
         },
         limits: {
           maxWebsites: 1,
@@ -403,11 +400,9 @@ class Database {
         id: 'pro',
         name: 'Pro',
         badge: 'Recommended',
-        targetAudience: '$5/month · Can scan 5 websites',
+        targetAudience: '5 USDT/month · Can scan 5 websites per entitlement',
         pricing: {
-          USD: { monthly: 5, annual: 50 },
-          EUR: { monthly: 5, annual: 50 },
-          GBP: { monthly: 4, annual: 40 },
+          USDT: { monthly: 5, annual: 50 },
         },
         limits: {
           maxWebsites: 5,
@@ -419,8 +414,8 @@ class Database {
           prioritySupport: true,
         },
         features: [
-          'Can scan 5 websites',
-          '$5 / month transparent pricing',
+          'Can scan 5 websites per active entitlement',
+          '5 USDT / month transparent crypto pricing',
           '1-minute rapid monitoring checks',
           'Continuous SSL & TLS certificate expiry alarms',
           'DNS, security headers & SEO health auditing',
@@ -447,6 +442,7 @@ class Database {
             if (org.planId !== 'free' && org.planId !== 'pro') {
               org.planId = 'pro';
             }
+            org.currency = 'USDT';
             // Safely migrate missing trial fields based on immutable account creation timestamp
             if (!org.trialStartedAt) {
               org.trialStartedAt = org.createdAt || '2026-01-01T00:00:00.000Z';
@@ -555,7 +551,7 @@ class Database {
         name: 'PulseVanguard Systems',
         planId: 'pro',
         billingInterval: 'annual',
-        currency: 'USD',
+        currency: 'USDT',
         ownerId: 'usr_1790775111622',
         trialStartedAt: '2026-01-10T08:00:00.000Z',
         trialEndsAt: '2026-01-11T08:00:00.000Z',
@@ -575,7 +571,7 @@ class Database {
         name: 'Acme Digital Agency',
         planId: 'free',
         billingInterval: 'monthly',
-        currency: 'USD',
+        currency: 'USDT',
         ownerId: 'usr_1790775111622',
         trialStartedAt: '2026-02-14T10:30:00.000Z',
         trialEndsAt: '2026-02-15T10:30:00.000Z',
@@ -780,19 +776,19 @@ class Database {
         invoiceNumber: 'INV-2026-081',
         date: '2026-03-01T00:00:00.000Z',
         amount: 50,
-        currency: 'USD',
+        currency: 'USDT',
         status: 'paid',
-        planName: 'Pro Plan (Annual - $5/mo equivalent)',
+        planName: 'Pro Plan (Annual - 50 USDT)',
       },
       {
         id: 'inv_2026_02',
         orgId: orgIdAgency,
         invoiceNumber: 'INV-2026-042',
         date: '2026-02-14T10:30:00.000Z',
-        amount: 79,
-        currency: 'USD',
+        amount: 50,
+        currency: 'USDT',
         status: 'paid',
-        planName: 'Agency Partner (Monthly)',
+        planName: 'Pro Plan (Annual - 50 USDT)',
       },
     ];
 
@@ -890,7 +886,7 @@ class Database {
       auditLogs,
       settings: {
         maintenanceMode: false,
-        defaultCurrency: 'USD',
+        defaultCurrency: 'USDT',
         stripeConfigured: false,
         workerIntervalSec: 30,
         maxFreeScansPerHour: 25,

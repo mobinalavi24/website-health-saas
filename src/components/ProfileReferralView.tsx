@@ -5,7 +5,7 @@ import {
   Gift,
   Wallet,
   Users,
-  DollarSign,
+  Coins,
   ArrowUpRight,
   Clock,
   CheckCircle2,
@@ -13,7 +13,6 @@ import {
   AlertCircle,
   ShieldCheck,
   RefreshCw,
-  ExternalLink,
   User as UserIcon,
   Send,
   Lock,
@@ -100,13 +99,13 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
   const validateWithdrawalInputs = (): string | null => {
     const parsedAmount = Number(withdrawAmount);
     if (!withdrawAmount.trim() || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      return 'Please enter a valid positive withdrawal amount in USD.';
+      return 'Please enter a valid positive withdrawal amount in USDT.';
     }
     if (parsedAmount < minWithdrawal) {
-      return `Minimum withdrawal amount is $${minWithdrawal.toFixed(2)} USD.`;
+      return `Minimum withdrawal amount is ${minWithdrawal.toFixed(2)} USDT.`;
     }
     if (parsedAmount > availableBalance) {
-      return `Requested amount ($${parsedAmount.toFixed(2)}) exceeds your available balance ($${availableBalance.toFixed(2)}).`;
+      return `Requested amount (${parsedAmount.toFixed(2)} USDT) exceeds your available balance (${availableBalance.toFixed(2)} USDT).`;
     }
     const cleanAddr = walletAddress.trim();
     if (!cleanAddr) {
@@ -141,7 +140,7 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
       const res = await apiClient.createWithdrawalRequest(parsedAmount, walletAddress.trim());
       setWithdrawSuccess(
         res.message ||
-          `Withdrawal request for $${parsedAmount.toFixed(2)} USDT (TRC20) submitted! Funds have been reserved pending admin review.`
+          `Withdrawal request for ${parsedAmount.toFixed(2)} USDT (TRC20) submitted! Funds have been reserved pending admin review.`
       );
       setWithdrawAmount('');
       setWalletAddress('');
@@ -221,7 +220,7 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
           <div>
             <div className="flex items-center gap-2.5 flex-wrap">
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-                {user.name}
+                My Profile — {user.name}
               </h1>
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono uppercase bg-[#E6A05A]/10 text-[#E6A05A] border border-[#E6A05A]/30 font-bold">
                 {user.role}
@@ -267,18 +266,22 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
               Invite Customers & Earn 40% on Every Verified Subscription
             </h2>
             <p className="text-xs text-slate-400 max-w-2xl">
-              Share your unique referral code or registration link. Earn <strong className="text-white">$2.00 USD</strong> on every <strong className="text-white">$5 Monthly Pro</strong> purchase and <strong className="text-white">$20.00 USD</strong> on every <strong className="text-white">$50 Annual Pro</strong> purchase once payment is verified and approved.
+              Share your unique referral code or registration link. Earn{' '}
+              <strong className="text-white">2.00 USDT</strong> on every{' '}
+              <strong className="text-white">5 USDT Monthly Pro</strong> purchase and{' '}
+              <strong className="text-white">20.00 USDT</strong> on every{' '}
+              <strong className="text-white">50 USDT Annual Pro</strong> purchase once payment is verified and approved.
             </p>
           </div>
 
           <div className="flex items-center gap-3 shrink-0 bg-slate-900/90 border border-slate-800 rounded-xl p-3 text-xs">
             <div className="px-3 py-1.5 rounded-lg bg-[#E6A05A]/10 border border-[#E6A05A]/20 text-center">
-              <span className="block text-[10px] text-slate-400 font-mono">$5 Plan</span>
-              <span className="font-mono font-extrabold text-[#E6A05A] text-sm">+$2.00</span>
+              <span className="block text-[10px] text-slate-400 font-mono">5 USDT Plan</span>
+              <span className="font-mono font-extrabold text-[#E6A05A] text-sm">+2.00 USDT</span>
             </div>
             <div className="px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-center">
-              <span className="block text-[10px] text-slate-400 font-mono">$50 Plan</span>
-              <span className="font-mono font-extrabold text-emerald-400 text-sm">+$20.00</span>
+              <span className="block text-[10px] text-slate-400 font-mono">50 USDT Plan</span>
+              <span className="font-mono font-extrabold text-emerald-400 text-sm">+20.00 USDT</span>
             </div>
           </div>
         </div>
@@ -372,13 +375,14 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
           <div className="pt-3 border-t border-slate-800/80 text-xs text-slate-400 flex items-center gap-2">
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
             <span>
-              Your account was referred with code <strong className="font-mono text-white">{summary.referredByCode}</strong>.
+              Your account was referred with code{' '}
+              <strong className="font-mono text-white">{summary.referredByCode}</strong>.
             </span>
           </div>
         )}
       </div>
 
-      {/* Referral Wallet Metrics Grid (6 Required Metrics) */}
+      {/* Referral Wallet Metrics Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div className="p-5 rounded-xl border border-slate-800 bg-[#0F172A] space-y-1.5">
           <div className="flex items-center justify-between text-xs text-slate-400">
@@ -386,20 +390,20 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
             <Wallet className="h-4 w-4 text-emerald-400" />
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold font-mono text-emerald-400 tabular-nums">
-            ${(summary?.availableBalance ?? 0).toFixed(2)}
+            {(summary?.availableBalance ?? 0).toFixed(2)} USDT
           </div>
           <p className="text-[11px] text-slate-500">
-            Ready to withdraw via USDT TRC20 (Min $4.00)
+            Ready to withdraw via USDT TRC20 (Min 4.00 USDT)
           </p>
         </div>
 
         <div className="p-5 rounded-xl border border-slate-800 bg-[#0F172A] space-y-1.5">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <span>Total Commissions Earned</span>
-            <DollarSign className="h-4 w-4 text-[#E6A05A]" />
+            <Coins className="h-4 w-4 text-[#E6A05A]" />
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold font-mono text-[#E6A05A] tabular-nums">
-            ${(summary?.totalCommissionsEarned ?? 0).toFixed(2)}
+            {(summary?.totalCommissionsEarned ?? 0).toFixed(2)} USDT
           </div>
           <p className="text-[11px] text-slate-500">
             40% lifetime commission on verified purchases
@@ -412,7 +416,7 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
             <Clock className="h-4 w-4 text-amber-400" />
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold font-mono text-amber-400 tabular-nums">
-            ${(summary?.reservedBalance ?? 0).toFixed(2)}
+            {(summary?.reservedBalance ?? 0).toFixed(2)} USDT
           </div>
           <p className="text-[11px] text-slate-500">
             Atomically locked for active payout requests
@@ -425,11 +429,9 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
             <ArrowUpRight className="h-4 w-4 text-sky-400" />
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold font-mono text-white tabular-nums">
-            ${(summary?.withdrawnBalance ?? 0).toFixed(2)}
+            {(summary?.withdrawnBalance ?? 0).toFixed(2)} USDT
           </div>
-          <p className="text-[11px] text-slate-500">
-            Completed USDT TRC20 payouts
-          </p>
+          <p className="text-[11px] text-slate-500">Completed USDT TRC20 payouts</p>
         </div>
 
         <div className="p-5 rounded-xl border border-slate-800 bg-[#0F172A] space-y-1.5">
@@ -440,9 +442,7 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
           <div className="text-2xl sm:text-3xl font-extrabold font-mono text-white tabular-nums">
             {summary?.totalSuccessfulReferrals ?? 0}
           </div>
-          <p className="text-[11px] text-slate-500">
-            Registered accounts using your code
-          </p>
+          <p className="text-[11px] text-slate-500">Registered accounts using your code</p>
         </div>
 
         <div className="p-5 rounded-xl border border-slate-800 bg-[#0F172A] space-y-1.5">
@@ -476,7 +476,7 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
           <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between text-xs">
             <span className="text-slate-400">Available to Withdraw:</span>
             <span className="font-mono text-base font-bold text-emerald-400">
-              ${availableBalance.toFixed(2)} USD
+              {availableBalance.toFixed(2)} USDT
             </span>
           </div>
 
@@ -499,19 +499,20 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="font-semibold text-slate-300">
-                    Withdrawal Amount (USD)
+                    Withdrawal Amount (USDT)
                   </label>
                   <button
                     type="button"
-                    onClick={() => setWithdrawAmount(availableBalance > 0 ? availableBalance.toFixed(2) : '')}
+                    onClick={() =>
+                      setWithdrawAmount(availableBalance > 0 ? availableBalance.toFixed(2) : '')
+                    }
                     disabled={availableBalance < minWithdrawal}
                     className="text-[11px] font-mono text-[#E6A05A] hover:underline disabled:opacity-40 cursor-pointer"
                   >
-                    Withdraw Max (${availableBalance.toFixed(2)})
+                    Withdraw Max ({availableBalance.toFixed(2)} USDT)
                   </button>
                 </div>
                 <div className="relative">
-                  <span className="absolute left-3.5 top-2.5 font-mono text-slate-400">$</span>
                   <input
                     type="number"
                     step="0.01"
@@ -519,20 +520,25 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
                     max={availableBalance > 0 ? availableBalance : undefined}
                     value={withdrawAmount}
                     onChange={(e) => setWithdrawAmount(e.target.value)}
-                    placeholder={`Min ${minWithdrawal.toFixed(2)} USD`}
-                    className="w-full pl-8 pr-16 py-2.5 rounded-xl bg-slate-900 border border-slate-800 font-mono text-white focus:outline-none focus:border-[#E6A05A]"
+                    placeholder={`Min ${minWithdrawal.toFixed(2)} USDT`}
+                    className="w-full pl-3.5 pr-16 py-2.5 rounded-xl bg-slate-900 border border-slate-800 font-mono text-white focus:outline-none focus:border-[#E6A05A]"
                   />
-                  <span className="absolute right-3.5 top-2.5 font-mono text-slate-500">USD</span>
+                  <span className="absolute right-3.5 top-2.5 font-mono text-slate-500">
+                    USDT
+                  </span>
                 </div>
                 <p className="text-[11px] text-slate-500 mt-1">
-                  Minimum withdrawal: <strong>$4.00 USD</strong> · Maximum: <strong>${availableBalance.toFixed(2)} USD</strong>
+                  Minimum withdrawal: <strong>4.00 USDT</strong> · Maximum:{' '}
+                  <strong>{availableBalance.toFixed(2)} USDT</strong>
                 </p>
               </div>
 
               <div>
                 <label className="font-semibold text-slate-300 flex items-center justify-between mb-1.5">
                   <span>Destination Wallet Address</span>
-                  <span className="text-[10px] font-mono text-emerald-400">USDT — TRC20 (TRON)</span>
+                  <span className="text-[10px] font-mono text-emerald-400">
+                    USDT — TRC20 (TRON)
+                  </span>
                 </label>
                 <input
                   type="text"
@@ -552,7 +558,7 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
                 className="w-full py-3 rounded-xl bg-[#E6A05A] hover:bg-[#cf863c] text-[#0B1120] font-bold text-xs transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-lg shadow-[#E6A05A]/10"
               >
                 {availableBalance < minWithdrawal
-                  ? `Insufficient Balance (Min $${minWithdrawal.toFixed(2)} Required)`
+                  ? `Insufficient Balance (Min ${minWithdrawal.toFixed(2)} USDT Required)`
                   : 'Review Withdrawal Request'}
               </button>
             </form>
@@ -567,7 +573,7 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
                 <div className="flex items-center justify-between">
                   <span className="text-slate-400">Withdrawal Amount:</span>
                   <span className="font-mono font-bold text-white text-sm">
-                    ${Number(withdrawAmount).toFixed(2)} USD
+                    {Number(withdrawAmount).toFixed(2)} USDT
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -585,7 +591,8 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
               </div>
 
               <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 leading-relaxed">
-                Submitting this request will atomically reserve <strong>${Number(withdrawAmount).toFixed(2)} USD</strong> from your available balance until an administrator completes or declines the payout.
+                Submitting this request will atomically reserve{' '}
+                <strong>{Number(withdrawAmount).toFixed(2)} USDT</strong> from your available balance until an administrator completes or declines the payout.
               </div>
 
               <div className="flex items-center gap-2.5 pt-1">
@@ -658,13 +665,16 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
                         </div>
                       </td>
                       <td className="py-3 pr-3 font-bold text-emerald-400 tabular-nums">
-                        ${w.amount.toFixed(2)} {w.currency}
+                        {w.amount.toFixed(2)} USDT
                       </td>
                       <td className="py-3 pr-3">
                         <div className="text-[10px] text-[#E6A05A] font-sans font-semibold">
                           {w.network}
                         </div>
-                        <div className="text-[11px] text-slate-300 truncate max-w-[160px]" title={w.walletAddress}>
+                        <div
+                          className="text-[11px] text-slate-300 truncate max-w-[160px]"
+                          title={w.walletAddress}
+                        >
                           {w.walletAddress}
                         </div>
                       </td>
@@ -675,8 +685,13 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
                         {w.txHash ? (
                           <div className="space-y-0.5">
                             <span className="text-slate-400 block text-[10px]">TX Hash:</span>
-                            <span className="font-mono text-emerald-400 break-all" title={w.txHash}>
-                              {w.txHash.length > 18 ? `${w.txHash.slice(0, 10)}...${w.txHash.slice(-6)}` : w.txHash}
+                            <span
+                              className="font-mono text-emerald-400 break-all"
+                              title={w.txHash}
+                            >
+                              {w.txHash.length > 18
+                                ? `${w.txHash.slice(0, 10)}...${w.txHash.slice(-6)}`
+                                : w.txHash}
                             </span>
                           </div>
                         ) : w.rejectionReason ? (
@@ -732,19 +747,23 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
                 {summary.commissions.map((c) => (
                   <tr key={c.id} className="text-slate-300">
                     <td className="py-3 pr-3 font-semibold text-white text-[11px]">{c.id}</td>
-                    <td className="py-3 pr-3 text-[11px]">{new Date(c.createdAt).toLocaleString()}</td>
+                    <td className="py-3 pr-3 text-[11px]">
+                      {new Date(c.createdAt).toLocaleString()}
+                    </td>
                     <td className="py-3 pr-3 font-sans">
-                      <div className="text-white font-medium">{c.referredUserEmail || c.referredUserId}</div>
+                      <div className="text-white font-medium">
+                        {c.referredUserEmail || c.referredUserId}
+                      </div>
                     </td>
                     <td className="py-3 pr-3">
                       <span className="text-white font-semibold">{c.planName || c.planId}</span>
                       <div className="text-[10px] text-slate-500">Order: {c.orderId}</div>
                     </td>
                     <td className="py-3 pr-3 text-right tabular-nums text-slate-300">
-                      ${c.purchaseAmount.toFixed(2)} {c.currency}
+                      {c.purchaseAmount.toFixed(2)} USDT
                     </td>
                     <td className="py-3 pr-3 text-right font-bold text-emerald-400 tabular-nums">
-                      +${c.commissionAmount.toFixed(2)} {c.currency}
+                      +{c.commissionAmount.toFixed(2)} USDT
                     </td>
                     <td className="py-3 text-center font-sans">
                       <span className="px-2 py-0.5 rounded text-[10px] uppercase font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">

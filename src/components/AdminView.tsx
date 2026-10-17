@@ -1,5 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Users, Server, Play, Check, AlertTriangle, RefreshCw, MessageSquare, Clock, Coins, CheckCircle2, ArrowRight, Wallet } from 'lucide-react';
+import {
+  Shield,
+  Users,
+  Server,
+  Play,
+  Check,
+  RefreshCw,
+  MessageSquare,
+  Coins,
+  ArrowRight,
+  Wallet,
+} from 'lucide-react';
 import { apiClient } from '../api/client.ts';
 import type { SupportTicket, CryptoPaymentOrder } from '../types.ts';
 import { AdminWithdrawalsView } from './AdminWithdrawalsView.tsx';
@@ -44,7 +55,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onNavigate }) => {
   const handleTriggerWorker = async () => {
     setTriggeringWorker(true);
     try {
-      const res = await apiClient.triggerWorkerTick();
+      await apiClient.triggerWorkerTick();
       setWorkerToast('Worker tick triggered immediately.');
       setTimeout(() => setWorkerToast(null), 3000);
       await loadAdminData();
@@ -67,54 +78,68 @@ export const AdminView: React.FC<AdminViewProps> = ({ onNavigate }) => {
     <div className="space-y-8">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-        <div>
-          <div className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-[#E6A05A]" />
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-              Super Admin Platform Console
-            </h1>
+        <div className="space-y-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Shield className="h-5 w-5 text-[#E6A05A]" />
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
+                Super Admin Platform Console
+              </h1>
+            </div>
+            <p className="text-xs sm:text-sm text-slate-400 mt-1">
+              Global system health, background monitoring workers, user tenant management, referral withdrawals, and payment approval.
+            </p>
           </div>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Global system health, background monitoring workers, user tenant management, referral withdrawals, and payment approval.
-          </p>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+          {/* Left-Side Admin Quick Navigation (Reports & Withdrawals on Left Side) */}
           {onNavigate && (
-            <>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => onNavigate('reports')}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-200 bg-slate-900 border border-slate-700 rounded-lg hover:border-[#E6A05A] hover:text-white transition-colors cursor-pointer"
+              >
+                <MessageSquare className="h-3.5 w-3.5 text-[#E6A05A]" />
+                <span>Reports ({tickets.length})</span>
+              </button>
+
               <button
                 onClick={() => onNavigate('admin-withdrawals')}
-                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-500 transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-200 bg-slate-900 border border-slate-700 rounded-lg hover:border-[#E6A05A] hover:text-white transition-colors cursor-pointer"
               >
-                <Wallet className="h-3.5 w-3.5" />
-                <span>Withdrawal Requests</span>
+                <Wallet className="h-3.5 w-3.5 text-[#E6A05A]" />
+                <span>Withdrawals</span>
                 {pendingWithdrawalsCount > 0 && (
-                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-black text-amber-400 font-extrabold">
+                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-amber-400 text-black font-extrabold">
                     {pendingWithdrawalsCount}
                   </span>
                 )}
               </button>
+            </div>
+          )}
+        </div>
 
-              <button
-                onClick={() => onNavigate('admin-crypto-transactions')}
-                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-[#0B1120] bg-[#E6A05A] rounded-lg hover:bg-[#cf863c] transition-colors cursor-pointer"
-              >
-                <Coins className="h-3.5 w-3.5" />
-                <span>Review Payments</span>
-                {pendingPayments.length > 0 && (
-                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-black text-[#E6A05A] font-extrabold">
-                    {pendingPayments.length}
-                  </span>
-                )}
-              </button>
-            </>
+        {/* Right-Side Header: Keep Transactions + System Controls */}
+        <div className="flex flex-wrap items-center gap-2">
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('admin-crypto-transactions')}
+              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[#0B1120] bg-[#E6A05A] rounded-lg hover:bg-[#cf863c] transition-colors cursor-pointer"
+            >
+              <Coins className="h-3.5 w-3.5" />
+              <span>Transactions</span>
+              {pendingPayments.length > 0 && (
+                <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-black text-[#E6A05A] font-extrabold">
+                  {pendingPayments.length}
+                </span>
+              )}
+            </button>
           )}
 
           <button
             onClick={loadAdminData}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-300 bg-slate-900 border border-slate-800 rounded-lg hover:text-white cursor-pointer"
           >
-            <RefreshCw className="h-3.5 w-3.5" />
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
             <span>Refresh Telemetry</span>
           </button>
           <button
@@ -167,9 +192,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ onNavigate }) => {
           <div className="p-4 rounded-xl border border-slate-800 bg-[#0F172A] space-y-1">
             <span className="text-xs text-slate-400">Platform Revenue</span>
             <div className="text-2xl font-bold font-mono text-[#E6A05A] tabular-nums">
-              ${stats.totalRevenue?.toLocaleString() || 0}
+              {stats.totalRevenue?.toLocaleString() || 0} USDT
             </div>
-            <p className="text-[11px] text-slate-500">Processed invoices</p>
+            <p className="text-[11px] text-slate-500">Processed USDT invoices</p>
           </div>
         </div>
       )}
@@ -198,7 +223,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onNavigate }) => {
             onClick={() => onNavigate('admin-crypto-transactions')}
             className="px-4 py-2 rounded-xl bg-[#E6A05A] hover:bg-[#cf863c] text-[#0B1120] text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0 shadow-md cursor-pointer"
           >
-            <span>Open Payment Console</span>
+            <span>Open Transactions</span>
             <ArrowRight className="h-3.5 w-3.5" />
           </button>
         )}

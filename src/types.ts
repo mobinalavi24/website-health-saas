@@ -35,16 +35,59 @@ export interface User {
   createdAt: string;
 }
 
+export type EntitlementStatus = 'active' | 'expired' | 'revoked' | 'cancelled';
+
+export interface SubscriptionEntitlement {
+  id: string;
+  userId: string;
+  orgId: string;
+  planId: string;
+  planName: string;
+  billingInterval: 'monthly' | 'annual';
+  websiteCapacity: number;
+  orderId: string | null;
+  status: EntitlementStatus;
+  purchasedAt: string;
+  startsAt: string;
+  expiresAt: string;
+  revokedAt?: string | null;
+  revokedReason?: string | null;
+  createdAt: string;
+  daysRemaining: number;
+  remainingMs: number;
+  isActive: boolean;
+}
+
+export interface OrganizationEntitlementSummary {
+  orgId: string;
+  entitlements: SubscriptionEntitlement[];
+  activeEntitlements: SubscriptionEntitlement[];
+  expiredEntitlements: SubscriptionEntitlement[];
+  activeEntitlementCount: number;
+  totalActiveCapacity: number;
+  paidActiveCapacity: number;
+  freeTrialCapacity: number;
+  usedWebsiteSlots: number;
+  remainingWebsiteSlots: number;
+  overCapacitySlots: number;
+  hasActivePaidEntitlement: boolean;
+  allPaidEntitlementsExpired: boolean;
+  earliestActiveExpiresAt: string | null;
+  latestActiveExpiresAt: string | null;
+}
+
 export interface Organization {
   id: string;
   name: string;
   planId: 'free' | 'pro' | 'agency' | 'enterprise';
   billingInterval: 'monthly' | 'annual';
-  currency: 'USD' | 'EUR' | 'GBP';
+  currency: 'USDT' | string;
   ownerId: string;
   trialStartedAt?: string;
   trialEndsAt?: string;
   trialUsed?: boolean;
+  maxWebsites?: number;
+  entitlementSummary?: OrganizationEntitlementSummary;
   whiteLabel: {
     enabled: boolean;
     brandName: string;
@@ -72,6 +115,7 @@ export interface TrialInfo {
 export interface AccountStatus {
   plan: 'free' | 'pro' | 'agency' | 'enterprise';
   trial: TrialInfo;
+  entitlements?: OrganizationEntitlementSummary;
 }
 
 export interface Website {
@@ -173,9 +217,8 @@ export interface SubscriptionPlan {
   badge: string;
   targetAudience: string;
   pricing: {
-    USD: { monthly: number; annual: number };
-    EUR: { monthly: number; annual: number };
-    GBP: { monthly: number; annual: number };
+    USDT: { monthly: number; annual: number };
+    [key: string]: { monthly: number; annual: number };
   };
   limits: {
     maxWebsites: number;
@@ -259,7 +302,7 @@ export type WithdrawalStatus = 'pending' | 'approved' | 'paid' | 'rejected' | 'c
 
 export interface ReferralWallet {
   userId: string;
-  currency: 'USD';
+  currency: 'USDT';
   totalEarnedCents: number;
   availableBalanceCents: number;
   reservedBalanceCents: number;
@@ -285,7 +328,7 @@ export interface ReferralCommission {
   commissionRateBps: number;
   commissionAmountCents: number;
   commissionAmount: number;
-  currency: 'USD';
+  currency: 'USDT';
   status: 'credited';
   createdAt: string;
 }
@@ -296,7 +339,7 @@ export interface ReferralWalletLedgerEntry {
   type: 'commission_credit' | 'withdrawal_reserve' | 'withdrawal_release' | 'withdrawal_paid';
   amountCents: number;
   amount: number;
-  currency: 'USD';
+  currency: 'USDT';
   referenceId: string;
   idempotencyKey: string;
   balanceAfterCents: number;
@@ -325,7 +368,7 @@ export interface WithdrawalRequestRecord {
   referralCode: string;
   amountCents: number;
   amount: number;
-  currency: 'USD';
+  currency: 'USDT';
   network: string;
   walletAddress: string;
   status: WithdrawalStatus;
@@ -361,7 +404,7 @@ export interface UserReferralSummary {
   canApplyReferralCode: boolean;
   commissionRatePercent: number;
   minimumWithdrawalAmount: number;
-  currency: 'USD';
+  currency: 'USDT';
   payoutNetwork: string;
   totalSuccessfulReferrals: number;
   totalEligiblePurchases: number;
@@ -396,7 +439,7 @@ export interface AdminReferralOverview {
   totalRejectedRequestsCount: number;
   totalRejectedAmount: number;
   totalCancelledRequestsCount: number;
-  currency: 'USD';
+  currency: 'USDT';
 }
 
 export interface ApiKey {

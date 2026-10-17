@@ -2,12 +2,14 @@ import { query, withTransaction } from './db/connection.ts';
 import { db, type CryptoPaymentOrder } from './db.ts';
 import { mapCryptoOrderRow } from './db/repositories.ts';
 import { creditReferralCommissionInTransaction, type ReferralCommission } from './referrals.ts';
+import { grantEntitlementForOrderInTransaction, type SubscriptionEntitlement } from './entitlements.ts';
 
 export interface AdminApprovalResult {
   success: boolean;
   order: CryptoPaymentOrder;
   alreadyApproved?: boolean;
   commission?: ReferralCommission | null;
+  entitlement?: SubscriptionEntitlement | null;
   message: string;
 }
 
@@ -28,7 +30,8 @@ export interface OrderCancelResult {
  * Approve a cryptocurrency payment order.
  * Strictly requires Super Admin or Admin authorization.
  * Executes in a single database transaction with row-level concurrency lock.
- * Atomically updates order, activates customer subscription, issues invoice, credits referral commission (if eligible), and writes audit log.
+ * Atomically updates order, grants an independent subscription entitlement (+5 website slots),
+ * issues invoice, credits referral commission (if eligible), and writes audit log.
  */
 export async function approvePaymentOrder(
   orderId: string,
@@ -50,12 +53,14 @@ export async function approvePaymentOrder(
     if (row.status === 'Paid') {
       const existing = db.findCryptoOrderById(orderId) || mapCryptoOrderRow(row);
       const comm = await creditReferralCommissionInTransaction(client, row);
+      const entRes = await grantEntitlementForOrderInTransaction(client, row);
       return {
         success: true,
         order: existing,
         alreadyApproved: true,
         commission: comm,
-        message: 'Order has already been approved and subscription is active.',
+        entitlement: entRes.entitlement,
+        message: 'Order has already been approved and subscription entitlement is active.',
       };
     }
 
@@ -86,13 +91,21 @@ export async function approvePaymentOrder(
       `UPDATE organizations
        SET plan_id = $1,
            billing_interval = $2,
-           currency = 'USD',
+           currency = 'USDT',
            trial_used = true
        WHERE id = $3`,
       [row.plan_id, row.billing_interval, row.org_id]
     );
 
-    // 4. Record official invoice in PostgreSQL
+    // 4. Grant independent subscription entitlement (+5 website slots with independent expiration)
+    const entResult = await grantEntitlementForOrderInTransaction(client, {
+      ...row,
+      status: 'Paid',
+      confirmed_at: nowIso,
+      approved_at: nowIso,
+    });
+
+    // 5. Record official invoice in PostgreSQL
     const invId = `inv_crypto_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const invNum = `INV-USDT-${Math.floor(1000 + Math.random() * 9000)}`;
     const invoicePlanName = `${row.plan_name} · Approved by ${adminUser.email}`;
@@ -103,13 +116,13 @@ export async function approvePaymentOrder(
       [invId, row.org_id, invNum, nowIso, parseFloat(row.amount), invoicePlanName]
     );
 
-    // 5. Atomically credit 40% referral commission if customer was referred
+    // 6. Atomically credit 40% referral commission if customer was referred
     const commResult = await creditReferralCommissionInTransaction(client, {
       ...row,
       status: 'Paid',
     });
 
-    // 6. Record administrative audit log
+    // 7. Record administrative audit log
     const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     await client.query(
       `INSERT INTO audit_logs (id, org_id, user_id, user_email, action, target, details, timestamp)
@@ -120,11 +133,11 @@ export async function approvePaymentOrder(
         adminUser.id,
         adminUser.email,
         orderId,
-        `Payment order ${orderId} (${row.amount} USDT) manually approved by ${adminUser.email}. Plan ${row.plan_id.toUpperCase()} activated for ${row.user_email}.${commResult ? ` Referral commission $${commResult.commissionAmount.toFixed(2)} credited to ${commResult.referralCode}.` : ''}`,
+        `Payment order ${orderId} (${row.amount} USDT) manually approved by ${adminUser.email}. Plan ${row.plan_id.toUpperCase()} entitlement (+${entResult.entitlement?.websiteCapacity || 5} website slots) activated for ${row.user_email}.${commResult ? ` Referral commission ${commResult.commissionAmount.toFixed(2)} USDT credited to ${commResult.referralCode}.` : ''}`,
       ]
     );
 
-    // 7. Synchronize in-memory runtime DB
+    // 8. Synchronize in-memory runtime DB
     const updatedOrder = db.updateCryptoOrder(orderId, {
       status: 'Paid',
       confirmedAt: nowIso,
@@ -144,7 +157,7 @@ export async function approvePaymentOrder(
     if (org) {
       org.planId = row.plan_id;
       org.billingInterval = row.billing_interval;
-      org.currency = 'USD';
+      org.currency = 'USDT';
       org.trialUsed = true;
       db.persist();
 
@@ -166,7 +179,7 @@ export async function approvePaymentOrder(
         userEmail: adminUser.email,
         action: 'ADMIN_PAYMENT_APPROVED',
         target: orderId,
-        details: `Payment order ${orderId} (${row.amount} USDT) manually approved by ${adminUser.email}. Plan ${row.plan_id.toUpperCase()} activated for ${row.user_email}.`,
+        details: `Payment order ${orderId} (${row.amount} USDT) manually approved by ${adminUser.email}. Plan ${row.plan_id.toUpperCase()} entitlement activated for ${row.user_email}.`,
         timestamp: nowIso,
       });
     }
@@ -175,7 +188,8 @@ export async function approvePaymentOrder(
       success: true,
       order: updatedOrder,
       commission: commResult,
-      message: `Payment of ${row.amount} USDT approved successfully! Plan ${row.plan_name} has been activated for ${row.user_email}.`,
+      entitlement: entResult.entitlement,
+      message: `Payment of ${row.amount} USDT approved successfully! Plan ${row.plan_name} entitlement (+${entResult.entitlement?.websiteCapacity || 5} website slots) has been activated for ${row.user_email}.`,
     };
   });
 }

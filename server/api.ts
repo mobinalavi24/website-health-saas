@@ -44,6 +44,10 @@ import {
   TicketAccessDeniedError,
   TicketNotFoundError,
 } from './tickets.ts';
+import {
+  getOrganizationEntitlementSummary,
+  backfillSubscriptionEntitlements,
+} from './entitlements.ts';
 
 function getPublicOrigin(req: IncomingMessage): string {
   const configured = process.env.PUBLIC_APP_URL || process.env.APP_URL || process.env.VITE_APP_URL;
@@ -428,7 +432,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         name: orgName ? String(orgName).trim() : `${cleanName}'s Workspace`,
         planId: 'free',
         billingInterval: 'monthly',
-        currency: 'USD',
+        currency: 'USDT',
         ownerId: userId,
         trialStartedAt: nowIso,
         trialEndsAt: trialEndsIso,
@@ -464,6 +468,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       } catch {}
 
       const token = createSession(userId, orgId);
+      const entitlementSummary = await getOrganizationEntitlementSummary(orgId);
       sendJson(res, 201, {
         token,
         user: {
@@ -477,7 +482,10 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           referredByCode: newUser.referredByCode,
           referredAt: newUser.referredAt,
         },
-        organization: newOrg,
+        organization: {
+          ...newOrg,
+          entitlementSummary,
+        },
       });
       return true;
     }
@@ -542,6 +550,8 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         } catch {}
       }
 
+      await backfillSubscriptionEntitlements().catch(() => {});
+      const entitlementSummary = await getOrganizationEntitlementSummary(user.orgId);
       const org = db.findOrgById(user.orgId);
       const token = createSession(user.id, user.orgId);
       sendJson(res, 200, {
@@ -558,7 +568,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           referredByCode: user.referredByCode,
           referredAt: user.referredAt,
         },
-        organization: org,
+        organization: org ? { ...org, currency: 'USDT', entitlementSummary } : null,
       });
       return true;
     }
@@ -574,6 +584,8 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           session.user.referralCode = await ensureUserReferralCode(session.user.id);
         } catch {}
       }
+      await backfillSubscriptionEntitlements().catch(() => {});
+      const entitlementSummary = await getOrganizationEntitlementSummary(session.org.id);
       const trialStatus = getAccountTrialStatus(session.org);
       sendJson(res, 200, {
         user: {
@@ -588,7 +600,11 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           referredByCode: session.user.referredByCode,
           referredAt: session.user.referredAt,
         },
-        organization: session.org,
+        organization: {
+          ...session.org,
+          currency: 'USDT',
+          entitlementSummary,
+        },
         accountStatus: {
           plan: session.org.planId,
           trial: {
@@ -597,6 +613,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
             expired: trialStatus.isExpired,
             remainingMs: trialStatus.remainingMs,
           },
+          entitlements: entitlementSummary,
         },
       });
       return true;
@@ -608,6 +625,8 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
+      await backfillSubscriptionEntitlements().catch(() => {});
+      const entitlementSummary = await getOrganizationEntitlementSummary(session.org.id);
       const trialStatus = getAccountTrialStatus(session.org);
       sendJson(res, 200, {
         plan: session.org.planId,
@@ -617,6 +636,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           expired: trialStatus.isExpired,
           remainingMs: trialStatus.remainingMs,
         },
+        entitlements: entitlementSummary,
       });
       return true;
     }
@@ -663,24 +683,36 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         return true;
       }
 
-      // Enforce Free Trial restriction
-      if (session.org.planId === 'free' && session.user.role !== 'super_admin') {
-        const trial = getAccountTrialStatus(session.org);
-        if (trial.isExpired) {
+      await backfillSubscriptionEntitlements().catch(() => {});
+      const entitlementSummary = await getOrganizationEntitlementSummary(session.org.id);
+
+      // Enforce active entitlement / Free Trial capacity on the backend
+      if (session.user.role !== 'super_admin') {
+        if (entitlementSummary.totalActiveCapacity <= 0) {
+          if (entitlementSummary.allPaidEntitlementsExpired) {
+            sendJson(res, 403, {
+              error: 'SUBSCRIPTION_EXPIRED',
+              message: 'Your subscription entitlements have expired. Purchase a Pro Plan entitlement (5 USDT/month) to monitor websites.',
+            });
+            return true;
+          }
           sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
+          return true;
+        }
+
+        if (entitlementSummary.usedWebsiteSlots >= entitlementSummary.totalActiveCapacity) {
+          const activeLabel =
+            entitlementSummary.activeEntitlementCount > 0
+              ? `${entitlementSummary.activeEntitlementCount} active Pro entitlement${entitlementSummary.activeEntitlementCount === 1 ? '' : 's'}`
+              : 'Free Trial';
+          sendJson(res, 403, {
+            error: `Your active capacity limit is ${entitlementSummary.totalActiveCapacity} website${entitlementSummary.totalActiveCapacity === 1 ? '' : 's'} (${entitlementSummary.usedWebsiteSlots}/${entitlementSummary.totalActiveCapacity} slots used across ${activeLabel}). Purchase an additional Pro Plan entitlement (+5 website slots) to monitor more websites.`,
+          });
           return true;
         }
       }
 
-      const orgSites = db.getWebsites().filter((w) => w.orgId === session.org.id);
       const plan = db.getPlans().find((p) => p.id === session.org.planId) || db.getPlans()[0];
-      if (orgSites.length >= plan.limits.maxWebsites && session.user.role !== 'super_admin') {
-        sendJson(res, 403, {
-          error: `Your ${plan.name} plan limit is ${plan.limits.maxWebsites} websites. Please upgrade your subscription to monitor additional endpoints.`,
-        });
-        return true;
-      }
-
       const body = await readJsonBody(req);
       const rawUrl = body.url;
       if (!rawUrl) {
@@ -772,12 +804,10 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
-      if (session.org.planId === 'free' && session.user.role !== 'super_admin') {
-        const trial = getAccountTrialStatus(session.org);
-        if (trial.isExpired) {
-          sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
-          return true;
-        }
+      const entitlementSummary = await getOrganizationEntitlementSummary(session.org.id);
+      if (session.user.role !== 'super_admin' && entitlementSummary.totalActiveCapacity <= 0) {
+        sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
+        return true;
       }
       const siteId = path.split('/')[3];
       const site = db.findWebsiteById(siteId);
@@ -816,12 +846,10 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
-      if (session.org.planId === 'free' && session.user.role !== 'super_admin') {
-        const trial = getAccountTrialStatus(session.org);
-        if (trial.isExpired) {
-          sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
-          return true;
-        }
+      const entitlementSummary = await getOrganizationEntitlementSummary(session.org.id);
+      if (session.user.role !== 'super_admin' && entitlementSummary.totalActiveCapacity <= 0) {
+        sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
+        return true;
       }
       const siteId = path.split('/')[3];
       const site = db.findWebsiteById(siteId);
@@ -841,12 +869,10 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
-      if (session.org.planId === 'free' && session.user.role !== 'super_admin') {
-        const trial = getAccountTrialStatus(session.org);
-        if (trial.isExpired) {
-          sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
-          return true;
-        }
+      const entitlementSummary = await getOrganizationEntitlementSummary(session.org.id);
+      if (session.user.role !== 'super_admin' && entitlementSummary.totalActiveCapacity <= 0) {
+        sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
+        return true;
       }
       const siteId = path.split('/')[3];
       try {
@@ -865,12 +891,10 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
-      if (session.org.planId === 'free' && session.user.role !== 'super_admin') {
-        const trial = getAccountTrialStatus(session.org);
-        if (trial.isExpired) {
-          sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
-          return true;
-        }
+      const entitlementSummary = await getOrganizationEntitlementSummary(session.org.id);
+      if (session.user.role !== 'super_admin' && entitlementSummary.totalActiveCapacity <= 0) {
+        sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
+        return true;
       }
       const siteId = path.split('/')[3];
       const site = db.findWebsiteById(siteId);
@@ -1095,13 +1119,25 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       return true;
     }
 
+    if (path === '/api/billing/entitlements' && method === 'GET') {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      await backfillSubscriptionEntitlements().catch(() => {});
+      const summary = await getOrganizationEntitlementSummary(session.org.id);
+      sendJson(res, 200, summary);
+      return true;
+    }
+
     if (path === '/api/billing/change-plan' && method === 'POST') {
       const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
-      const { planId, interval, currency } = await readJsonBody(req);
+      const { planId, interval } = await readJsonBody(req);
       const plan = db.getPlans().find((p) => p.id === planId);
       if (!plan) {
         sendJson(res, 400, { error: 'Invalid plan selected' });
@@ -1109,8 +1145,6 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       }
 
       // Security rule: Prevent trial reactivation or resetting trialUsed.
-      // If user switches back to 'free', their trial start/end timestamps are permanently preserved.
-      // They cannot get a new 24h trial.
       if (planId === 'free' && session.org.trialUsed) {
         const trial = getAccountTrialStatus(session.org);
         if (trial.isExpired) {
@@ -1124,14 +1158,14 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
       session.org.planId = planId;
       if (interval) session.org.billingInterval = interval;
-      if (currency) session.org.currency = currency;
+      session.org.currency = 'USDT';
       db.persist();
 
       // Generate invoice record
-      const selectedCurrency = session.org.currency || 'USD';
+      const pricingTier = plan.pricing.USDT || plan.pricing.USD || { monthly: 0, annual: 0 };
       const amount = interval === 'annual'
-        ? plan.pricing[selectedCurrency].annual
-        : plan.pricing[selectedCurrency].monthly;
+        ? pricingTier.annual
+        : pricingTier.monthly;
 
       if (amount > 0) {
         db.addInvoice({
@@ -1140,13 +1174,21 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           invoiceNumber: `INV-2026-${Math.floor(100 + Math.random() * 900)}`,
           date: new Date().toISOString(),
           amount,
-          currency: selectedCurrency,
+          currency: 'USDT',
           status: 'paid',
           planName: `${plan.name} (${interval === 'annual' ? 'Annual' : 'Monthly'})`,
         });
       }
 
-      sendJson(res, 200, { success: true, organization: session.org });
+      const entitlementSummary = await getOrganizationEntitlementSummary(session.org.id);
+      sendJson(res, 200, {
+        success: true,
+        organization: {
+          ...session.org,
+          currency: 'USDT',
+          entitlementSummary,
+        },
+      });
       return true;
     }
 
@@ -1156,7 +1198,9 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
-      const invoices = db.getInvoices().filter((inv) => inv.orgId === session.org.id);
+      const invoices = db.getInvoices()
+        .filter((inv) => inv.orgId === session.org.id)
+        .map((inv) => ({ ...inv, currency: 'USDT' }));
       sendJson(res, 200, invoices);
       return true;
     }
@@ -1402,7 +1446,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           success: true,
           request,
           withdrawal: request,
-          message: `Withdrawal request of $${request.amount.toFixed(2)} USD submitted and funds reserved.`,
+          message: `Withdrawal request of ${request.amount.toFixed(2)} USDT submitted and funds reserved.`,
         });
       } catch (err: any) {
         sendJson(res, 400, { error: err.message || 'Failed to submit withdrawal request' });

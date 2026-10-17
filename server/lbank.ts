@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import QRCode from 'qrcode';
 import { db, type CryptoPaymentOrder, type CryptoPaymentStatus } from './db.ts';
 import { CryptoOrderRepo, OrgRepo } from './db/repositories.ts';
+import { withTransaction } from './db/connection.ts';
+import { grantEntitlementForOrderInTransaction } from './entitlements.ts';
 import {
   applyReferralCodeToUser,
   normalizeReferralCode,
@@ -309,9 +311,10 @@ export async function createCryptoPaymentOrder(params: {
   const plan = db.getPlans().find((p) => p.id === params.planId);
   if (!plan) throw new Error('Invalid plan selected');
 
+  const pricingTier = plan.pricing.USDT || plan.pricing.USD || { monthly: 5, annual: 50 };
   const amount = params.billingInterval === 'annual'
-    ? plan.pricing.USD.annual
-    : plan.pricing.USD.monthly;
+    ? pricingTier.annual
+    : pricingTier.monthly;
 
   if (amount <= 0) {
     throw new Error('Selected plan is free and does not require cryptocurrency payment.');
@@ -396,7 +399,7 @@ export async function verifyPaymentOrder(orderId: string, manualTxId?: string): 
     return {
       order,
       activated: true,
-      message: 'Order has already been confirmed and paid. Plan is active.',
+      message: 'Order has already been confirmed and paid. Plan entitlement is active.',
     };
   }
 
@@ -518,7 +521,8 @@ export async function verifyPaymentOrder(orderId: string, manualTxId?: string): 
 }
 
 /**
- * Marks order as Paid, activates user plan atomically, and credits 40% referral commission if eligible
+ * Marks order as Paid, grants independent subscription entitlement (+5 website slots),
+ * activates user plan atomically, and credits 40% referral commission if eligible
  */
 async function activatePaidOrder(
   order: CryptoPaymentOrder,
@@ -538,12 +542,32 @@ async function activatePaidOrder(
     await CryptoOrderRepo.insert(updatedOrder);
   } catch {}
 
+  // Grant independent subscription entitlement in PostgreSQL
+  try {
+    await withTransaction(async (client) => {
+      await grantEntitlementForOrderInTransaction(client, {
+        id: updatedOrder.id,
+        user_id: updatedOrder.userId,
+        org_id: updatedOrder.orgId,
+        plan_id: updatedOrder.planId,
+        plan_name: updatedOrder.planName,
+        billing_interval: updatedOrder.billingInterval,
+        amount: updatedOrder.amount,
+        status: 'Paid',
+        created_at: updatedOrder.createdAt,
+        confirmed_at: confirmedAt,
+      });
+    });
+  } catch (err: any) {
+    console.error('[Entitlement] Error granting entitlement in activatePaidOrder:', err?.message);
+  }
+
   // Activate organization plan
   const org = db.getOrganizations().find((o) => o.id === order.orgId);
   if (org) {
     org.planId = order.planId;
     org.billingInterval = order.billingInterval;
-    org.currency = 'USD';
+    org.currency = 'USDT';
     org.trialUsed = true;
     db.persist();
     try {
@@ -570,7 +594,7 @@ async function activatePaidOrder(
       userEmail: order.userEmail,
       action: 'CRYPTO_SUBSCRIPTION_ACTIVATED',
       target: order.planName,
-      details: `Plan upgraded to ${order.planId.toUpperCase()} via ${order.amount} USDT (TRC20). TXID: ${txId}`,
+      details: `Plan entitlement (+5 website slots) activated for ${order.planId.toUpperCase()} via ${order.amount} USDT (TRC20). TXID: ${txId}`,
       timestamp: confirmedAt,
     });
   }
@@ -585,7 +609,7 @@ async function activatePaidOrder(
   return {
     order: updatedOrder,
     activated: true,
-    message: `Payment of ${order.amount} USDT successfully confirmed! Your ${order.planName} has been activated.`,
+    message: `Payment of ${order.amount} USDT successfully confirmed! Your ${order.planName} entitlement (+5 website slots) has been activated.`,
   };
 }
 

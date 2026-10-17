@@ -24,7 +24,7 @@ export default function App() {
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [activeView, setActiveView] = useState<string>('home');
   const [postLoginView, setPostLoginView] = useState<string | null>(null);
-  const [currency, setCurrency] = useState<'USD' | 'EUR' | 'GBP'>('USD');
+  const [currency, setCurrency] = useState<string>('USDT');
 
   // Core Data
   const [websites, setWebsites] = useState<Website[]>([]);

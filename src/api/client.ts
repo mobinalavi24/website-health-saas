@@ -22,6 +22,7 @@ import type {
   UserReferralSummary,
   WithdrawalRequestRecord,
   AdminReferralOverview,
+  OrganizationEntitlementSummary,
 } from '../types.ts';
 
 const TOKEN_KEY = 'pv_auth_token';
@@ -232,7 +233,11 @@ export const apiClient = {
     return this.request<SubscriptionPlan[]>('/api/billing/plans');
   },
 
-  async changePlan(planId: string, interval: 'monthly' | 'annual', currency: 'USD' | 'EUR' | 'GBP'): Promise<{ success: boolean; organization: Organization }> {
+  async getEntitlements(): Promise<OrganizationEntitlementSummary> {
+    return this.request<OrganizationEntitlementSummary>('/api/billing/entitlements');
+  },
+
+  async changePlan(planId: string, interval: 'monthly' | 'annual', currency = 'USDT'): Promise<{ success: boolean; organization: Organization }> {
     return this.request<{ success: boolean; organization: Organization }>('/api/billing/change-plan', {
       method: 'POST',
       body: JSON.stringify({ planId, interval, currency }),

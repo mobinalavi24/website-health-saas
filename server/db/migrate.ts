@@ -102,7 +102,7 @@ export async function applyReferralSchemaMigration(): Promise<void> {
     'ALTER TABLE crypto_orders ADD COLUMN IF NOT EXISTS referrer_user_id TEXT',
     `CREATE TABLE IF NOT EXISTS referral_wallets (
       user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-      currency TEXT NOT NULL DEFAULT 'USD',
+      currency TEXT NOT NULL DEFAULT 'USDT',
       total_earned_cents INTEGER NOT NULL DEFAULT 0,
       available_balance_cents INTEGER NOT NULL DEFAULT 0,
       reserved_balance_cents INTEGER NOT NULL DEFAULT 0,
@@ -121,7 +121,7 @@ export async function applyReferralSchemaMigration(): Promise<void> {
       purchase_amount_cents INTEGER NOT NULL,
       commission_rate_bps INTEGER NOT NULL DEFAULT 4000,
       commission_amount_cents INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'USD',
+      currency TEXT NOT NULL DEFAULT 'USDT',
       status TEXT NOT NULL DEFAULT 'credited',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
@@ -130,7 +130,7 @@ export async function applyReferralSchemaMigration(): Promise<void> {
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       type TEXT NOT NULL,
       amount_cents INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'USD',
+      currency TEXT NOT NULL DEFAULT 'USDT',
       reference_id TEXT NOT NULL,
       idempotency_key TEXT UNIQUE NOT NULL,
       balance_after_cents INTEGER NOT NULL,
@@ -144,7 +144,7 @@ export async function applyReferralSchemaMigration(): Promise<void> {
       user_email TEXT NOT NULL,
       referral_code TEXT NOT NULL,
       amount_cents INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'USD',
+      currency TEXT NOT NULL DEFAULT 'USDT',
       network TEXT NOT NULL DEFAULT 'USDT — TRC20 (TRON)',
       wallet_address TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
@@ -230,6 +230,75 @@ export async function applySupportTicketingSchemaMigration(): Promise<void> {
   }
 }
 
+export async function applySubscriptionEntitlementsMigration(): Promise<void> {
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS subscription_entitlements (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      plan_id TEXT NOT NULL,
+      plan_name TEXT NOT NULL,
+      billing_interval TEXT NOT NULL DEFAULT 'monthly',
+      website_capacity INTEGER NOT NULL DEFAULT 5,
+      order_id TEXT UNIQUE,
+      status TEXT NOT NULL DEFAULT 'active',
+      purchased_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      starts_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      revoked_at TIMESTAMPTZ,
+      revoked_reason TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    'CREATE INDEX IF NOT EXISTS idx_sub_entitlements_user ON subscription_entitlements(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_sub_entitlements_org ON subscription_entitlements(org_id)',
+    'CREATE INDEX IF NOT EXISTS idx_sub_entitlements_status_exp ON subscription_entitlements(status, expires_at)',
+    // Normalize any fiat currency labels in existing tables to crypto-only USDT
+    "UPDATE organizations SET currency = 'USDT' WHERE currency IN ('USD', 'EUR', 'GBP')",
+    "UPDATE app_settings SET default_currency = 'USDT' WHERE default_currency IN ('USD', 'EUR', 'GBP')",
+    "UPDATE invoices SET currency = 'USDT' WHERE currency IN ('USD', 'EUR', 'GBP')",
+    "UPDATE referral_wallets SET currency = 'USDT' WHERE currency IN ('USD', 'EUR', 'GBP')",
+    "UPDATE referral_commissions SET currency = 'USDT' WHERE currency IN ('USD', 'EUR', 'GBP')",
+    "UPDATE referral_wallet_ledger SET currency = 'USDT' WHERE currency IN ('USD', 'EUR', 'GBP')",
+    "UPDATE withdrawal_requests SET currency = 'USDT' WHERE currency IN ('USD', 'EUR', 'GBP')",
+  ];
+
+  for (const st of statements) {
+    try {
+      await query(st);
+    } catch {
+      // Table/column may already exist
+    }
+  }
+
+  // Update subscription_plans features in PostgreSQL to remove any $ or fiat references
+  try {
+    await query(
+      `UPDATE subscription_plans
+       SET features = $1::jsonb
+       WHERE id = 'pro'`,
+      [
+        JSON.stringify([
+          '5 Monitored Websites per Entitlement',
+          'Full Access after 3-Day Trial',
+          '1-Minute Rapid Uptime Checks',
+          'Full Google PageSpeed & Advanced SEO Audits',
+          'SSL, DNS, Security Headers & Incident Alerts',
+          '5 USDT/month or 50 USDT/year (Save 2 Months)',
+        ]),
+      ]
+    );
+  } catch {
+    // Ignore if subscription_plans not yet initialized
+  }
+
+  try {
+    const { backfillSubscriptionEntitlements } = await import('../entitlements.ts');
+    await backfillSubscriptionEntitlements();
+  } catch (err: any) {
+    console.warn('[Migration]: Could not backfill subscription entitlements:', err?.message);
+  }
+}
+
 export async function runMigration(options: { force?: boolean } = {}): Promise<MigrationSummary> {
   const jsonPath = path.resolve(process.cwd(), 'data/pulsevanguard.db.json');
 
@@ -261,6 +330,7 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
     await applyPaymentApprovalSchemaMigration();
     await applyReferralSchemaMigration();
     await applySupportTicketingSchemaMigration();
+    await applySubscriptionEntitlementsMigration();
     return {
       success: true,
       source: jsonPath,
@@ -729,7 +799,7 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
     // 15. Settings
     const settings = data.settings || {
       maintenanceMode: false,
-      defaultCurrency: 'USD',
+      defaultCurrency: 'USDT',
       stripeConfigured: false,
       workerIntervalSec: 60,
       maxFreeScansPerHour: 10,
@@ -746,7 +816,7 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
          updated_at = NOW()`,
       [
         Boolean(settings.maintenanceMode),
-        settings.defaultCurrency || 'USD',
+        'USDT',
         Boolean(settings.stripeConfigured),
         settings.workerIntervalSec || 60,
         settings.maxFreeScansPerHour || 10,
@@ -768,6 +838,7 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
 
   await applyReferralSchemaMigration();
   await applySupportTicketingSchemaMigration();
+  await applySubscriptionEntitlementsMigration();
 
   return {
     success: true,

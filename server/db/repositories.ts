@@ -124,7 +124,7 @@ export const OrgRepo = {
         org.name,
         org.planId,
         org.billingInterval || 'monthly',
-        org.currency || 'USD',
+        org.currency || 'USDT',
         org.ownerId,
         org.trialStartedAt ? new Date(org.trialStartedAt).toISOString() : null,
         org.trialEndsAt ? new Date(org.trialEndsAt).toISOString() : null,
@@ -645,7 +645,7 @@ export const GenericRepo = {
          updated_at = NOW()`,
       [
         Boolean(settings.maintenanceMode),
-        settings.defaultCurrency || 'USD',
+        settings.defaultCurrency || 'USDT',
         Boolean(settings.stripeConfigured),
         settings.workerIntervalSec || 60,
         settings.maxFreeScansPerHour || 10,

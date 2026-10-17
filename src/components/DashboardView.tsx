@@ -177,7 +177,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </span>
                 <p className="text-slate-300 text-[11px]">
                   24 hours of unrestricted full-platform monitoring. Upgrade to{' '}
-                  <strong className="text-white">Pro for $5/month</strong> to monitor up to 5 websites continuously.
+                  <strong className="text-white">Pro for 5 USDT/month</strong> to monitor +5 websites per active entitlement.
                 </p>
               </div>
             )}
@@ -190,7 +190,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 : 'bg-[#E6A05A] text-[#0B1120] hover:bg-[#cf863c]'
             }`}
           >
-            Upgrade to Pro ($5/mo)
+            Upgrade to Pro (5 USDT/mo)
           </button>
         </div>
       )}
@@ -235,8 +235,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
           <div className="text-[11px] text-slate-400 font-mono">
-            {organization?.planId === 'pro'
-              ? `Pro Plan ($5/mo): ${totalCount}/5 sites used`
+            {organization?.planId === 'pro' || (organization?.entitlementSummary?.activeEntitlements?.length || 0) > 0
+              ? `Pro Capacity: ${totalCount}/${organization?.entitlementSummary?.totalActiveCapacity ?? organization?.maxWebsites ?? 5} sites used`
               : `Free Trial (24h): ${totalCount}/1 site used`}
           </div>
         </div>

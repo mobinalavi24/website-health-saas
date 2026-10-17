@@ -2,9 +2,8 @@ import React, { useState } from 'react';
 import {
   Activity,
   LayoutDashboard,
-  QrCode,
   Coins,
-  Gift,
+  User as UserIcon,
   Wallet,
   MessageSquare,
   Menu,
@@ -19,8 +18,8 @@ interface NavbarProps {
   onNavigate: (view: string) => void;
   onOpenAuth: (initialTab?: 'login' | 'register') => void;
   onLogout: () => void;
-  currency: 'USD' | 'EUR' | 'GBP';
-  onCurrencyChange: (c: 'USD' | 'EUR' | 'GBP') => void;
+  currency?: string;
+  onCurrencyChange?: (c: any) => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -30,8 +29,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigate,
   onOpenAuth,
   onLogout,
-  currency,
-  onCurrencyChange,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -39,6 +36,13 @@ export const Navbar: React.FC<NavbarProps> = ({
     setMobileMenuOpen(false);
     onNavigate(view);
   };
+
+  const activePaidEntitlements =
+    organization?.entitlementSummary?.activeEntitlements?.length || 0;
+  const totalCapacity =
+    organization?.entitlementSummary?.totalActiveCapacity ??
+    organization?.maxWebsites ??
+    1;
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-[#0B1120]/95 backdrop-blur-md">
@@ -56,14 +60,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           </span>
         </button>
 
-        {/* Zone 2: Desktop Navigation Links */}
+        {/* Zone 2: Standardized Left-Side Primary Navigation Links */}
         <nav className="hidden md:flex items-center gap-5 text-sm font-medium text-slate-300">
           {!user ? (
             <>
               <button
                 onClick={() => handleNavClick('home')}
                 className={`transition-colors hover:text-white cursor-pointer ${
-                  activeView === 'home' ? 'text-[#E6A05A]' : ''
+                  activeView === 'home' ? 'text-[#E6A05A] font-semibold' : ''
                 }`}
               >
                 Overview
@@ -71,7 +75,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 onClick={() => handleNavClick('features')}
                 className={`transition-colors hover:text-white cursor-pointer ${
-                  activeView === 'features' ? 'text-[#E6A05A]' : ''
+                  activeView === 'features' ? 'text-[#E6A05A] font-semibold' : ''
                 }`}
               >
                 Capabilities
@@ -79,7 +83,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 onClick={() => handleNavClick('how-it-works')}
                 className={`transition-colors hover:text-white cursor-pointer ${
-                  activeView === 'how-it-works' ? 'text-[#E6A05A]' : ''
+                  activeView === 'how-it-works' ? 'text-[#E6A05A] font-semibold' : ''
                 }`}
               >
                 How It Works
@@ -87,7 +91,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 onClick={() => handleNavClick('pricing')}
                 className={`transition-colors hover:text-white cursor-pointer ${
-                  activeView === 'pricing' ? 'text-[#E6A05A]' : ''
+                  activeView === 'pricing' ? 'text-[#E6A05A] font-semibold' : ''
                 }`}
               >
                 Pricing
@@ -104,7 +108,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 onClick={() => handleNavClick('security')}
                 className={`transition-colors hover:text-white cursor-pointer ${
-                  activeView === 'security' ? 'text-[#E6A05A]' : ''
+                  activeView === 'security' ? 'text-[#E6A05A] font-semibold' : ''
                 }`}
               >
                 Security & Trust
@@ -115,7 +119,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 onClick={() => handleNavClick('dashboard')}
                 className={`transition-colors hover:text-white cursor-pointer ${
-                  activeView === 'dashboard' ? 'text-[#E6A05A]' : ''
+                  activeView === 'dashboard' ? 'text-[#E6A05A] font-semibold' : ''
                 }`}
               >
                 Monitored Sites
@@ -132,7 +136,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 onClick={() => handleNavClick('billing')}
                 className={`transition-colors hover:text-white cursor-pointer ${
-                  activeView === 'billing' ? 'text-[#E6A05A]' : ''
+                  activeView === 'billing' ? 'text-[#E6A05A] font-semibold' : ''
                 }`}
               >
                 Plan & Limits
@@ -143,44 +147,33 @@ export const Navbar: React.FC<NavbarProps> = ({
                   activeView === 'profile-referrals' ? 'text-[#E6A05A] font-semibold' : ''
                 }`}
               >
-                <Gift className="h-3.5 w-3.5 text-[#E6A05A]" />
-                <span>Profile & Referrals</span>
+                <UserIcon className="h-3.5 w-3.5 text-[#E6A05A]" />
+                <span>My Profile</span>
               </button>
               <button
                 onClick={() => handleNavClick('my-crypto-payments')}
                 className={`transition-colors hover:text-white cursor-pointer ${
-                  activeView === 'my-crypto-payments' ? 'text-[#E6A05A]' : ''
+                  activeView === 'my-crypto-payments' ? 'text-[#E6A05A] font-semibold' : ''
                 }`}
               >
                 My Crypto Payments
               </button>
               {(user.role === 'admin' || user.role === 'super_admin') && (
-                <>
-                  <button
-                    onClick={() => handleNavClick('admin-crypto-transactions')}
-                    className={`transition-colors hover:text-white flex items-center gap-1.5 cursor-pointer ${
-                      activeView === 'admin-crypto-transactions' ? 'text-[#E6A05A] font-semibold' : ''
-                    }`}
-                  >
-                    <Coins className="h-3.5 w-3.5" />
-                    <span>Payment Review</span>
-                  </button>
-                  <button
-                    onClick={() => handleNavClick('admin-withdrawals')}
-                    className={`transition-colors hover:text-white flex items-center gap-1.5 cursor-pointer ${
-                      activeView === 'admin-withdrawals' ? 'text-[#E6A05A] font-semibold' : ''
-                    }`}
-                  >
-                    <Wallet className="h-3.5 w-3.5" />
-                    <span>Withdrawals</span>
-                  </button>
-                </>
+                <button
+                  onClick={() => handleNavClick('admin-withdrawals')}
+                  className={`transition-colors hover:text-white flex items-center gap-1.5 cursor-pointer ${
+                    activeView === 'admin-withdrawals' ? 'text-[#E6A05A] font-semibold' : ''
+                  }`}
+                >
+                  <Wallet className="h-3.5 w-3.5 text-[#E6A05A]" />
+                  <span>Withdrawals</span>
+                </button>
               )}
               {user.role === 'super_admin' && (
                 <button
                   onClick={() => handleNavClick('admin')}
                   className={`transition-colors hover:text-white cursor-pointer ${
-                    activeView === 'admin' ? 'text-[#E6A05A]' : ''
+                    activeView === 'admin' ? 'text-[#E6A05A] font-semibold' : ''
                   }`}
                 >
                   Admin Control
@@ -190,25 +183,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </nav>
 
-        {/* Zone 3: Primary Actions & Mobile Toggle */}
+        {/* Zone 3: Right-Side Header Actions & Mobile Toggle */}
         <div className="flex items-center gap-2.5">
-          {/* Currency Selector */}
-          <div className="hidden sm:flex items-center rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-xs text-slate-300">
-            {(['USD', 'EUR', 'GBP'] as const).map((curr) => (
-              <button
-                key={curr}
-                onClick={() => onCurrencyChange(curr)}
-                className={`px-2 py-1 rounded font-mono transition-colors cursor-pointer ${
-                  currency === curr
-                    ? 'bg-slate-800 text-[#E6A05A] font-semibold'
-                    : 'hover:text-white'
-                }`}
-              >
-                {curr === 'USD' ? '$' : curr === 'EUR' ? '€' : '£'} {curr}
-              </button>
-            ))}
-          </div>
-
           {!user ? (
             <div className="flex items-center gap-2">
               <button
@@ -228,98 +204,41 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="flex items-center gap-2">
               <button
                 onClick={() => handleNavClick('profile-referrals')}
-                title="User Profile & Referral Wallet"
+                title="My Profile & Referral Wallet"
                 className="hidden lg:flex flex-col text-right hover:opacity-90 transition-opacity cursor-pointer"
               >
                 <span className="text-xs font-medium text-white truncate max-w-[130px]">
                   {user.name}
                 </span>
-                {organization?.planId === 'free' ? (
+                {organization?.planId === 'free' && activePaidEntitlements === 0 ? (
                   <span className="text-[11px] font-medium">
                     {organization.trialEndsAt && new Date() >= new Date(organization.trialEndsAt) ? (
                       <span className="text-rose-400 font-semibold">Trial Expired</span>
                     ) : (
-                      <span className="text-[#E6A05A]">Free Trial</span>
+                      <span className="text-[#E6A05A]">Free Trial (1 site)</span>
                     )}
                   </span>
                 ) : (
                   <span className="text-[11px] text-slate-400 capitalize">
-                    {organization?.planId || 'free'} plan
+                    {organization?.planId || 'pro'} · {totalCapacity} sites
                   </span>
                 )}
               </button>
 
-              <button
-                onClick={() => handleNavClick('reports')}
-                title={
-                  user.role === 'super_admin' || user.role === 'admin'
-                    ? 'Support Ticket Inbox (Admin)'
-                    : 'Reports & Support Tickets'
-                }
-                className={`flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
-                  activeView === 'reports'
-                    ? 'bg-[#E6A05A] text-[#0B1120] border-[#E6A05A]'
-                    : 'bg-slate-800 border-slate-700 text-[#E6A05A] hover:bg-slate-700'
-                }`}
-              >
-                <MessageSquare className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Reports</span>
-              </button>
-
               {(user.role === 'admin' || user.role === 'super_admin') && (
-                <>
-                  <button
-                    onClick={() => handleNavClick('admin-withdrawals')}
-                    title="Withdrawal Requests (Admin)"
-                    className={`hidden sm:flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
-                      activeView === 'admin-withdrawals'
-                        ? 'bg-[#E6A05A] text-[#0B1120] border-[#E6A05A]'
-                        : 'bg-slate-800 border-slate-700 text-emerald-400 hover:bg-slate-700'
-                    }`}
-                  >
-                    <Wallet className="h-3.5 w-3.5" />
-                    <span className="hidden xl:inline">Withdrawals</span>
-                  </button>
-                  <button
-                    onClick={() => handleNavClick('admin-crypto-transactions')}
-                    title="Crypto Transactions (Admin)"
-                    className={`hidden sm:flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
-                      activeView === 'admin-crypto-transactions'
-                        ? 'bg-[#E6A05A] text-[#0B1120] border-[#E6A05A]'
-                        : 'bg-slate-800 border-slate-700 text-[#E6A05A] hover:bg-slate-700'
-                    }`}
-                  >
-                    <Coins className="h-3.5 w-3.5" />
-                    <span className="hidden xl:inline">Transactions</span>
-                  </button>
-                </>
+                <button
+                  onClick={() => handleNavClick('admin-crypto-transactions')}
+                  title="Crypto Transactions (Admin)"
+                  className={`hidden sm:flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
+                    activeView === 'admin-crypto-transactions'
+                      ? 'bg-[#E6A05A] text-[#0B1120] border-[#E6A05A]'
+                      : 'bg-slate-800 border-slate-700 text-[#E6A05A] hover:bg-slate-700'
+                  }`}
+                >
+                  <Coins className="h-3.5 w-3.5" />
+                  <span>Transactions</span>
+                </button>
               )}
-
-              <button
-                onClick={() => handleNavClick('profile-referrals')}
-                title="Profile & Referral Wallet (Earn 40%)"
-                className={`hidden sm:flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
-                  activeView === 'profile-referrals'
-                    ? 'bg-[#E6A05A] text-[#0B1120] border-[#E6A05A]'
-                    : 'bg-slate-800 border-slate-700 text-[#E6A05A] hover:bg-slate-700'
-                }`}
-              >
-                <Gift className="h-3.5 w-3.5" />
-                <span className="hidden xl:inline">Referrals</span>
-              </button>
-
-              <button
-                onClick={() => handleNavClick('my-crypto-payments')}
-                title="My Crypto Payments"
-                className={`hidden sm:flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
-                  activeView === 'my-crypto-payments'
-                    ? 'bg-[#E6A05A] text-[#0B1120] border-[#E6A05A]'
-                    : 'bg-slate-800 border-slate-700 text-[#E6A05A] hover:bg-slate-700'
-                }`}
-              >
-                <QrCode className="h-3.5 w-3.5" />
-                <span className="hidden xl:inline">My Payments</span>
-              </button>
 
               <button
                 onClick={() => handleNavClick('dashboard')}
@@ -392,7 +311,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   activeView === 'reports' ? 'bg-slate-800 text-[#E6A05A]' : 'text-slate-300'
                 }`}
               >
-                Reports & Support
+                Reports
               </button>
               <button
                 onClick={() => handleNavClick('security')}
@@ -419,7 +338,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   activeView === 'reports' ? 'bg-slate-800 text-[#E6A05A]' : 'text-slate-300'
                 }`}
               >
-                Reports & Support
+                Reports
               </button>
               <button
                 onClick={() => handleNavClick('billing')}
@@ -435,7 +354,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   activeView === 'profile-referrals' ? 'bg-slate-800 text-[#E6A05A]' : 'text-slate-300'
                 }`}
               >
-                Profile & Referrals
+                My Profile
               </button>
               <button
                 onClick={() => handleNavClick('my-crypto-payments')}
@@ -448,16 +367,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               {(user.role === 'admin' || user.role === 'super_admin') && (
                 <>
                   <button
-                    onClick={() => handleNavClick('admin-crypto-transactions')}
-                    className={`block w-full text-left px-3 py-2 rounded-lg ${
-                      activeView === 'admin-crypto-transactions'
-                        ? 'bg-slate-800 text-[#E6A05A]'
-                        : 'text-slate-300'
-                    }`}
-                  >
-                    Payment Review (Admin)
-                  </button>
-                  <button
                     onClick={() => handleNavClick('admin-withdrawals')}
                     className={`block w-full text-left px-3 py-2 rounded-lg ${
                       activeView === 'admin-withdrawals'
@@ -465,7 +374,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                         : 'text-slate-300'
                     }`}
                   >
-                    Withdrawals (Admin)
+                    Withdrawals
+                  </button>
+                  <button
+                    onClick={() => handleNavClick('admin-crypto-transactions')}
+                    className={`block w-full text-left px-3 py-2 rounded-lg ${
+                      activeView === 'admin-crypto-transactions'
+                        ? 'bg-slate-800 text-[#E6A05A]'
+                        : 'text-slate-300'
+                    }`}
+                  >
+                    Transactions
                   </button>
                 </>
               )}

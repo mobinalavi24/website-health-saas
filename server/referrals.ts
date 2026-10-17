@@ -8,13 +8,13 @@ export type WithdrawalStatus = 'pending' | 'approved' | 'paid' | 'rejected' | 'c
 
 export const COMMISSION_RATE_BPS = 4000; // 40.00%
 export const COMMISSION_RATE_PERCENT = 40;
-export const MIN_WITHDRAWAL_CENTS = 400; // $4.00 USD
+export const MIN_WITHDRAWAL_CENTS = 400; // 4.00 USDT
 export const MIN_WITHDRAWAL_USD = 4;
 export const PAYOUT_NETWORK_LABEL = 'USDT — TRC20 (TRON)';
 
 export interface ReferralWallet {
   userId: string;
-  currency: 'USD';
+  currency: 'USDT';
   totalEarnedCents: number;
   availableBalanceCents: number;
   reservedBalanceCents: number;
@@ -40,7 +40,7 @@ export interface ReferralCommission {
   commissionRateBps: number;
   commissionAmountCents: number;
   commissionAmount: number;
-  currency: 'USD';
+  currency: 'USDT';
   status: 'credited';
   createdAt: string;
 }
@@ -51,7 +51,7 @@ export interface ReferralWalletLedgerEntry {
   type: 'commission_credit' | 'withdrawal_reserve' | 'withdrawal_release' | 'withdrawal_paid';
   amountCents: number;
   amount: number;
-  currency: 'USD';
+  currency: 'USDT';
   referenceId: string;
   idempotencyKey: string;
   balanceAfterCents: number;
@@ -80,7 +80,7 @@ export interface WithdrawalRequestRecord {
   referralCode: string;
   amountCents: number;
   amount: number;
-  currency: 'USD';
+  currency: 'USDT';
   network: string;
   walletAddress: string;
   status: WithdrawalStatus;
@@ -116,7 +116,7 @@ export interface UserReferralSummary {
   canApplyReferralCode: boolean;
   commissionRatePercent: number;
   minimumWithdrawalAmount: number;
-  currency: 'USD';
+  currency: 'USDT';
   payoutNetwork: string;
   totalSuccessfulReferrals: number;
   totalEligiblePurchases: number;
@@ -151,7 +151,7 @@ export interface AdminReferralOverview {
   totalRejectedRequestsCount: number;
   totalRejectedAmount: number;
   totalCancelledRequestsCount: number;
-  currency: 'USD';
+  currency: 'USDT';
 }
 
 // Simple sliding-window rate limiter for referral & withdrawal endpoints
@@ -188,13 +188,13 @@ export function parseUsdToCents(input: unknown): { valid: boolean; cents: number
     return {
       valid: false,
       cents: 0,
-      error: 'Invalid amount format. Amount must be a positive USD value with at most 2 decimal places.',
+      error: 'Invalid amount format. Amount must be a positive USDT value with at most 2 decimal places.',
     };
   }
 
   const num = Number(str);
   if (!Number.isFinite(num) || num <= 0) {
-    return { valid: false, cents: 0, error: 'Withdrawal amount must be greater than $0.00.' };
+    return { valid: false, cents: 0, error: 'Withdrawal amount must be greater than 0.00 USDT.' };
   }
 
   const cents = Math.round(num * 100);
@@ -634,10 +634,10 @@ export async function applyReferralCodeToUser(
 }
 
 /**
- * Authoritative server-side calculation of eligible purchase amount (in USD cents) and 40% referral commission (in USD cents).
+ * Authoritative server-side calculation of eligible purchase amount (in USDT cents) and 40% referral commission (in USDT cents).
  * Uses server-side plan pricing data:
- * - $5 plan (monthly Pro) -> $5.00 (500 cents) -> 40% commission = $2.00 (200 cents)
- * - $50 plan (annual Pro) -> $50.00 (5000 cents) -> 40% commission = $20.00 (2000 cents)
+ * - 5 USDT plan (monthly Pro) -> 5.00 USDT (500 cents) -> 40% commission = 2.00 USDT (200 cents)
+ * - 50 USDT plan (annual Pro) -> 50.00 USDT (5000 cents) -> 40% commission = 20.00 USDT (2000 cents)
  */
 export function calculateEligibleCommissionCents(planId: string, billingInterval: string): {
   eligible: boolean;
@@ -649,8 +649,9 @@ export function calculateEligibleCommissionCents(planId: string, billingInterval
     return { eligible: false, purchaseAmountCents: 0, commissionAmountCents: 0 };
   }
 
-  const priceUsd = billingInterval === 'annual' ? plan.pricing.USD.annual : plan.pricing.USD.monthly;
-  const purchaseAmountCents = Math.round(priceUsd * 100);
+  const pricingTier = plan.pricing.USDT || plan.pricing.USD || { monthly: 5, annual: 50 };
+  const priceUsdt = billingInterval === 'annual' ? pricingTier.annual : pricingTier.monthly;
+  const purchaseAmountCents = Math.round(priceUsdt * 100);
   if (purchaseAmountCents <= 0) {
     return { eligible: false, purchaseAmountCents: 0, commissionAmountCents: 0 };
   }
@@ -750,7 +751,7 @@ export async function creditReferralCommissionInTransaction(
     }
   }
 
-  // 5. Calculate authoritative server-side commission (40% of $5 = $2, 40% of $50 = $20)
+  // 5. Calculate authoritative server-side commission (40% of 5 USDT = 2 USDT, 40% of 50 USDT = 20 USDT)
   const { eligible, purchaseAmountCents, commissionAmountCents } = calculateEligibleCommissionCents(
     orderRow.plan_id,
     orderRow.billing_interval
@@ -762,7 +763,7 @@ export async function creditReferralCommissionInTransaction(
   // 6. Ensure referrer wallet row exists and lock it for update
   await client.query(
     `INSERT INTO referral_wallets (user_id, currency, total_earned_cents, available_balance_cents, reserved_balance_cents, withdrawn_balance_cents, updated_at)
-     VALUES ($1, 'USD', 0, 0, 0, 0, NOW())
+     VALUES ($1, 'USDT', 0, 0, 0, 0, NOW())
      ON CONFLICT (user_id) DO NOTHING`,
     [referrerUserId]
   );
@@ -787,7 +788,7 @@ export async function creditReferralCommissionInTransaction(
        referral_code, plan_id, plan_name, purchase_amount_cents,
        commission_rate_bps, commission_amount_cents, currency, status, created_at
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'USD', 'credited', $12)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'USDT', 'credited', $12)`,
     [
       commId,
       orderRow.id,
@@ -807,14 +808,14 @@ export async function creditReferralCommissionInTransaction(
   // 8. Insert immutable wallet ledger record (idempotency_key is UNIQUE)
   const ledgerId = `led_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
   const idempotencyKey = `comm_credit_${orderRow.id}`;
-  const description = `40% referral commission ($${centsToUsd(commissionAmountCents).toFixed(2)} USD) from ${customerRow.email} purchasing ${orderRow.plan_name} ($${centsToUsd(purchaseAmountCents).toFixed(2)} USD)`;
+  const description = `40% referral commission (${centsToUsd(commissionAmountCents).toFixed(2)} USDT) from ${customerRow.email} purchasing ${orderRow.plan_name} (${centsToUsd(purchaseAmountCents).toFixed(2)} USDT)`;
 
   await client.query(
     `INSERT INTO referral_wallet_ledger (
        id, user_id, type, amount_cents, currency, reference_id, idempotency_key,
        balance_after_cents, reserved_after_cents, description, created_at
      )
-     VALUES ($1, $2, 'commission_credit', $3, 'USD', $4, $5, $6, $7, $8, $9)`,
+     VALUES ($1, $2, 'commission_credit', $3, 'USDT', $4, $5, $6, $7, $8, $9)`,
     [
       ledgerId,
       referrerUserId,
@@ -840,8 +841,8 @@ export async function creditReferralCommissionInTransaction(
 
   // 10. Create in-app notification for referrer
   const alertId = `alt_ref_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
-  const alertTitle = `Referral Commission Earned: +$${centsToUsd(commissionAmountCents).toFixed(2)} USD`;
-  const alertMessage = `You earned a $${centsToUsd(commissionAmountCents).toFixed(2)} USD (40%) referral commission from ${customerRow.email}'s ${orderRow.plan_name} purchase.`;
+  const alertTitle = `Referral Commission Earned: +${centsToUsd(commissionAmountCents).toFixed(2)} USDT`;
+  const alertMessage = `You earned a ${centsToUsd(commissionAmountCents).toFixed(2)} USDT (40%) referral commission from ${customerRow.email}'s ${orderRow.plan_name} purchase.`;
 
   await client.query(
     `INSERT INTO alerts (id, org_id, type, severity, title, message, read, timestamp)
@@ -862,7 +863,7 @@ export async function creditReferralCommissionInTransaction(
 
   // 11. Record audit log
   const logId = `log_comm_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
-  const logDetails = `Credited $${centsToUsd(commissionAmountCents).toFixed(2)} USD (40%) referral commission to ${referrerRow.email} (code: ${resolvedCode}) for order ${orderRow.id}.`;
+  const logDetails = `Credited ${centsToUsd(commissionAmountCents).toFixed(2)} USDT (40%) referral commission to ${referrerRow.email} (code: ${resolvedCode}) for order ${orderRow.id}.`;
   await client.query(
     `INSERT INTO audit_logs (id, org_id, user_id, user_email, action, target, details, timestamp)
      VALUES ($1, $2, $3, $4, 'REFERRAL_COMMISSION_CREDITED', $5, $6, $7)`,
@@ -883,7 +884,7 @@ export async function creditReferralCommissionInTransaction(
     commissionRateBps: COMMISSION_RATE_BPS,
     commissionAmountCents,
     commissionAmount: centsToUsd(commissionAmountCents),
-    currency: 'USD',
+    currency: 'USDT',
     status: 'credited',
     createdAt: nowIso,
   };
@@ -933,7 +934,7 @@ export async function getUserReferralSummary(
   // Ensure wallet exists
   await query(
     `INSERT INTO referral_wallets (user_id, currency, total_earned_cents, available_balance_cents, reserved_balance_cents, withdrawn_balance_cents, updated_at)
-     VALUES ($1, 'USD', 0, 0, 0, 0, NOW())
+     VALUES ($1, 'USDT', 0, 0, 0, 0, NOW())
      ON CONFLICT (user_id) DO NOTHING`,
     [userId]
   );
@@ -981,7 +982,7 @@ export async function getUserReferralSummary(
     canApplyReferralCode,
     commissionRatePercent: COMMISSION_RATE_PERCENT,
     minimumWithdrawalAmount: MIN_WITHDRAWAL_USD,
-    currency: 'USD',
+    currency: 'USDT',
     payoutNetwork: PAYOUT_NETWORK_LABEL,
     totalSuccessfulReferrals: referredUsers.length,
     totalEligiblePurchases: commissions.length,
@@ -1000,7 +1001,7 @@ export async function getUserReferralSummary(
 /**
  * Create a new withdrawal request for a user.
  * Enforces:
- * - Minimum $4.00 USD (400 cents)
+ * - Minimum 4.00 USDT (400 cents)
  * - Maximum <= available referral wallet balance
  * - Plausible TRON/TRC20 destination wallet address
  * - Atomically reserves requested amount (moves from available_balance_cents to reserved_balance_cents)
@@ -1018,7 +1019,7 @@ export async function createWithdrawalRequest(params: {
 
   const amountCents = parsedAmount.cents;
   if (amountCents < MIN_WITHDRAWAL_CENTS) {
-    throw new Error(`Minimum withdrawal amount is $${MIN_WITHDRAWAL_USD}.00 USD.`);
+    throw new Error(`Minimum withdrawal amount is ${MIN_WITHDRAWAL_USD}.00 USDT.`);
   }
 
   // 2. Validate USDT TRC20 address
@@ -1040,7 +1041,7 @@ export async function createWithdrawalRequest(params: {
     // Ensure wallet row exists and lock it FOR UPDATE to prevent race conditions / double-withdrawal
     await client.query(
       `INSERT INTO referral_wallets (user_id, currency, total_earned_cents, available_balance_cents, reserved_balance_cents, withdrawn_balance_cents, updated_at)
-       VALUES ($1, 'USD', 0, 0, 0, 0, NOW())
+       VALUES ($1, 'USDT', 0, 0, 0, 0, NOW())
        ON CONFLICT (user_id) DO NOTHING`,
       [params.userId]
     );
@@ -1055,13 +1056,13 @@ export async function createWithdrawalRequest(params: {
 
     if (currentAvailableCents < MIN_WITHDRAWAL_CENTS) {
       throw new Error(
-        `Insufficient available balance. You need at least $${MIN_WITHDRAWAL_USD}.00 USD available to request a withdrawal (current available: $${centsToUsd(currentAvailableCents).toFixed(2)} USD).`
+        `Insufficient available balance. You need at least ${MIN_WITHDRAWAL_USD}.00 USDT available to request a withdrawal (current available: ${centsToUsd(currentAvailableCents).toFixed(2)} USDT).`
       );
     }
 
     if (amountCents > currentAvailableCents) {
       throw new Error(
-        `Requested amount ($${centsToUsd(amountCents).toFixed(2)} USD) exceeds your available referral balance ($${centsToUsd(currentAvailableCents).toFixed(2)} USD).`
+        `Requested amount (${centsToUsd(amountCents).toFixed(2)} USDT) exceeds your available referral balance (${centsToUsd(currentAvailableCents).toFixed(2)} USDT).`
       );
     }
 
@@ -1087,7 +1088,7 @@ export async function createWithdrawalRequest(params: {
          id, user_id, user_email, referral_code, amount_cents, currency, network,
          wallet_address, status, available_balance_before_cents, created_at, updated_at
        )
-       VALUES ($1, $2, $3, $4, $5, 'USD', $6, $7, 'pending', $8, $9, $9)`,
+       VALUES ($1, $2, $3, $4, $5, 'USDT', $6, $7, 'pending', $8, $9, $9)`,
       [
         withdrawalId,
         params.userId,
@@ -1104,14 +1105,14 @@ export async function createWithdrawalRequest(params: {
     // 5. Record ledger entry for reservation
     const ledgerId = `led_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const idempotencyKey = `wd_reserve_${withdrawalId}`;
-    const description = `Reserved $${centsToUsd(amountCents).toFixed(2)} USD for withdrawal request ${withdrawalId} to ${cleanAddress} (${PAYOUT_NETWORK_LABEL})`;
+    const description = `Reserved ${centsToUsd(amountCents).toFixed(2)} USDT for withdrawal request ${withdrawalId} to ${cleanAddress} (${PAYOUT_NETWORK_LABEL})`;
 
     await client.query(
       `INSERT INTO referral_wallet_ledger (
          id, user_id, type, amount_cents, currency, reference_id, idempotency_key,
          balance_after_cents, reserved_after_cents, description, created_at
        )
-       VALUES ($1, $2, 'withdrawal_reserve', $3, 'USD', $4, $5, $6, $7, $8, $9)`,
+       VALUES ($1, $2, 'withdrawal_reserve', $3, 'USDT', $4, $5, $6, $7, $8, $9)`,
       [
         ledgerId,
         params.userId,
@@ -1131,8 +1132,8 @@ export async function createWithdrawalRequest(params: {
     );
     const adminOrgId = superAdminRes.rows[0]?.org_id || 'org_admin_001';
     const adminAlertId = `alt_wd_new_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
-    const adminAlertTitle = `New Referral Withdrawal Request ($${centsToUsd(amountCents).toFixed(2)} USD)`;
-    const adminAlertMsg = `User ${userRow.email} (${referralCode}) requested a withdrawal of $${centsToUsd(amountCents).toFixed(2)} USD to USDT TRC20 address ${cleanAddress}.`;
+    const adminAlertTitle = `New Referral Withdrawal Request (${centsToUsd(amountCents).toFixed(2)} USDT)`;
+    const adminAlertMsg = `User ${userRow.email} (${referralCode}) requested a withdrawal of ${centsToUsd(amountCents).toFixed(2)} USDT to USDT TRC20 address ${cleanAddress}.`;
 
     await client.query(
       `INSERT INTO alerts (id, org_id, type, severity, title, message, read, timestamp)
@@ -1162,7 +1163,7 @@ export async function createWithdrawalRequest(params: {
         userRow.id,
         userRow.email,
         withdrawalId,
-        `Withdrawal request ${withdrawalId} for $${centsToUsd(amountCents).toFixed(2)} USD (${PAYOUT_NETWORK_LABEL}) to ${cleanAddress}. Reserved from available balance.`,
+        `Withdrawal request ${withdrawalId} for ${centsToUsd(amountCents).toFixed(2)} USDT (${PAYOUT_NETWORK_LABEL}) to ${cleanAddress}. Reserved from available balance.`,
         nowIso,
       ]
     );
@@ -1240,8 +1241,8 @@ export async function approveWithdrawalForPayout(
     const userOrgId = userRes.rows[0]?.org_id;
     if (userOrgId) {
       const alertId = `alt_wd_app_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
-      const title = `Withdrawal Approved for Payout ($${centsToUsd(Number(row.amount_cents)).toFixed(2)} USD)`;
-      const message = `Your withdrawal request (${withdrawalId}) for $${centsToUsd(Number(row.amount_cents)).toFixed(2)} USD to ${row.wallet_address} has been approved and queued for USDT TRC20 transfer.`;
+      const title = `Withdrawal Approved for Payout (${centsToUsd(Number(row.amount_cents)).toFixed(2)} USDT)`;
+      const message = `Your withdrawal request (${withdrawalId}) for ${centsToUsd(Number(row.amount_cents)).toFixed(2)} USDT to ${row.wallet_address} has been approved and queued for USDT TRC20 transfer.`;
       await client.query(
         `INSERT INTO alerts (id, org_id, type, severity, title, message, read, timestamp)
          VALUES ($1, $2, 'withdrawal', 'info', $3, $4, false, $5)`,
@@ -1270,7 +1271,7 @@ export async function approveWithdrawalForPayout(
         adminUser.id,
         adminUser.email,
         withdrawalId,
-        `Withdrawal ${withdrawalId} ($${centsToUsd(Number(row.amount_cents)).toFixed(2)} USD) approved for payout by ${adminUser.email}. Funds remain reserved pending USDT TRC20 transfer.`,
+        `Withdrawal ${withdrawalId} (${centsToUsd(Number(row.amount_cents)).toFixed(2)} USDT) approved for payout by ${adminUser.email}. Funds remain reserved pending USDT TRC20 transfer.`,
         nowIso,
       ]
     );
@@ -1358,14 +1359,14 @@ export async function markWithdrawalAsPaid(
     // 2. Insert ledger entry (idempotency_key prevents duplicate payout entries)
     const ledgerId = `led_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const idempotencyKey = `wd_paid_${withdrawalId}`;
-    const description = `Payout completed for withdrawal ${withdrawalId}: $${centsToUsd(amountCents).toFixed(2)} USD sent via ${PAYOUT_NETWORK_LABEL} to ${row.wallet_address} (TX: ${cleanTxHash})`;
+    const description = `Payout completed for withdrawal ${withdrawalId}: ${centsToUsd(amountCents).toFixed(2)} USDT sent via ${PAYOUT_NETWORK_LABEL} to ${row.wallet_address} (TX: ${cleanTxHash})`;
 
     await client.query(
       `INSERT INTO referral_wallet_ledger (
          id, user_id, type, amount_cents, currency, reference_id, idempotency_key,
          balance_after_cents, reserved_after_cents, description, created_at
        )
-       VALUES ($1, $2, 'withdrawal_paid', $3, 'USD', $4, $5, $6, $7, $8, $9)`,
+       VALUES ($1, $2, 'withdrawal_paid', $3, 'USDT', $4, $5, $6, $7, $8, $9)`,
       [
         ledgerId,
         row.user_id,
@@ -1400,8 +1401,8 @@ export async function markWithdrawalAsPaid(
     const userOrgId = userRes.rows[0]?.org_id;
     if (userOrgId) {
       const alertId = `alt_wd_paid_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
-      const title = `Withdrawal Paid: $${centsToUsd(amountCents).toFixed(2)} USD Sent`;
-      const message = `Your referral withdrawal (${withdrawalId}) of $${centsToUsd(amountCents).toFixed(2)} USD has been paid via ${PAYOUT_NETWORK_LABEL} to ${row.wallet_address}. TXID: ${cleanTxHash}`;
+      const title = `Withdrawal Paid: ${centsToUsd(amountCents).toFixed(2)} USDT Sent`;
+      const message = `Your referral withdrawal (${withdrawalId}) of ${centsToUsd(amountCents).toFixed(2)} USDT has been paid via ${PAYOUT_NETWORK_LABEL} to ${row.wallet_address}. TXID: ${cleanTxHash}`;
       await client.query(
         `INSERT INTO alerts (id, org_id, type, severity, title, message, read, timestamp)
          VALUES ($1, $2, 'withdrawal', 'info', $3, $4, false, $5)`,
@@ -1430,7 +1431,7 @@ export async function markWithdrawalAsPaid(
         adminUser.id,
         adminUser.email,
         withdrawalId,
-        `Withdrawal ${withdrawalId} ($${centsToUsd(amountCents).toFixed(2)} USD) marked as PAID by ${adminUser.email}. Network: ${PAYOUT_NETWORK_LABEL}. Destination: ${row.wallet_address}. TXID: ${cleanTxHash}`,
+        `Withdrawal ${withdrawalId} (${centsToUsd(amountCents).toFixed(2)} USDT) marked as PAID by ${adminUser.email}. Network: ${PAYOUT_NETWORK_LABEL}. Destination: ${row.wallet_address}. TXID: ${cleanTxHash}`,
         nowIso,
       ]
     );
@@ -1439,7 +1440,7 @@ export async function markWithdrawalAsPaid(
     return {
       success: true,
       withdrawal: mapWithdrawalRow(updatedRes.rows[0]),
-      message: `Withdrawal ${withdrawalId} ($${centsToUsd(amountCents).toFixed(2)} USD) marked as paid with TXID ${cleanTxHash}.`,
+      message: `Withdrawal ${withdrawalId} (${centsToUsd(amountCents).toFixed(2)} USDT) marked as paid with TXID ${cleanTxHash}.`,
     };
   });
 }
@@ -1511,14 +1512,14 @@ export async function rejectWithdrawalRequest(
     // 2. Insert ledger entry with unique idempotency key so release can never happen twice
     const ledgerId = `led_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const idempotencyKey = `wd_release_${withdrawalId}`;
-    const description = `Released reserved $${centsToUsd(amountCents).toFixed(2)} USD back to available balance (withdrawal ${withdrawalId} rejected: ${cleanReason})`;
+    const description = `Released reserved ${centsToUsd(amountCents).toFixed(2)} USDT back to available balance (withdrawal ${withdrawalId} rejected: ${cleanReason})`;
 
     await client.query(
       `INSERT INTO referral_wallet_ledger (
          id, user_id, type, amount_cents, currency, reference_id, idempotency_key,
          balance_after_cents, reserved_after_cents, description, created_at
        )
-       VALUES ($1, $2, 'withdrawal_release', $3, 'USD', $4, $5, $6, $7, $8, $9)`,
+       VALUES ($1, $2, 'withdrawal_release', $3, 'USDT', $4, $5, $6, $7, $8, $9)`,
       [
         ledgerId,
         row.user_id,
@@ -1550,8 +1551,8 @@ export async function rejectWithdrawalRequest(
     const userOrgId = userRes.rows[0]?.org_id;
     if (userOrgId) {
       const alertId = `alt_wd_rej_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
-      const title = `Withdrawal Request Declined ($${centsToUsd(amountCents).toFixed(2)} USD Returned)`;
-      const message = `Your withdrawal request (${withdrawalId}) for $${centsToUsd(amountCents).toFixed(2)} USD was declined (${cleanReason}). The reserved funds have been returned to your available referral balance.`;
+      const title = `Withdrawal Request Declined (${centsToUsd(amountCents).toFixed(2)} USDT Returned)`;
+      const message = `Your withdrawal request (${withdrawalId}) for ${centsToUsd(amountCents).toFixed(2)} USDT was declined (${cleanReason}). The reserved funds have been returned to your available referral balance.`;
       await client.query(
         `INSERT INTO alerts (id, org_id, type, severity, title, message, read, timestamp)
          VALUES ($1, $2, 'withdrawal', 'warning', $3, $4, false, $5)`,
@@ -1580,7 +1581,7 @@ export async function rejectWithdrawalRequest(
         adminUser.id,
         adminUser.email,
         withdrawalId,
-        `Withdrawal ${withdrawalId} ($${centsToUsd(amountCents).toFixed(2)} USD) rejected by ${adminUser.email}. Reason: ${cleanReason}. Reserved funds released back to user.`,
+        `Withdrawal ${withdrawalId} (${centsToUsd(amountCents).toFixed(2)} USDT) rejected by ${adminUser.email}. Reason: ${cleanReason}. Reserved funds released back to user.`,
         nowIso,
       ]
     );
@@ -1589,7 +1590,7 @@ export async function rejectWithdrawalRequest(
     return {
       success: true,
       withdrawal: mapWithdrawalRow(updatedRes.rows[0]),
-      message: `Withdrawal request ${withdrawalId} rejected and $${centsToUsd(amountCents).toFixed(2)} USD released back to the user's available balance.`,
+      message: `Withdrawal request ${withdrawalId} rejected and ${centsToUsd(amountCents).toFixed(2)} USDT released back to the user's available balance.`,
     };
   });
 }
@@ -1655,14 +1656,14 @@ export async function cancelWithdrawalRequest(
 
     const ledgerId = `led_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const idempotencyKey = `wd_release_${withdrawalId}`;
-    const description = `Released reserved $${centsToUsd(amountCents).toFixed(2)} USD back to available balance (withdrawal ${withdrawalId} cancelled by admin)`;
+    const description = `Released reserved ${centsToUsd(amountCents).toFixed(2)} USDT back to available balance (withdrawal ${withdrawalId} cancelled by admin)`;
 
     await client.query(
       `INSERT INTO referral_wallet_ledger (
          id, user_id, type, amount_cents, currency, reference_id, idempotency_key,
          balance_after_cents, reserved_after_cents, description, created_at
        )
-       VALUES ($1, $2, 'withdrawal_release', $3, 'USD', $4, $5, $6, $7, $8, $9)`,
+       VALUES ($1, $2, 'withdrawal_release', $3, 'USDT', $4, $5, $6, $7, $8, $9)`,
       [
         ledgerId,
         row.user_id,
@@ -1831,7 +1832,7 @@ export async function getAdminReferralOverview(): Promise<AdminReferralOverview>
     totalRejectedRequestsCount: rejectedCount,
     totalRejectedAmount: centsToUsd(rejectedCents),
     totalCancelledRequestsCount: cancelledCount,
-    currency: 'USD',
+    currency: 'USDT',
   };
 }
 
@@ -1844,7 +1845,7 @@ function mapWalletRow(row: any): ReferralWallet {
 
   return {
     userId: row?.user_id || '',
-    currency: 'USD',
+    currency: 'USDT',
     totalEarnedCents,
     availableBalanceCents,
     reservedBalanceCents,
@@ -1874,7 +1875,7 @@ function mapCommissionRow(row: any): ReferralCommission {
     commissionRateBps: Number(row.commission_rate_bps || COMMISSION_RATE_BPS),
     commissionAmountCents,
     commissionAmount: centsToUsd(commissionAmountCents),
-    currency: 'USD',
+    currency: 'USDT',
     status: 'credited',
     createdAt: new Date(row.created_at).toISOString(),
   };
@@ -1884,20 +1885,24 @@ function mapLedgerRow(row: any): ReferralWalletLedgerEntry {
   const amountCents = Number(row.amount_cents || 0);
   const balanceAfterCents = Number(row.balance_after_cents || 0);
   const reservedAfterCents = Number(row.reserved_after_cents || 0);
+  const cleanDescription = String(row.description || '')
+    .replace(/\$(\d+(?:\.\d+)?)\s*USD/g, '$1 USDT')
+    .replace(/\$(\d+(?:\.\d+)?)/g, '$1 USDT')
+    .replace(/\bUSD\b/g, 'USDT');
   return {
     id: row.id,
     userId: row.user_id,
     type: row.type,
     amountCents,
     amount: centsToUsd(amountCents),
-    currency: 'USD',
+    currency: 'USDT',
     referenceId: row.reference_id,
     idempotencyKey: row.idempotency_key,
     balanceAfterCents,
     balanceAfter: centsToUsd(balanceAfterCents),
     reservedAfterCents,
     reservedAfter: centsToUsd(reservedAfterCents),
-    description: row.description,
+    description: cleanDescription,
     createdAt: new Date(row.created_at).toISOString(),
   };
 }
@@ -1912,7 +1917,7 @@ function mapWithdrawalRow(row: any): WithdrawalRequestRecord {
     referralCode: row.referral_code,
     amountCents,
     amount: centsToUsd(amountCents),
-    currency: 'USD',
+    currency: 'USDT',
     network: row.network || PAYOUT_NETWORK_LABEL,
     walletAddress: row.wallet_address,
     status: row.status as WithdrawalStatus,

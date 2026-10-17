@@ -297,7 +297,7 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
               onClick={() => onNavigate('billing')}
               className="px-4 py-2 rounded-lg font-bold text-xs bg-rose-600 hover:bg-rose-500 text-white transition-colors shrink-0 self-start sm:self-auto shadow-sm cursor-pointer"
             >
-              Upgrade to Pro ($5/mo)
+              Upgrade to Pro (5 USDT/mo)
             </button>
           )}
         </div>

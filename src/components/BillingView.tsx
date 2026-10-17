@@ -1,27 +1,50 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Check, CreditCard, Download, FileText, ArrowRight, Sparkles, QrCode, ExternalLink, RefreshCw, AlertCircle, X, Lock, Gift } from 'lucide-react';
+import {
+  Shield,
+  Check,
+  CreditCard,
+  QrCode,
+  RefreshCw,
+  AlertCircle,
+  X,
+  Lock,
+  Gift,
+  Layers,
+  Clock,
+  PlusCircle,
+} from 'lucide-react';
 import { apiClient } from '../api/client.ts';
-import type { SubscriptionPlan, Organization, Invoice, CryptoPaymentOrder, LBankConnectionTestResult, User } from '../types.ts';
+import type {
+  SubscriptionPlan,
+  Organization,
+  Invoice,
+  CryptoPaymentOrder,
+  LBankConnectionTestResult,
+  User,
+  OrganizationEntitlementSummary,
+} from '../types.ts';
 import { CryptoPaymentModal } from './CryptoPaymentModal.tsx';
 
 interface BillingViewProps {
   organization: Organization | null;
   user?: User | null;
-  currency: 'USD' | 'EUR' | 'GBP';
-  onCurrencyChange: (c: 'USD' | 'EUR' | 'GBP') => void;
+  currency?: string;
+  onCurrencyChange?: (c: any) => void;
   onRefreshOrg: () => void;
 }
 
 export const BillingView: React.FC<BillingViewProps> = ({
   organization,
   user,
-  currency,
-  onCurrencyChange,
   onRefreshOrg,
 }) => {
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [cryptoOrders, setCryptoOrders] = useState<CryptoPaymentOrder[]>([]);
+  const [entitlementSummary, setEntitlementSummary] =
+    useState<OrganizationEntitlementSummary | null>(
+      organization?.entitlementSummary || null
+    );
   const [interval, setInterval] = useState<'monthly' | 'annual'>('monthly');
   const [loading, setLoading] = useState(false);
   const [actionSuccessToast, setActionSuccessToast] = useState<string | null>(null);
@@ -34,7 +57,9 @@ export const BillingView: React.FC<BillingViewProps> = ({
   const [checkoutReferralCode, setCheckoutReferralCode] = useState('');
   const [applyingReferral, setApplyingReferral] = useState(false);
   const [referralError, setReferralError] = useState<string | null>(null);
-  const [referralAppliedCode, setReferralAppliedCode] = useState<string | null>(user?.referredByCode || null);
+  const [referralAppliedCode, setReferralAppliedCode] = useState<string | null>(
+    user?.referredByCode || null
+  );
 
   useEffect(() => {
     if (user?.referredByCode) {
@@ -48,19 +73,29 @@ export const BillingView: React.FC<BillingViewProps> = ({
   }, [user?.referredByCode]);
 
   useEffect(() => {
+    if (organization?.entitlementSummary) {
+      setEntitlementSummary(organization.entitlementSummary);
+    }
+  }, [organization?.entitlementSummary]);
+
+  useEffect(() => {
     loadBillingData();
   }, []);
 
   const loadBillingData = async () => {
     try {
-      const [p, inv, cryptOrders] = await Promise.all([
+      const [p, inv, cryptOrders, ent] = await Promise.all([
         apiClient.getPlans(),
         apiClient.getInvoices(),
         apiClient.getCryptoOrders().catch(() => []),
+        apiClient.getEntitlements().catch(() => null),
       ]);
       setPlans(p);
       setInvoices(inv);
       setCryptoOrders(cryptOrders);
+      if (ent) {
+        setEntitlementSummary(ent);
+      }
     } catch (e) {
       console.error('Failed to load billing data', e);
     }
@@ -110,14 +145,13 @@ export const BillingView: React.FC<BillingViewProps> = ({
   };
 
   const handleSelectPlan = async (planId: string) => {
-    if (organization?.planId === planId && organization?.billingInterval === interval) {
-      return;
-    }
-
     if (planId === 'free') {
+      if (organization?.planId === 'free') {
+        return;
+      }
       setLoading(true);
       try {
-        await apiClient.changePlan('free', interval, currency);
+        await apiClient.changePlan('free', interval, 'USDT');
         setActionSuccessToast('Switched to Free 24-Hour Trial.');
         setTimeout(() => setActionSuccessToast(null), 3500);
         await loadBillingData();
@@ -131,12 +165,14 @@ export const BillingView: React.FC<BillingViewProps> = ({
     }
 
     // Cryptocurrency Payment Flow (USDT TRC20 / LBank)
+    // Multiple independent Pro purchases are supported at any time.
     setLoading(true);
     setReferralError(null);
     try {
-      const pendingRef = !referralAppliedCode && checkoutReferralCode.trim()
-        ? checkoutReferralCode.trim().toUpperCase()
-        : undefined;
+      const pendingRef =
+        !referralAppliedCode && checkoutReferralCode.trim()
+          ? checkoutReferralCode.trim().toUpperCase()
+          : undefined;
       const res = await apiClient.createCryptoOrder(planId, interval, pendingRef);
       if (res.success && res.order) {
         if (pendingRef) {
@@ -153,13 +189,22 @@ export const BillingView: React.FC<BillingViewProps> = ({
   };
 
   const handleCryptoSuccess = async (order: CryptoPaymentOrder) => {
-    setActionSuccessToast(`🎉 Payment of ${order.amount} USDT successfully verified! ${order.planName} is active.`);
+    setActionSuccessToast(
+      `Payment of ${order.amount} USDT verified! Added +5 websites capacity via independent subscription entitlement.`
+    );
     setTimeout(() => setActionSuccessToast(null), 6000);
     await loadBillingData();
     onRefreshOrg();
   };
 
-  const currencySymbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : '£';
+  const activeEntitlements = entitlementSummary?.activeEntitlements || [];
+  const allEntitlements = entitlementSummary?.entitlements || [];
+  const totalCapacity =
+    entitlementSummary?.totalActiveCapacity ?? organization?.maxWebsites ?? 1;
+  const usedSlots = entitlementSummary?.usedWebsiteSlots ?? 0;
+  const remainingSlots =
+    entitlementSummary?.remainingWebsiteSlots ??
+    Math.max(0, totalCapacity - usedSlots);
 
   return (
     <div className="space-y-8">
@@ -167,58 +212,51 @@ export const BillingView: React.FC<BillingViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-            Subscription Plans & Quotas
+            Plan & Limits
           </h1>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Predictable international pricing: Free 24-hour trial (one time per account) or Pro for $5/month to scan 5 websites.
+            Crypto-native subscription entitlements: Free 24-hour trial (1 website) or Pro for 5 USDT/month (+5 websites per active entitlement).
           </p>
         </div>
 
-        {/* Currency & Cadence Controls */}
+        {/* Cadence & LBank Verification Controls */}
         <div className="flex items-center gap-3">
           {/* Monthly / Annual toggle */}
           <div className="flex items-center p-1 bg-slate-900 border border-slate-800 rounded-lg text-xs">
             <button
               onClick={() => setInterval('monthly')}
-              className={`px-3 py-1 rounded transition-colors ${
-                interval === 'monthly' ? 'bg-slate-800 text-white font-medium shadow-sm' : 'text-slate-400'
+              className={`px-3 py-1 rounded transition-colors cursor-pointer ${
+                interval === 'monthly'
+                  ? 'bg-slate-800 text-white font-medium shadow-sm'
+                  : 'text-slate-400'
               }`}
             >
-              Monthly
+              Monthly (30 Days)
             </button>
             <button
               onClick={() => setInterval('annual')}
-              className={`px-3 py-1 rounded transition-colors flex items-center gap-1.5 ${
-                interval === 'annual' ? 'bg-slate-800 text-[#E6A05A] font-medium shadow-sm' : 'text-slate-400'
+              className={`px-3 py-1 rounded transition-colors flex items-center gap-1.5 cursor-pointer ${
+                interval === 'annual'
+                  ? 'bg-slate-800 text-[#E6A05A] font-medium shadow-sm'
+                  : 'text-slate-400'
               }`}
             >
-              <span>Annual</span>
+              <span>Annual (365 Days)</span>
               <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-1 py-0.2 rounded">
                 2 Mo Free
               </span>
             </button>
           </div>
 
-          {/* Currency */}
-          <div className="flex items-center p-1 bg-slate-900 border border-slate-800 rounded-lg text-xs font-mono">
-            {(['USD', 'EUR', 'GBP'] as const).map((c) => (
-              <button
-                key={c}
-                onClick={() => onCurrencyChange(c)}
-                className={`px-2 py-1 rounded transition-colors ${
-                  currency === c ? 'bg-slate-800 text-[#E6A05A] font-semibold' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                {c}
-              </button>
-            ))}
+          <div className="hidden sm:flex items-center px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs font-mono text-[#E6A05A] font-semibold">
+            USDT (TRC20)
           </div>
 
           {/* LBank API Test Button */}
           <button
             onClick={handleRunLBankTest}
             disabled={testingLBank}
-            className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700/80 hover:border-[#E6A05A]/60 text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5 transition-all shadow-sm disabled:opacity-50"
+            className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700/80 hover:border-[#E6A05A]/60 text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
             title="Perform live read-only verification of LBank API connection"
           >
             {testingLBank ? (
@@ -238,7 +276,137 @@ export const BillingView: React.FC<BillingViewProps> = ({
         </div>
       )}
 
-      {/* Checkout Referral Code Section (for authenticated users without an assigned referrer) */}
+      {/* Active Website Capacity & Independent Entitlements Summary */}
+      <div className="rounded-2xl border border-slate-800 bg-[#0F172A] p-6 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-[#E6A05A]/10 border border-[#E6A05A]/30 text-[#E6A05A]">
+              <Layers className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-sm sm:text-base font-bold text-white">
+                Active Subscription Entitlements & Website Capacity
+              </h2>
+              <p className="text-xs text-slate-400">
+                Each verified Pro purchase adds +5 website slots with its own independent start and expiration date.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => handleSelectPlan('pro')}
+            disabled={loading}
+            className="px-3.5 py-2 rounded-xl bg-[#E6A05A] text-[#0B1120] hover:bg-[#cf863c] text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer self-start sm:self-auto"
+          >
+            <PlusCircle className="h-4 w-4" />
+            <span>
+              Add +5 Websites ({interval === 'annual' ? '50 USDT / yr' : '5 USDT / mo'})
+            </span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+            <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
+              Total Active Capacity
+            </span>
+            <div className="text-2xl font-extrabold font-mono text-white mt-1">
+              {totalCapacity} <span className="text-xs font-sans font-normal text-slate-400">websites</span>
+            </div>
+          </div>
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+            <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
+              Websites Monitored
+            </span>
+            <div className="text-2xl font-extrabold font-mono text-[#E6A05A] mt-1">
+              {usedSlots} <span className="text-xs font-sans font-normal text-slate-400">used</span>
+            </div>
+          </div>
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+            <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
+              Remaining Available Slots
+            </span>
+            <div className="text-2xl font-extrabold font-mono text-emerald-400 mt-1">
+              {remainingSlots} <span className="text-xs font-sans font-normal text-slate-400">available</span>
+            </div>
+          </div>
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+            <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
+              Active Pro Entitlements
+            </span>
+            <div className="text-2xl font-extrabold font-mono text-white mt-1">
+              {activeEntitlements.length}{' '}
+              <span className="text-xs font-sans font-normal text-slate-400">
+                {activeEntitlements.length === 1 ? 'package' : 'packages'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {allEntitlements.length > 0 ? (
+          <div className="overflow-x-auto pt-2">
+            <table className="w-full text-left text-xs">
+              <thead className="text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
+                <tr>
+                  <th className="py-2">Entitlement ID</th>
+                  <th className="py-2">Plan Package</th>
+                  <th className="py-2">Capacity Granted</th>
+                  <th className="py-2">Start Date</th>
+                  <th className="py-2">Expiration Date</th>
+                  <th className="py-2">Remaining</th>
+                  <th className="py-2 text-right">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 font-mono">
+                {allEntitlements.map((ent) => (
+                  <tr key={ent.id} className="text-slate-300">
+                    <td className="py-3 font-semibold text-white text-[11px]">{ent.id}</td>
+                    <td className="py-3 font-sans">
+                      {ent.planName} ({ent.billingInterval})
+                    </td>
+                    <td className="py-3 font-bold text-[#E6A05A]">
+                      +{ent.websiteCapacity} Websites
+                    </td>
+                    <td className="py-3">
+                      {new Date(ent.startsAt).toLocaleDateString()}
+                    </td>
+                    <td className="py-3">
+                      {new Date(ent.expiresAt).toLocaleDateString()}
+                    </td>
+                    <td className="py-3">
+                      {ent.isActive ? (
+                        <span className="inline-flex items-center gap-1 text-emerald-400">
+                          <Clock className="h-3 w-3" />
+                          {ent.daysRemaining}d left
+                        </span>
+                      ) : (
+                        <span className="text-slate-500">0d</span>
+                      )}
+                    </td>
+                    <td className="py-3 text-right font-sans">
+                      <span
+                        className={`text-[10px] uppercase px-2 py-0.5 rounded font-semibold ${
+                          ent.isActive
+                            ? 'text-emerald-400 bg-emerald-500/10'
+                            : 'text-slate-400 bg-slate-800'
+                        }`}
+                      >
+                        {ent.isActive ? 'ACTIVE' : 'EXPIRED'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-400">
+            No paid Pro subscription entitlements active yet. Purchase a Pro plan below to unlock +5 website monitoring slots per package.
+          </p>
+        )}
+      </div>
+
+      {/* Checkout Referral Code Section */}
       {user && (
         <div className="max-w-4xl mx-auto rounded-xl border border-slate-800 bg-[#0F172A]/90 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -294,17 +462,17 @@ export const BillingView: React.FC<BillingViewProps> = ({
       {/* Plans Tier Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 max-w-4xl mx-auto gap-6 sm:gap-8">
         {plans.map((plan) => {
-          const isCurrent = organization?.planId === plan.id;
           const isPro = plan.id === 'pro';
-          const price = interval === 'annual'
-            ? plan.pricing[currency].annual
-            : plan.pricing[currency].monthly;
+          const isCurrentFree = plan.id === 'free' && organization?.planId === 'free';
+          const hasActivePro = isPro && activeEntitlements.length > 0;
+          const pricingObj = plan.pricing.USDT || { monthly: isPro ? 5 : 0, annual: isPro ? 50 : 0 };
+          const price = interval === 'annual' ? pricingObj.annual : pricingObj.monthly;
 
           return (
             <div
               key={plan.id}
               className={`rounded-2xl border p-7 sm:p-8 flex flex-col justify-between transition-all ${
-                isCurrent
+                hasActivePro || isCurrentFree
                   ? 'border-[#E6A05A] bg-[#0F172A] shadow-xl shadow-[#E6A05A]/10 ring-1 ring-[#E6A05A]/40'
                   : 'border-slate-800 bg-[#0F172A]/80 hover:border-slate-700'
               }`}
@@ -312,11 +480,15 @@ export const BillingView: React.FC<BillingViewProps> = ({
               <div className="space-y-5">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                    {isPro ? 'RECOMMENDED' : '24-HOUR TRIAL'}
+                    {isPro ? 'STACKABLE ENTITLEMENT' : '24-HOUR TRIAL'}
                   </span>
-                  {isCurrent ? (
+                  {hasActivePro ? (
                     <span className="text-[10px] font-mono text-[#E6A05A] bg-[#E6A05A]/10 border border-[#E6A05A]/30 px-2.5 py-0.5 rounded-full font-bold">
-                      ACTIVE PLAN
+                      {activeEntitlements.length} ACTIVE ({totalCapacity} WEBSITES)
+                    </span>
+                  ) : isCurrentFree ? (
+                    <span className="text-[10px] font-mono text-[#E6A05A] bg-[#E6A05A]/10 border border-[#E6A05A]/30 px-2.5 py-0.5 rounded-full font-bold">
+                      ACTIVE TRIAL
                     </span>
                   ) : isPro ? (
                     <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full font-bold">
@@ -337,7 +509,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
                   <h3 className="text-2xl font-bold text-white">{plan.name}</h3>
                   <p className="text-xs sm:text-sm text-slate-400 mt-1">
                     {isPro
-                      ? '$5/month · Can scan 5 websites'
+                      ? '5 USDT/month · Adds +5 websites per purchase'
                       : '24 hour trial only, one time per account.'}
                   </p>
                 </div>
@@ -346,14 +518,16 @@ export const BillingView: React.FC<BillingViewProps> = ({
                 {isPro ? (
                   <div className="rounded-xl bg-[#E6A05A]/10 border border-[#E6A05A]/30 p-3 text-xs text-[#E6A05A] font-semibold flex items-center gap-2">
                     <Check className="h-4 w-4 shrink-0 text-[#E6A05A]" />
-                    <span>Can scan 5 websites with 1-minute checks</span>
+                    <span>Adds +5 websites capacity with 1-minute checks</span>
                   </div>
                 ) : (
-                  <div className={`rounded-xl border p-3 text-xs flex items-center gap-2 ${
-                    organization?.trialEndsAt && new Date() >= new Date(organization.trialEndsAt)
-                      ? 'bg-rose-950/20 border-rose-900/60 text-rose-300'
-                      : 'bg-slate-800/60 border-slate-700/60 text-slate-300'
-                  }`}>
+                  <div
+                    className={`rounded-xl border p-3 text-xs flex items-center gap-2 ${
+                      organization?.trialEndsAt && new Date() >= new Date(organization.trialEndsAt)
+                        ? 'bg-rose-950/20 border-rose-900/60 text-rose-300'
+                        : 'bg-slate-800/60 border-slate-700/60 text-slate-300'
+                    }`}
+                  >
                     <Check className="h-4 w-4 shrink-0 text-slate-400" />
                     <span>
                       {organization?.trialEndsAt && new Date() >= new Date(organization.trialEndsAt)
@@ -366,7 +540,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
                 <div className="py-1">
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-4xl sm:text-5xl font-extrabold font-mono text-white tabular-nums">
-                      {currencySymbol}{price}
+                      {price} USDT
                     </span>
                     <span className="text-xs sm:text-sm text-slate-400 font-mono">
                       {isPro
@@ -376,7 +550,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
                   </div>
                   {isPro && interval === 'annual' && (
                     <p className="text-[11px] text-emerald-400 font-mono mt-1">
-                      Equivalent to {currencySymbol}4.17/mo (2 months free)
+                      Equivalent to 4.17 USDT/mo (2 months free)
                     </p>
                   )}
                 </div>
@@ -384,7 +558,11 @@ export const BillingView: React.FC<BillingViewProps> = ({
                 <ul className="space-y-2.5 text-xs text-slate-300 pt-3 border-t border-slate-800/80">
                   {plan.features.map((feat, idx) => (
                     <li key={idx} className="flex items-start gap-2.5">
-                      <Check className={`h-4 w-4 shrink-0 mt-0.5 ${isPro ? 'text-[#E6A05A]' : 'text-emerald-400'}`} />
+                      <Check
+                        className={`h-4 w-4 shrink-0 mt-0.5 ${
+                          isPro ? 'text-[#E6A05A]' : 'text-emerald-400'
+                        }`}
+                      />
                       <span>{feat}</span>
                     </li>
                   ))}
@@ -392,38 +570,48 @@ export const BillingView: React.FC<BillingViewProps> = ({
               </div>
 
               <div className="pt-8">
-                {plan.id === 'free' && organization?.trialEndsAt && new Date() >= new Date(organization.trialEndsAt) && !isCurrent ? (
-                  <button
-                    disabled
-                    className="w-full py-3 rounded-xl text-xs sm:text-sm font-semibold bg-slate-800 text-rose-400/80 border border-slate-700 cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    <span>Trial Expired (Cannot Restart)</span>
-                  </button>
+                {plan.id === 'free' ? (
+                  organization?.trialEndsAt &&
+                  new Date() >= new Date(organization.trialEndsAt) &&
+                  !isCurrentFree ? (
+                    <button
+                      disabled
+                      className="w-full py-3 rounded-xl text-xs sm:text-sm font-semibold bg-slate-800 text-rose-400/80 border border-slate-700 cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      <span>Trial Expired (Cannot Restart)</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleSelectPlan('free')}
+                      disabled={loading || isCurrentFree || hasActivePro}
+                      className="w-full py-3 rounded-xl text-xs sm:text-sm font-semibold bg-slate-800 text-slate-400 cursor-default flex items-center justify-center gap-2"
+                    >
+                      {hasActivePro ? 'Pro Entitlements Active' : isCurrentFree ? 'Current Trial Plan' : 'Free 24h Trial'}
+                    </button>
+                  )
                 ) : (
                   <button
-                    onClick={() => handleSelectPlan(plan.id)}
-                    disabled={loading || isCurrent}
-                    className={`w-full py-3 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
-                      isCurrent
-                        ? 'bg-slate-800 text-slate-400 cursor-default'
-                        : 'bg-[#E6A05A] text-[#0B1120] hover:bg-[#cf863c] cursor-pointer shadow-lg shadow-[#E6A05A]/10 font-bold'
-                    }`}
+                    onClick={() => handleSelectPlan('pro')}
+                    disabled={loading}
+                    className="w-full py-3 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-2 bg-[#E6A05A] text-[#0B1120] hover:bg-[#cf863c] cursor-pointer shadow-lg shadow-[#E6A05A]/10"
                   >
-                    {isCurrent ? (
-                      'Current Plan'
-                    ) : isPro ? (
-                      <>
-                        <QrCode className="h-4 w-4" />
-                        <span>{loading ? 'Creating Order...' : `Pay ${currencySymbol}${price} with USDT (TRC20)`}</span>
-                      </>
-                    ) : (
-                      'Switch to Free 24h Trial'
-                    )}
+                    <QrCode className="h-4 w-4" />
+                    <span>
+                      {loading
+                        ? 'Creating Order...'
+                        : hasActivePro
+                        ? `Buy Additional +5 Websites (${price} USDT)`
+                        : `Pay ${price} USDT (TRC20)`}
+                    </span>
                   </button>
                 )}
-                {isPro && !isCurrent && (
+                {isPro && (
                   <p className="text-[11px] text-center text-slate-400 mt-2 font-mono flex items-center justify-center gap-1">
-                    <span>Instant automatic activation via LBank USDT TRC20</span>
+                    <span>
+                      {hasActivePro
+                        ? 'Stackable: adds +5 websites with its own expiration date'
+                        : 'Instant automatic activation via LBank USDT TRC20'}
+                    </span>
                   </p>
                 )}
               </div>
@@ -438,7 +626,9 @@ export const BillingView: React.FC<BillingViewProps> = ({
           <div className="flex items-center justify-between pb-3 border-b border-slate-800">
             <div className="flex items-center gap-2">
               <QrCode className="h-4 w-4 text-[#E6A05A]" />
-              <h2 className="text-sm font-semibold text-white">USDT (TRC20) Cryptocurrency Orders</h2>
+              <h2 className="text-sm font-semibold text-white">
+                USDT (TRC20) Cryptocurrency Orders
+              </h2>
             </div>
             <span className="text-xs text-slate-400 font-mono">TRON Network / LBank Gateway</span>
           </div>
@@ -497,14 +687,14 @@ export const BillingView: React.FC<BillingViewProps> = ({
                         {isPending ? (
                           <button
                             onClick={() => setCryptoModalOrder(ord)}
-                            className="px-2.5 py-1 rounded bg-[#E6A05A] text-[#0B1120] font-semibold text-xs hover:bg-[#cf863c] transition-colors"
+                            className="px-2.5 py-1 rounded bg-[#E6A05A] text-[#0B1120] font-semibold text-xs hover:bg-[#cf863c] transition-colors cursor-pointer"
                           >
                             Pay / Verify
                           </button>
                         ) : (
                           <button
                             onClick={() => setCryptoModalOrder(ord)}
-                            className="text-xs text-slate-400 hover:text-white"
+                            className="text-xs text-slate-400 hover:text-white cursor-pointer"
                           >
                             View Order
                           </button>
@@ -526,7 +716,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
             <CreditCard className="h-4 w-4 text-slate-400" />
             <h2 className="text-sm font-semibold text-white">Billing History & Invoices</h2>
           </div>
-          <span className="text-xs text-slate-400 font-mono">All transactions logged</span>
+          <span className="text-xs text-slate-400 font-mono">All transactions logged in USDT</span>
         </div>
 
         {invoices.length === 0 ? (
@@ -551,7 +741,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
                     <td className="py-3">{new Date(inv.date).toLocaleDateString()}</td>
                     <td className="py-3 font-sans">{inv.planName}</td>
                     <td className="py-3 text-right font-bold text-white tabular-nums">
-                      {currencySymbol}{inv.amount}
+                      {inv.amount} USDT
                     </td>
                     <td className="py-3 text-center">
                       <span className="text-[10px] text-emerald-400 uppercase bg-emerald-500/10 px-2 py-0.5 rounded font-sans font-semibold">
@@ -560,8 +750,10 @@ export const BillingView: React.FC<BillingViewProps> = ({
                     </td>
                     <td className="py-3 text-right">
                       <button
-                        onClick={() => alert(`Downloading official PDF tax receipt for ${inv.invoiceNumber}...`)}
-                        className="text-xs font-sans text-[#E6A05A] hover:underline"
+                        onClick={() =>
+                          alert(`Downloading official PDF receipt for ${inv.invoiceNumber}...`)
+                        }
+                        className="text-xs font-sans text-[#E6A05A] hover:underline cursor-pointer"
                       >
                         Download PDF
                       </button>
@@ -657,28 +849,36 @@ export const BillingView: React.FC<BillingViewProps> = ({
                       <div className="flex items-center justify-between text-slate-300 pt-2 border-t border-slate-800/80">
                         <span className="text-slate-400 font-medium">Read Permission:</span>
                         <span className="text-emerald-400 font-semibold font-mono">
-                          {lbankTestResult.accountDetails.permissions.enableReading ? 'GRANTED (true)' : 'DENIED (false)'}
+                          {lbankTestResult.accountDetails.permissions.enableReading
+                            ? 'GRANTED (true)'
+                            : 'DENIED (false)'}
                         </span>
                       </div>
 
                       <div className="flex items-center justify-between text-slate-300 pt-1">
                         <span className="text-slate-400 font-medium">IP Restriction:</span>
                         <span className="text-slate-300 font-mono">
-                          {lbankTestResult.accountDetails.permissions.ipRestrict ? 'ACTIVE (Protected)' : 'None'}
+                          {lbankTestResult.accountDetails.permissions.ipRestrict
+                            ? 'ACTIVE (Protected)'
+                            : 'None'}
                         </span>
                       </div>
 
                       <div className="flex items-center justify-between text-slate-300 pt-1">
                         <span className="text-slate-400 font-medium">Spot Trading:</span>
                         <span className="text-slate-400 font-mono">
-                          {lbankTestResult.accountDetails.permissions.enableSpotTrading ? 'Enabled' : 'DISABLED (Read-Only Safe)'}
+                          {lbankTestResult.accountDetails.permissions.enableSpotTrading
+                            ? 'Enabled'
+                            : 'DISABLED (Read-Only Safe)'}
                         </span>
                       </div>
 
                       <div className="flex items-center justify-between text-slate-300 pt-1">
                         <span className="text-slate-400 font-medium">Withdrawals:</span>
                         <span className="text-slate-400 font-mono">
-                          {lbankTestResult.accountDetails.permissions.enableWithdrawals ? 'Enabled' : 'DISABLED (Read-Only Safe)'}
+                          {lbankTestResult.accountDetails.permissions.enableWithdrawals
+                            ? 'Enabled'
+                            : 'DISABLED (Read-Only Safe)'}
                         </span>
                       </div>
                     </>
@@ -695,24 +895,29 @@ export const BillingView: React.FC<BillingViewProps> = ({
                     </div>
                   )}
 
-                  {lbankTestResult.accountDetails.accountCoins && lbankTestResult.accountDetails.accountCoins.length > 0 && (
-                    <div className="pt-2 border-t border-slate-800/80 space-y-1">
-                      <span className="text-slate-400 font-medium block">
-                        Discovered Account Assets (Read-Only Balances):
-                      </span>
-                      <div className="grid grid-cols-3 gap-1.5 pt-1">
-                        {lbankTestResult.accountDetails.accountCoins.slice(0, 6).map((coin) => (
-                          <div
-                            key={coin.coin}
-                            className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-center font-mono text-[11px]"
-                          >
-                            <span className="text-slate-400 block text-[10px]">{coin.coin}</span>
-                            <span className="text-white font-semibold">{coin.usable}</span>
-                          </div>
-                        ))}
+                  {lbankTestResult.accountDetails.accountCoins &&
+                    lbankTestResult.accountDetails.accountCoins.length > 0 && (
+                      <div className="pt-2 border-t border-slate-800/80 space-y-1">
+                        <span className="text-slate-400 font-medium block">
+                          Discovered Account Assets (Read-Only Balances):
+                        </span>
+                        <div className="grid grid-cols-3 gap-1.5 pt-1">
+                          {lbankTestResult.accountDetails.accountCoins
+                            .slice(0, 6)
+                            .map((coin) => (
+                              <div
+                                key={coin.coin}
+                                className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-center font-mono text-[11px]"
+                              >
+                                <span className="text-slate-400 block text-[10px]">
+                                  {coin.coin}
+                                </span>
+                                <span className="text-white font-semibold">{coin.usable}</span>
+                              </div>
+                            ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
                 </div>
 
                 {/* Diagnostic explanation */}
@@ -736,7 +941,8 @@ export const BillingView: React.FC<BillingViewProps> = ({
                   </div>
                   {lbankTestResult.errorCode && (
                     <p className="text-slate-400">
-                      Error Code: <span className="font-mono text-white">{lbankTestResult.errorCode}</span>
+                      Error Code:{' '}
+                      <span className="font-mono text-white">{lbankTestResult.errorCode}</span>
                     </p>
                   )}
                 </div>
