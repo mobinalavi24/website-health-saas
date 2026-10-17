@@ -32,6 +32,18 @@ import {
   findSessionByToken,
   deleteSessionByToken,
 } from './db/sessionRepo.ts';
+import {
+  createSupportTicket,
+  listCustomerSupportTickets,
+  listAdminSupportTickets,
+  getSupportTicketDetail,
+  replyToSupportTicket,
+  updateSupportTicketStatus,
+  isAdminUser,
+  TicketValidationError,
+  TicketAccessDeniedError,
+  TicketNotFoundError,
+} from './tickets.ts';
 
 function getPublicOrigin(req: IncomingMessage): string {
   const configured = process.env.PUBLIC_APP_URL || process.env.APP_URL || process.env.VITE_APP_URL;
@@ -141,7 +153,7 @@ function sendJson(res: ServerResponse, status: number, data: any) {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.end(JSON.stringify(data));
 }
@@ -158,7 +170,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
   if (method === 'OPTIONS') {
     res.statusCode = 204;
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
     res.end();
     return true;
@@ -1398,42 +1410,221 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       return true;
     }
 
-    // 9. SUPPORT TICKETS
+    // 9. SUPPORT TICKETS (Customer & Admin Ticketing System)
     if (path === '/api/tickets' && method === 'GET') {
       const session = await resolveSession(req);
       if (!session) {
-        sendJson(res, 401, { error: 'Unauthenticated' });
+        sendJson(res, 401, { error: 'Unauthenticated. Please log in to view support tickets.' });
         return true;
       }
-      const tickets = session.user.role === 'super_admin'
-        ? db.getTickets()
-        : db.getTickets().filter((t) => t.email.toLowerCase() === session.user.email.toLowerCase());
-      sendJson(res, 200, tickets);
+      try {
+        const scope = parsedUrl.searchParams.get('scope') || '';
+        const statusFilter = parsedUrl.searchParams.get('status') || undefined;
+        const searchFilter = parsedUrl.searchParams.get('search') || undefined;
+        if (isAdminUser(session.user) && scope !== 'own') {
+          const { tickets } = await listAdminSupportTickets(session.user, {
+            status: statusFilter,
+            search: searchFilter,
+          });
+          sendJson(res, 200, tickets);
+        } else {
+          const tickets = await listCustomerSupportTickets(session.user);
+          sendJson(res, 200, tickets);
+        }
+      } catch (err: any) {
+        const status = err instanceof TicketAccessDeniedError ? 403 : 400;
+        sendJson(res, status, { error: err.message || 'Failed to load support tickets.' });
+      }
       return true;
     }
 
     if (path === '/api/tickets' && method === 'POST') {
-      const body = await readJsonBody(req);
-      if (!body.subject || !body.message || !body.email) {
-        sendJson(res, 400, { error: 'Email, subject, and message are required.' });
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated. Please log in to create a support ticket.' });
         return true;
       }
 
-      const ticket: SupportTicket = {
-        id: `tkt_${Date.now()}`,
-        name: body.name || 'Valued User',
-        email: body.email.trim(),
-        subject: body.subject.trim(),
-        category: body.category || 'technical',
-        message: body.message.trim(),
-        status: 'open',
-        priority: body.priority || 'medium',
-        createdAt: new Date().toISOString(),
-        replies: [],
-      };
+      const body = await readJsonBody(req);
+      try {
+        const result = await createSupportTicket(session.user, body, getPublicOrigin(req));
+        sendJson(res, result.alreadyCreated ? 200 : 201, {
+          ...result.ticket,
+          ticket: result.ticket,
+          alreadyCreated: result.alreadyCreated,
+          emailNotification: result.ticket.emailNotification,
+        });
+      } catch (err: any) {
+        const status =
+          err instanceof TicketValidationError
+            ? 400
+            : err instanceof TicketAccessDeniedError
+            ? 403
+            : 400;
+        sendJson(res, status, { error: err.message || 'Failed to create support ticket.' });
+      }
+      return true;
+    }
 
-      db.addTicket(ticket);
-      sendJson(res, 201, ticket);
+    if (path === '/api/admin/tickets' && method === 'GET') {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated. Please log in.' });
+        return true;
+      }
+      if (!isAdminUser(session.user)) {
+        sendJson(res, 403, { error: 'Admin access required to view the global support ticket inbox.' });
+        return true;
+      }
+
+      try {
+        const statusFilter = parsedUrl.searchParams.get('status') || undefined;
+        const searchFilter = parsedUrl.searchParams.get('search') || undefined;
+        const result = await listAdminSupportTickets(session.user, {
+          status: statusFilter,
+          search: searchFilter,
+        });
+        sendJson(res, 200, result);
+      } catch (err: any) {
+        const status = err instanceof TicketAccessDeniedError ? 403 : 400;
+        sendJson(res, status, { error: err.message || 'Failed to load admin ticket inbox.' });
+      }
+      return true;
+    }
+
+    if (
+      (path.startsWith('/api/tickets/') || path.startsWith('/api/admin/tickets/')) &&
+      (path.endsWith('/replies') || path.endsWith('/messages') || path.endsWith('/reply')) &&
+      method === 'POST'
+    ) {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated. Please log in to reply to a ticket.' });
+        return true;
+      }
+
+      const isAdminPath = path.startsWith('/api/admin/tickets/');
+      if (isAdminPath && !isAdminUser(session.user)) {
+        sendJson(res, 403, { error: 'Admin access required to reply from the administrative support inbox.' });
+        return true;
+      }
+
+      const ticketId = path
+        .replace('/api/admin/tickets/', '')
+        .replace('/api/tickets/', '')
+        .replace(/\/(replies|messages|reply)$/, '')
+        .trim();
+
+      const body = await readJsonBody(req);
+      try {
+        const result = await replyToSupportTicket(
+          decodeURIComponent(ticketId),
+          session.user,
+          {
+            ...body,
+            replyAsAdmin: isAdminPath ? true : body?.replyAsAdmin,
+          },
+          getPublicOrigin(req)
+        );
+        sendJson(res, 200, {
+          success: true,
+          ticket: result.ticket,
+          reply: result.reply,
+          emailNotification: result.emailNotification,
+        });
+      } catch (err: any) {
+        const status =
+          err instanceof TicketValidationError
+            ? 400
+            : err instanceof TicketAccessDeniedError
+            ? 403
+            : err instanceof TicketNotFoundError
+            ? 404
+            : 400;
+        sendJson(res, status, { error: err.message || 'Failed to post ticket reply.' });
+      }
+      return true;
+    }
+
+    if (
+      (path.startsWith('/api/tickets/') || path.startsWith('/api/admin/tickets/')) &&
+      path.endsWith('/status') &&
+      (method === 'PATCH' || method === 'POST')
+    ) {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated. Please log in.' });
+        return true;
+      }
+      if (!isAdminUser(session.user)) {
+        sendJson(res, 403, { error: 'Admin access required to update ticket status.' });
+        return true;
+      }
+
+      const ticketId = path
+        .replace('/api/admin/tickets/', '')
+        .replace('/api/tickets/', '')
+        .replace(/\/status$/, '')
+        .trim();
+
+      const body = await readJsonBody(req);
+      try {
+        const updatedTicket = await updateSupportTicketStatus(
+          decodeURIComponent(ticketId),
+          session.user,
+          body?.status
+        );
+        sendJson(res, 200, {
+          success: true,
+          ticket: updatedTicket,
+        });
+      } catch (err: any) {
+        const status =
+          err instanceof TicketValidationError
+            ? 400
+            : err instanceof TicketAccessDeniedError
+            ? 403
+            : err instanceof TicketNotFoundError
+            ? 404
+            : 400;
+        sendJson(res, status, { error: err.message || 'Failed to update ticket status.' });
+      }
+      return true;
+    }
+
+    if (
+      (path.startsWith('/api/tickets/') || path.startsWith('/api/admin/tickets/')) &&
+      method === 'GET'
+    ) {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated. Please log in to view ticket details.' });
+        return true;
+      }
+
+      const isAdminPath = path.startsWith('/api/admin/tickets/');
+      if (isAdminPath && !isAdminUser(session.user)) {
+        sendJson(res, 403, { error: 'Admin access required.' });
+        return true;
+      }
+
+      const ticketId = path
+        .replace('/api/admin/tickets/', '')
+        .replace('/api/tickets/', '')
+        .trim();
+
+      try {
+        const ticket = await getSupportTicketDetail(decodeURIComponent(ticketId), session.user);
+        sendJson(res, 200, ticket);
+      } catch (err: any) {
+        const status =
+          err instanceof TicketAccessDeniedError
+            ? 403
+            : err instanceof TicketNotFoundError
+            ? 404
+            : 400;
+        sendJson(res, status, { error: err.message || 'Failed to load ticket.' });
+      }
       return true;
     }
 

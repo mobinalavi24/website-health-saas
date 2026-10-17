@@ -61,25 +61,25 @@ export const Footer: React.FC<FooterProps> = ({
           </div>
 
           <div>
-            <h4 className="text-xs font-semibold text-slate-200 uppercase tracking-wider mb-3">Agencies & Developers</h4>
+            <h4 className="text-xs font-semibold text-slate-200 uppercase tracking-wider mb-3">Platform & Support</h4>
             <ul className="space-y-2 text-xs">
               <li>
-                <button onClick={() => onNavigate('for-agencies')} className="hover:text-white transition-colors">
-                  Client Workspaces
+                <button onClick={() => onNavigate('reports')} className="hover:text-white transition-colors cursor-pointer">
+                  Support Tickets & Reports
                 </button>
               </li>
               <li>
-                <button onClick={() => onNavigate('for-agencies')} className="hover:text-white transition-colors">
-                  White-Label Reports
+                <button onClick={() => onNavigate('how-it-works')} className="hover:text-white transition-colors cursor-pointer">
+                  External Probing Engine
                 </button>
               </li>
               <li>
-                <button onClick={() => onNavigate('api-docs')} className="hover:text-white transition-colors">
+                <button onClick={() => onNavigate('api-docs')} className="hover:text-white transition-colors cursor-pointer">
                   Developer REST API
                 </button>
               </li>
               <li>
-                <button onClick={() => onNavigate('pricing')} className="hover:text-white transition-colors">
+                <button onClick={() => onNavigate('pricing')} className="hover:text-white transition-colors cursor-pointer">
                   International Pricing
                 </button>
               </li>

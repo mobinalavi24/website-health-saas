@@ -185,7 +185,38 @@ CREATE TABLE IF NOT EXISTS support_tickets (
   status TEXT NOT NULL,
   priority TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_message_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_reply_by_role TEXT,
+  needs_admin_response BOOLEAN NOT NULL DEFAULT true,
+  unread_by_admin BOOLEAN NOT NULL DEFAULT true,
+  unread_by_customer BOOLEAN NOT NULL DEFAULT false,
   replies JSONB NOT NULL DEFAULT '[]'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS ticket_messages (
+  id TEXT PRIMARY KEY,
+  ticket_id TEXT NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+  sender_user_id TEXT NOT NULL,
+  sender_name TEXT NOT NULL,
+  sender_email TEXT NOT NULL,
+  sender_role TEXT NOT NULL,
+  body TEXT NOT NULL,
+  idempotency_key TEXT UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS ticket_email_logs (
+  id TEXT PRIMARY KEY,
+  ticket_id TEXT NOT NULL,
+  message_id TEXT,
+  event_type TEXT NOT NULL,
+  recipient_email TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  status TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  diagnostic TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -321,3 +352,7 @@ CREATE INDEX IF NOT EXISTS idx_referral_commissions_referred ON referral_commiss
 CREATE INDEX IF NOT EXISTS idx_referral_wallet_ledger_user ON referral_wallet_ledger(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_withdrawal_requests_user ON withdrawal_requests(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_withdrawal_requests_status ON withdrawal_requests(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_support_tickets_email ON support_tickets(email);
+CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket ON ticket_messages(ticket_id, created_at ASC);

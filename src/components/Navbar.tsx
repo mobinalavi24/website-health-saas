@@ -1,5 +1,15 @@
-import React from 'react';
-import { Activity, Shield, Globe, Terminal, LogIn, LayoutDashboard, UserCheck, QrCode, Coins, Gift, Wallet } from 'lucide-react';
+import React, { useState } from 'react';
+import {
+  Activity,
+  LayoutDashboard,
+  QrCode,
+  Coins,
+  Gift,
+  Wallet,
+  MessageSquare,
+  Menu,
+  X,
+} from 'lucide-react';
 import type { User, Organization } from '../types.ts';
 
 interface NavbarProps {
@@ -23,13 +33,20 @@ export const Navbar: React.FC<NavbarProps> = ({
   currency,
   onCurrencyChange,
 }) => {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const handleNavClick = (view: string) => {
+    setMobileMenuOpen(false);
+    onNavigate(view);
+  };
+
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-[#0B1120]/95 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        {/* Zone 1: Single text element brand wordmark */}
+        {/* Zone 1: Brand wordmark */}
         <button
-          onClick={() => onNavigate(user ? 'dashboard' : 'home')}
-          className="group flex items-center gap-2 text-left focus:outline-none"
+          onClick={() => handleNavClick(user ? 'dashboard' : 'home')}
+          className="group flex items-center gap-2 text-left focus:outline-none cursor-pointer"
         >
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#E6A05A]/10 border border-[#E6A05A]/30 text-[#E6A05A]">
             <Activity className="h-4 w-4" />
@@ -39,43 +56,56 @@ export const Navbar: React.FC<NavbarProps> = ({
           </span>
         </button>
 
-        {/* Zone 2: 4-6 clean text navigation links with subtle hover underlines */}
+        {/* Zone 2: Desktop Navigation Links */}
         <nav className="hidden md:flex items-center gap-5 text-sm font-medium text-slate-300">
           {!user ? (
             <>
               <button
-                onClick={() => onNavigate('home')}
-                className={`transition-colors hover:text-white ${activeView === 'home' ? 'text-[#E6A05A]' : ''}`}
+                onClick={() => handleNavClick('home')}
+                className={`transition-colors hover:text-white cursor-pointer ${
+                  activeView === 'home' ? 'text-[#E6A05A]' : ''
+                }`}
               >
                 Overview
               </button>
               <button
-                onClick={() => onNavigate('features')}
-                className={`transition-colors hover:text-white ${activeView === 'features' ? 'text-[#E6A05A]' : ''}`}
+                onClick={() => handleNavClick('features')}
+                className={`transition-colors hover:text-white cursor-pointer ${
+                  activeView === 'features' ? 'text-[#E6A05A]' : ''
+                }`}
               >
                 Capabilities
               </button>
               <button
-                onClick={() => onNavigate('how-it-works')}
-                className={`transition-colors hover:text-white ${activeView === 'how-it-works' ? 'text-[#E6A05A]' : ''}`}
+                onClick={() => handleNavClick('how-it-works')}
+                className={`transition-colors hover:text-white cursor-pointer ${
+                  activeView === 'how-it-works' ? 'text-[#E6A05A]' : ''
+                }`}
               >
                 How It Works
               </button>
               <button
-                onClick={() => onNavigate('pricing')}
-                className={`transition-colors hover:text-white ${activeView === 'pricing' ? 'text-[#E6A05A]' : ''}`}
+                onClick={() => handleNavClick('pricing')}
+                className={`transition-colors hover:text-white cursor-pointer ${
+                  activeView === 'pricing' ? 'text-[#E6A05A]' : ''
+                }`}
               >
                 Pricing
               </button>
               <button
-                onClick={() => onNavigate('for-agencies')}
-                className={`transition-colors hover:text-white ${activeView === 'for-agencies' ? 'text-[#E6A05A]' : ''}`}
+                onClick={() => handleNavClick('reports')}
+                className={`transition-colors hover:text-white flex items-center gap-1.5 cursor-pointer ${
+                  activeView === 'reports' ? 'text-[#E6A05A] font-semibold' : ''
+                }`}
               >
-                For Agencies
+                <MessageSquare className="h-3.5 w-3.5 text-[#E6A05A]" />
+                <span>Reports</span>
               </button>
               <button
-                onClick={() => onNavigate('security')}
-                className={`transition-colors hover:text-white ${activeView === 'security' ? 'text-[#E6A05A]' : ''}`}
+                onClick={() => handleNavClick('security')}
+                className={`transition-colors hover:text-white cursor-pointer ${
+                  activeView === 'security' ? 'text-[#E6A05A]' : ''
+                }`}
               >
                 Security & Trust
               </button>
@@ -83,66 +113,75 @@ export const Navbar: React.FC<NavbarProps> = ({
           ) : (
             <>
               <button
-                onClick={() => onNavigate('dashboard')}
-                className={`transition-colors hover:text-white ${activeView === 'dashboard' ? 'text-[#E6A05A]' : ''}`}
+                onClick={() => handleNavClick('dashboard')}
+                className={`transition-colors hover:text-white cursor-pointer ${
+                  activeView === 'dashboard' ? 'text-[#E6A05A]' : ''
+                }`}
               >
                 Monitored Sites
               </button>
               <button
-                onClick={() => onNavigate('scanner')}
-                className={`transition-colors hover:text-white ${activeView === 'scanner' ? 'text-[#E6A05A]' : ''}`}
+                onClick={() => handleNavClick('reports')}
+                className={`transition-colors hover:text-white flex items-center gap-1.5 cursor-pointer ${
+                  activeView === 'reports' ? 'text-[#E6A05A] font-semibold' : ''
+                }`}
               >
-                Instant Scanner
+                <MessageSquare className="h-3.5 w-3.5 text-[#E6A05A]" />
+                <span>Reports</span>
               </button>
               <button
-                onClick={() => onNavigate('billing')}
-                className={`transition-colors hover:text-white ${activeView === 'billing' ? 'text-[#E6A05A]' : ''}`}
+                onClick={() => handleNavClick('billing')}
+                className={`transition-colors hover:text-white cursor-pointer ${
+                  activeView === 'billing' ? 'text-[#E6A05A]' : ''
+                }`}
               >
                 Plan & Limits
               </button>
               <button
-                onClick={() => onNavigate('profile-referrals')}
-                className={`transition-colors hover:text-white flex items-center gap-1.5 ${
+                onClick={() => handleNavClick('profile-referrals')}
+                className={`transition-colors hover:text-white flex items-center gap-1.5 cursor-pointer ${
                   activeView === 'profile-referrals' ? 'text-[#E6A05A] font-semibold' : ''
                 }`}
               >
                 <Gift className="h-3.5 w-3.5 text-[#E6A05A]" />
                 <span>Profile & Referrals</span>
               </button>
-              {user && (
-                <button
-                  onClick={() => onNavigate('my-crypto-payments')}
-                  className={`transition-colors hover:text-white ${activeView === 'my-crypto-payments' ? 'text-[#E6A05A]' : ''}`}
-                >
-                  My Crypto Payments
-                </button>
-              )}
+              <button
+                onClick={() => handleNavClick('my-crypto-payments')}
+                className={`transition-colors hover:text-white cursor-pointer ${
+                  activeView === 'my-crypto-payments' ? 'text-[#E6A05A]' : ''
+                }`}
+              >
+                My Crypto Payments
+              </button>
               {(user.role === 'admin' || user.role === 'super_admin') && (
                 <>
                   <button
-                    onClick={() => onNavigate('admin-crypto-transactions')}
-                    className={`transition-colors hover:text-white flex items-center gap-1.5 ${
+                    onClick={() => handleNavClick('admin-crypto-transactions')}
+                    className={`transition-colors hover:text-white flex items-center gap-1.5 cursor-pointer ${
                       activeView === 'admin-crypto-transactions' ? 'text-[#E6A05A] font-semibold' : ''
                     }`}
                   >
                     <Coins className="h-3.5 w-3.5" />
-                    Payment Review
+                    <span>Payment Review</span>
                   </button>
                   <button
-                    onClick={() => onNavigate('admin-withdrawals')}
-                    className={`transition-colors hover:text-white flex items-center gap-1.5 ${
+                    onClick={() => handleNavClick('admin-withdrawals')}
+                    className={`transition-colors hover:text-white flex items-center gap-1.5 cursor-pointer ${
                       activeView === 'admin-withdrawals' ? 'text-[#E6A05A] font-semibold' : ''
                     }`}
                   >
                     <Wallet className="h-3.5 w-3.5" />
-                    Withdrawals
+                    <span>Withdrawals</span>
                   </button>
                 </>
               )}
               {user.role === 'super_admin' && (
                 <button
-                  onClick={() => onNavigate('admin')}
-                  className={`transition-colors hover:text-white ${activeView === 'admin' ? 'text-[#E6A05A]' : ''}`}
+                  onClick={() => handleNavClick('admin')}
+                  className={`transition-colors hover:text-white cursor-pointer ${
+                    activeView === 'admin' ? 'text-[#E6A05A]' : ''
+                  }`}
                 >
                   Admin Control
                 </button>
@@ -151,15 +190,15 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </nav>
 
-        {/* Zone 3: 1-2 primary actions */}
-        <div className="flex items-center gap-3">
-          {/* Currency Selector (international SaaS requirement) */}
+        {/* Zone 3: Primary Actions & Mobile Toggle */}
+        <div className="flex items-center gap-2.5">
+          {/* Currency Selector */}
           <div className="hidden sm:flex items-center rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-xs text-slate-300">
             {(['USD', 'EUR', 'GBP'] as const).map((curr) => (
               <button
                 key={curr}
                 onClick={() => onCurrencyChange(curr)}
-                className={`px-2 py-1 rounded font-mono transition-colors ${
+                className={`px-2 py-1 rounded font-mono transition-colors cursor-pointer ${
                   currency === curr
                     ? 'bg-slate-800 text-[#E6A05A] font-semibold'
                     : 'hover:text-white'
@@ -174,25 +213,27 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="flex items-center gap-2">
               <button
                 onClick={() => onOpenAuth('login')}
-                className="px-3 py-1.5 text-sm font-medium text-slate-300 hover:text-white transition-colors"
+                className="px-3 py-1.5 text-sm font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
               >
                 Sign In
               </button>
               <button
                 onClick={() => onOpenAuth('register')}
-                className="px-3.5 py-1.5 text-sm font-medium text-[#0B1120] bg-[#E6A05A] rounded-lg hover:bg-[#cf863c] transition-colors whitespace-nowrap"
+                className="px-3.5 py-1.5 text-sm font-medium text-[#0B1120] bg-[#E6A05A] rounded-lg hover:bg-[#cf863c] transition-colors whitespace-nowrap cursor-pointer"
               >
                 Get Started Free
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2">
               <button
-                onClick={() => onNavigate('profile-referrals')}
+                onClick={() => handleNavClick('profile-referrals')}
                 title="User Profile & Referral Wallet"
                 className="hidden lg:flex flex-col text-right hover:opacity-90 transition-opacity cursor-pointer"
               >
-                <span className="text-xs font-medium text-white truncate max-w-[130px]">{user.name}</span>
+                <span className="text-xs font-medium text-white truncate max-w-[130px]">
+                  {user.name}
+                </span>
                 {organization?.planId === 'free' ? (
                   <span className="text-[11px] font-medium">
                     {organization.trialEndsAt && new Date() >= new Date(organization.trialEndsAt) ? (
@@ -202,82 +243,255 @@ export const Navbar: React.FC<NavbarProps> = ({
                     )}
                   </span>
                 ) : (
-                  <span className="text-[11px] text-slate-400 capitalize">{organization?.planId || 'free'} plan</span>
+                  <span className="text-[11px] text-slate-400 capitalize">
+                    {organization?.planId || 'free'} plan
+                  </span>
                 )}
               </button>
+
+              <button
+                onClick={() => handleNavClick('reports')}
+                title={
+                  user.role === 'super_admin' || user.role === 'admin'
+                    ? 'Support Ticket Inbox (Admin)'
+                    : 'Reports & Support Tickets'
+                }
+                className={`flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
+                  activeView === 'reports'
+                    ? 'bg-[#E6A05A] text-[#0B1120] border-[#E6A05A]'
+                    : 'bg-slate-800 border-slate-700 text-[#E6A05A] hover:bg-slate-700'
+                }`}
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Reports</span>
+              </button>
+
               {(user.role === 'admin' || user.role === 'super_admin') && (
                 <>
                   <button
-                    onClick={() => onNavigate('admin-withdrawals')}
+                    onClick={() => handleNavClick('admin-withdrawals')}
                     title="Withdrawal Requests (Admin)"
-                    className={`flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
+                    className={`hidden sm:flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
                       activeView === 'admin-withdrawals'
                         ? 'bg-[#E6A05A] text-[#0B1120] border-[#E6A05A]'
                         : 'bg-slate-800 border-slate-700 text-emerald-400 hover:bg-slate-700'
                     }`}
                   >
                     <Wallet className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Withdrawals</span>
+                    <span className="hidden xl:inline">Withdrawals</span>
                   </button>
                   <button
-                    onClick={() => onNavigate('admin-crypto-transactions')}
+                    onClick={() => handleNavClick('admin-crypto-transactions')}
                     title="Crypto Transactions (Admin)"
-                    className={`flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
+                    className={`hidden sm:flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
                       activeView === 'admin-crypto-transactions'
                         ? 'bg-[#E6A05A] text-[#0B1120] border-[#E6A05A]'
                         : 'bg-slate-800 border-slate-700 text-[#E6A05A] hover:bg-slate-700'
                     }`}
                   >
                     <Coins className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Transactions</span>
+                    <span className="hidden xl:inline">Transactions</span>
                   </button>
                 </>
               )}
-              {user && (
-                <>
-                  <button
-                    onClick={() => onNavigate('profile-referrals')}
-                    title="Profile & Referral Wallet (Earn 40%)"
-                    className={`flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
-                      activeView === 'profile-referrals'
-                        ? 'bg-[#E6A05A] text-[#0B1120] border-[#E6A05A]'
-                        : 'bg-slate-800 border-slate-700 text-[#E6A05A] hover:bg-slate-700'
-                    }`}
-                  >
-                    <Gift className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Referrals</span>
-                  </button>
-                  <button
-                    onClick={() => onNavigate('my-crypto-payments')}
-                    title="My Crypto Payments"
-                    className={`flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
-                      activeView === 'my-crypto-payments'
-                        ? 'bg-[#E6A05A] text-[#0B1120] border-[#E6A05A]'
-                        : 'bg-slate-800 border-slate-700 text-[#E6A05A] hover:bg-slate-700'
-                    }`}
-                  >
-                    <QrCode className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">My Payments</span>
-                  </button>
-                </>
-              )}
+
               <button
-                onClick={() => onNavigate('dashboard')}
+                onClick={() => handleNavClick('profile-referrals')}
+                title="Profile & Referral Wallet (Earn 40%)"
+                className={`hidden sm:flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
+                  activeView === 'profile-referrals'
+                    ? 'bg-[#E6A05A] text-[#0B1120] border-[#E6A05A]'
+                    : 'bg-slate-800 border-slate-700 text-[#E6A05A] hover:bg-slate-700'
+                }`}
+              >
+                <Gift className="h-3.5 w-3.5" />
+                <span className="hidden xl:inline">Referrals</span>
+              </button>
+
+              <button
+                onClick={() => handleNavClick('my-crypto-payments')}
+                title="My Crypto Payments"
+                className={`hidden sm:flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
+                  activeView === 'my-crypto-payments'
+                    ? 'bg-[#E6A05A] text-[#0B1120] border-[#E6A05A]'
+                    : 'bg-slate-800 border-slate-700 text-[#E6A05A] hover:bg-slate-700'
+                }`}
+              >
+                <QrCode className="h-3.5 w-3.5" />
+                <span className="hidden xl:inline">My Payments</span>
+              </button>
+
+              <button
+                onClick={() => handleNavClick('dashboard')}
                 title="Open Dashboard"
                 className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-800 border border-slate-700 text-slate-200 hover:text-white cursor-pointer"
               >
                 <LayoutDashboard className="h-4 w-4" />
               </button>
+
               <button
                 onClick={onLogout}
-                className="px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+                className="hidden sm:inline-block px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
               >
                 Sign Out
               </button>
             </div>
           )}
+
+          {/* Mobile Navigation Menu Button */}
+          <button
+            onClick={() => setMobileMenuOpen((prev) => !prev)}
+            aria-label="Toggle Navigation Menu"
+            className="md:hidden flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white cursor-pointer"
+          >
+            {mobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+          </button>
         </div>
       </div>
+
+      {/* Mobile Navigation Drawer */}
+      {mobileMenuOpen && (
+        <div className="md:hidden border-t border-slate-800 bg-[#0B1120] px-4 py-3 space-y-1.5 text-xs font-medium">
+          {!user ? (
+            <>
+              <button
+                onClick={() => handleNavClick('home')}
+                className={`block w-full text-left px-3 py-2 rounded-lg ${
+                  activeView === 'home' ? 'bg-slate-800 text-[#E6A05A]' : 'text-slate-300'
+                }`}
+              >
+                Overview
+              </button>
+              <button
+                onClick={() => handleNavClick('features')}
+                className={`block w-full text-left px-3 py-2 rounded-lg ${
+                  activeView === 'features' ? 'bg-slate-800 text-[#E6A05A]' : 'text-slate-300'
+                }`}
+              >
+                Capabilities
+              </button>
+              <button
+                onClick={() => handleNavClick('how-it-works')}
+                className={`block w-full text-left px-3 py-2 rounded-lg ${
+                  activeView === 'how-it-works' ? 'bg-slate-800 text-[#E6A05A]' : 'text-slate-300'
+                }`}
+              >
+                How It Works
+              </button>
+              <button
+                onClick={() => handleNavClick('pricing')}
+                className={`block w-full text-left px-3 py-2 rounded-lg ${
+                  activeView === 'pricing' ? 'bg-slate-800 text-[#E6A05A]' : 'text-slate-300'
+                }`}
+              >
+                Pricing
+              </button>
+              <button
+                onClick={() => handleNavClick('reports')}
+                className={`block w-full text-left px-3 py-2 rounded-lg ${
+                  activeView === 'reports' ? 'bg-slate-800 text-[#E6A05A]' : 'text-slate-300'
+                }`}
+              >
+                Reports & Support
+              </button>
+              <button
+                onClick={() => handleNavClick('security')}
+                className={`block w-full text-left px-3 py-2 rounded-lg ${
+                  activeView === 'security' ? 'bg-slate-800 text-[#E6A05A]' : 'text-slate-300'
+                }`}
+              >
+                Security & Trust
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => handleNavClick('dashboard')}
+                className={`block w-full text-left px-3 py-2 rounded-lg ${
+                  activeView === 'dashboard' ? 'bg-slate-800 text-[#E6A05A]' : 'text-slate-300'
+                }`}
+              >
+                Monitored Sites
+              </button>
+              <button
+                onClick={() => handleNavClick('reports')}
+                className={`block w-full text-left px-3 py-2 rounded-lg ${
+                  activeView === 'reports' ? 'bg-slate-800 text-[#E6A05A]' : 'text-slate-300'
+                }`}
+              >
+                Reports & Support
+              </button>
+              <button
+                onClick={() => handleNavClick('billing')}
+                className={`block w-full text-left px-3 py-2 rounded-lg ${
+                  activeView === 'billing' ? 'bg-slate-800 text-[#E6A05A]' : 'text-slate-300'
+                }`}
+              >
+                Plan & Limits
+              </button>
+              <button
+                onClick={() => handleNavClick('profile-referrals')}
+                className={`block w-full text-left px-3 py-2 rounded-lg ${
+                  activeView === 'profile-referrals' ? 'bg-slate-800 text-[#E6A05A]' : 'text-slate-300'
+                }`}
+              >
+                Profile & Referrals
+              </button>
+              <button
+                onClick={() => handleNavClick('my-crypto-payments')}
+                className={`block w-full text-left px-3 py-2 rounded-lg ${
+                  activeView === 'my-crypto-payments' ? 'bg-slate-800 text-[#E6A05A]' : 'text-slate-300'
+                }`}
+              >
+                My Crypto Payments
+              </button>
+              {(user.role === 'admin' || user.role === 'super_admin') && (
+                <>
+                  <button
+                    onClick={() => handleNavClick('admin-crypto-transactions')}
+                    className={`block w-full text-left px-3 py-2 rounded-lg ${
+                      activeView === 'admin-crypto-transactions'
+                        ? 'bg-slate-800 text-[#E6A05A]'
+                        : 'text-slate-300'
+                    }`}
+                  >
+                    Payment Review (Admin)
+                  </button>
+                  <button
+                    onClick={() => handleNavClick('admin-withdrawals')}
+                    className={`block w-full text-left px-3 py-2 rounded-lg ${
+                      activeView === 'admin-withdrawals'
+                        ? 'bg-slate-800 text-[#E6A05A]'
+                        : 'text-slate-300'
+                    }`}
+                  >
+                    Withdrawals (Admin)
+                  </button>
+                </>
+              )}
+              {user.role === 'super_admin' && (
+                <button
+                  onClick={() => handleNavClick('admin')}
+                  className={`block w-full text-left px-3 py-2 rounded-lg ${
+                    activeView === 'admin' ? 'bg-slate-800 text-[#E6A05A]' : 'text-slate-300'
+                  }`}
+                >
+                  Admin Control
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onLogout();
+                }}
+                className="block w-full text-left px-3 py-2 rounded-lg text-rose-400 hover:bg-slate-800"
+              >
+                Sign Out
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </header>
   );
 };

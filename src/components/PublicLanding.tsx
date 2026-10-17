@@ -60,8 +60,8 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
       a: 'Basic uptime and public SSL checks work immediately without verification. For sensitive audits, custom CNAME mapping, or high-frequency 1-minute scheduling, domain ownership can be verified via a standard DNS TXT record or HTML meta tag.',
     },
     {
-      q: 'How do Agency White-Label Reports work?',
-      a: 'Agencies on our Partner plan can upload their custom agency logo, define their own brand name, and customize the report legal disclaimer. All exportable PDFs and client-facing shared links reflect your agency identity.',
+      q: 'How does the Support Ticketing & Reports center work?',
+      a: 'Every authenticated account has access to a dedicated Reports & Support Ticketing center where you can open support tickets, track status updates in real time, and communicate directly with our operations engineering team.',
     },
   ];
 
@@ -285,14 +285,14 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
             </p>
           </div>
 
-          {/* Card 6: Agency White-Label */}
+          {/* Card 6: Support Ticketing & Reports */}
           <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-6 space-y-3 hover:border-slate-700 transition-colors">
             <div className="h-10 w-10 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center">
-              <Building className="h-5 w-5" />
+              <FileText className="h-5 w-5" />
             </div>
-            <h3 className="text-base font-semibold text-white">Agency White-Label Hub</h3>
+            <h3 className="text-base font-semibold text-white">Reports & Support Ticketing</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Deliver branded PDF and web reports with your custom agency logo. Organize client websites with read-only portal access.
+              Submit support tickets directly to our engineering team, track ticket statuses, and view full conversation history inside Reports.
             </p>
           </div>
         </div>

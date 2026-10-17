@@ -13,6 +13,9 @@ import type {
   LBankConnectionTestResult,
   ApiKey,
   SupportTicket,
+  TicketStatus,
+  TicketReply,
+  AdminTicketInboxStats,
   AuditLog,
   CombinedPageSpeedResult,
   AccountStatus,
@@ -441,15 +444,89 @@ export const apiClient = {
     });
   },
 
-  // Tickets
-  async getTickets(): Promise<SupportTicket[]> {
-    return this.request<SupportTicket[]>('/api/tickets');
+  // Tickets (Customer & Admin Support Ticketing System)
+  async getTickets(params?: { scope?: 'own' | 'all'; status?: string; search?: string }): Promise<SupportTicket[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.scope) queryParams.set('scope', params.scope);
+    if (params?.status) queryParams.set('status', params.status);
+    if (params?.search) queryParams.set('search', params.search);
+    const qs = queryParams.toString();
+    return this.request<SupportTicket[]>(`/api/tickets${qs ? `?${qs}` : ''}`);
   },
 
-  async createTicket(ticket: { name: string; email: string; subject: string; message: string; category?: string }): Promise<SupportTicket> {
+  async getAdminTickets(params?: { status?: string; search?: string }): Promise<{
+    tickets: SupportTicket[];
+    stats: AdminTicketInboxStats;
+  }> {
+    const queryParams = new URLSearchParams();
+    if (params?.status) queryParams.set('status', params.status);
+    if (params?.search) queryParams.set('search', params.search);
+    const qs = queryParams.toString();
+    return this.request<{ tickets: SupportTicket[]; stats: AdminTicketInboxStats }>(
+      `/api/admin/tickets${qs ? `?${qs}` : ''}`
+    );
+  },
+
+  async getTicketDetail(ticketId: string): Promise<SupportTicket> {
+    return this.request<SupportTicket>(`/api/tickets/${encodeURIComponent(ticketId)}`);
+  },
+
+  async createTicket(ticket: {
+    subject: string;
+    description?: string;
+    message?: string;
+    category?: string;
+    priority?: string;
+    idempotencyKey?: string;
+    name?: string;
+    email?: string;
+  }): Promise<SupportTicket> {
     return this.request<SupportTicket>('/api/tickets', {
       method: 'POST',
-      body: JSON.stringify(ticket),
+      body: JSON.stringify({
+        subject: ticket.subject,
+        description: ticket.description ?? ticket.message,
+        message: ticket.message ?? ticket.description,
+        category: ticket.category,
+        priority: ticket.priority,
+        idempotencyKey: ticket.idempotencyKey,
+      }),
+    });
+  },
+
+  async replyToTicket(
+    ticketId: string,
+    payload: {
+      message: string;
+      status?: TicketStatus;
+      replyAsAdmin?: boolean;
+      idempotencyKey?: string;
+    }
+  ): Promise<{
+    success: boolean;
+    ticket: SupportTicket;
+    reply: TicketReply;
+    emailNotification?: SupportTicket['emailNotification'];
+  }> {
+    const endpoint = payload.replyAsAdmin
+      ? `/api/admin/tickets/${encodeURIComponent(ticketId)}/reply`
+      : `/api/tickets/${encodeURIComponent(ticketId)}/replies`;
+    return this.request(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateTicketStatus(
+    ticketId: string,
+    status: TicketStatus
+  ): Promise<{
+    success: boolean;
+    ticket: SupportTicket;
+  }> {
+    return this.request(`/api/admin/tickets/${encodeURIComponent(ticketId)}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
     });
   },
 

@@ -279,9 +279,18 @@ export const AdminView: React.FC<AdminViewProps> = ({ onNavigate }) => {
       <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-6 space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-slate-800">
           <div className="flex items-center gap-2">
-            <MessageSquare className="h-4 w-4 text-slate-400" />
+            <MessageSquare className="h-4 w-4 text-[#E6A05A]" />
             <h2 className="text-sm font-semibold text-white">Inbound Support Tickets ({tickets.length})</h2>
           </div>
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('reports')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#E6A05A] text-[#0B1120] text-xs font-bold hover:bg-[#cf863c] transition-colors cursor-pointer"
+            >
+              <span>Manage in Reports Inbox</span>
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
 
         {tickets.length === 0 ? (

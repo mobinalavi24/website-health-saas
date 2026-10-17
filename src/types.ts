@@ -409,18 +409,66 @@ export interface ApiKey {
   lastUsedAt?: string;
 }
 
+export type TicketStatus = 'open' | 'in_progress' | 'waiting_for_customer' | 'resolved' | 'closed';
+
+export interface TicketReply {
+  id?: string;
+  ticketId?: string;
+  senderUserId?: string;
+  sender: string;
+  senderEmail?: string;
+  role: 'customer' | 'admin' | string;
+  message: string;
+  timestamp: string;
+}
+
 export interface SupportTicket {
   id: string;
   userId?: string;
   name: string;
   email: string;
+  customerName?: string;
+  customerEmail?: string;
   subject: string;
-  category: 'technical' | 'billing' | 'monitoring' | 'feature';
+  category: 'technical' | 'billing' | 'monitoring' | 'feature' | 'general';
   message: string;
-  status: 'open' | 'in_progress' | 'resolved';
+  description?: string;
+  status: TicketStatus;
   priority: 'low' | 'medium' | 'high';
   createdAt: string;
-  replies: { sender: string; role: string; message: string; timestamp: string }[];
+  updatedAt?: string;
+  lastMessageAt?: string;
+  lastReplyByRole?: 'customer' | 'admin';
+  needsAdminResponse?: boolean;
+  unreadByAdmin?: boolean;
+  unreadByCustomer?: boolean;
+  replies: TicketReply[];
+  messages?: TicketReply[];
+  latestMessagePreview?: string;
+  replyCount?: number;
+  emailNotification?: {
+    id: string;
+    ticketId: string;
+    messageId?: string;
+    eventType: 'ticket_created_admin_notify' | 'admin_reply_customer_notify';
+    recipientEmail: string;
+    subject: string;
+    sent: boolean;
+    status: 'sent' | 'skipped_unconfigured' | 'failed';
+    provider: string;
+    diagnostic: string;
+    createdAt: string;
+  };
+}
+
+export interface AdminTicketInboxStats {
+  total: number;
+  open: number;
+  in_progress: number;
+  waiting_for_customer: number;
+  resolved: number;
+  closed: number;
+  needsAdminResponseCount: number;
 }
 
 export interface AuditLog {

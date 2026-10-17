@@ -4,8 +4,6 @@ import { Footer } from './components/Footer.tsx';
 import { PublicLanding } from './components/PublicLanding.tsx';
 import { DashboardView } from './components/DashboardView.tsx';
 import { WebsiteDetailView } from './components/WebsiteDetailView.tsx';
-import { PublicScanner } from './components/PublicScanner.tsx';
-import { AgencyWorkspaceView } from './components/AgencyWorkspaceView.tsx';
 import { ReportsView } from './components/ReportsView.tsx';
 import { BillingView } from './components/BillingView.tsx';
 import { ApiDocsView } from './components/ApiDocsView.tsx';
@@ -25,6 +23,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [activeView, setActiveView] = useState<string>('home');
+  const [postLoginView, setPostLoginView] = useState<string | null>(null);
   const [currency, setCurrency] = useState<'USD' | 'EUR' | 'GBP'>('USD');
 
   // Core Data
@@ -55,6 +54,7 @@ export default function App() {
   const bootstrapSession = async () => {
     const params = new URLSearchParams(window.location.search);
     const refParam = (params.get('ref') || params.get('referral') || '').trim().toUpperCase();
+    const viewParam = (params.get('view') || '').trim().toLowerCase();
     const isRegisterPath = window.location.pathname.toLowerCase() === '/register';
 
     if (refParam) {
@@ -72,15 +72,30 @@ export default function App() {
       if (me && me.user) {
         setUser(me.user);
         setOrganization(me.organization);
-        setActiveView('dashboard');
+        if (viewParam === 'reports') {
+          setActiveView('reports');
+        } else {
+          setActiveView('dashboard');
+        }
         await loadUserData();
-      } else if (refParam || isRegisterPath) {
-        setAuthModalTab('register');
-        setAuthModalOpen(true);
+      } else {
+        if (viewParam === 'reports') {
+          setActiveView('reports');
+          setPostLoginView('reports');
+          setAuthModalTab('login');
+          setAuthModalOpen(true);
+        } else if (refParam || isRegisterPath) {
+          setAuthModalTab('register');
+          setAuthModalOpen(true);
+        }
       }
     } catch {
-      // User is unauthenticated guest; open register modal if arrived via referral link
-      if (refParam || isRegisterPath) {
+      if (viewParam === 'reports') {
+        setActiveView('reports');
+        setPostLoginView('reports');
+        setAuthModalTab('login');
+        setAuthModalOpen(true);
+      } else if (refParam || isRegisterPath) {
         setAuthModalTab('register');
         setAuthModalOpen(true);
       }
@@ -113,10 +128,34 @@ export default function App() {
     return () => clearInterval(interval);
   }, [user]);
 
+  const handleNavigate = (view: string) => {
+    // Redirect any removed sections safely so there are never broken routes or blank pages
+    if (view === 'scanner' || view === 'agency' || view === 'for-agencies') {
+      setActiveView(user ? 'dashboard' : 'home');
+      return;
+    }
+
+    if (view === 'reports' && !user) {
+      setActiveView('reports');
+      setPostLoginView('reports');
+      setAuthModalTab('login');
+      setAuthModalOpen(true);
+      return;
+    }
+
+    setActiveView(view);
+    if (view !== 'website-detail') {
+      setSelectedWebsiteId(null);
+    }
+  };
+
   const handleLoginSuccess = async (u: User, org: Organization) => {
     setUser(u);
     setOrganization(org);
-    setActiveView('dashboard');
+    const targetView =
+      postLoginView === 'reports' || activeView === 'reports' ? 'reports' : 'dashboard';
+    setPostLoginView(null);
+    setActiveView(targetView);
     await loadUserData();
   };
 
@@ -124,6 +163,7 @@ export default function App() {
     apiClient.clearToken();
     setUser(null);
     setOrganization(null);
+    setPostLoginView(null);
     setActiveView('home');
     setSelectedWebsiteId(null);
   };
@@ -185,10 +225,7 @@ export default function App() {
         user={user}
         organization={organization}
         activeView={activeView}
-        onNavigate={(view) => {
-          setActiveView(view);
-          if (view !== 'website-detail') setSelectedWebsiteId(null);
-        }}
+        onNavigate={handleNavigate}
         onOpenAuth={(tab = 'login') => {
           setAuthModalTab(tab);
           setAuthModalOpen(true);
@@ -268,16 +305,6 @@ export default function App() {
             </div>
           )}
 
-          {activeView === 'for-agencies' && (
-            <div className="space-y-6">
-              <AgencyWorkspaceView
-                organization={organization}
-                websites={websites}
-                onRefreshOrg={loadUserData}
-              />
-            </div>
-          )}
-
           {activeView === 'security' && (
             <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-8 max-w-3xl mx-auto space-y-6">
               <h1 className="text-2xl font-bold text-white">Security & Trust Architecture</h1>
@@ -316,27 +343,15 @@ export default function App() {
               onCheckNow={handleCheckWebsiteNow}
               onTogglePause={handleTogglePause}
               onDeleteWebsite={handleDeleteWebsite}
-              onNavigate={setActiveView}
+              onNavigate={handleNavigate}
             />
-          )}
-
-          {activeView === 'scanner' && (
-            <div className="space-y-6">
-              <div className="text-center max-w-2xl mx-auto space-y-2">
-                <h1 className="text-2xl font-bold text-white">Instant Website Health Scanner</h1>
-                <p className="text-xs text-slate-400">
-                  Run a real-time public audit on any domain to evaluate DNS, SSL certificates, latency, and SEO.
-                </p>
-              </div>
-              <PublicScanner onMonitorNow={handleMonitorNow} />
-            </div>
           )}
 
           {activeView === 'website-detail' && selectedWebsite && (
             <WebsiteDetailView
               website={selectedWebsite}
               organization={organization}
-              onNavigate={setActiveView}
+              onNavigate={handleNavigate}
               onBack={() => {
                 setSelectedWebsiteId(null);
                 setActiveView('dashboard');
@@ -349,19 +364,17 @@ export default function App() {
             />
           )}
 
-          {activeView === 'agency' && (
-            <AgencyWorkspaceView
-              organization={organization}
-              websites={websites}
-              onRefreshOrg={loadUserData}
-            />
-          )}
-
           {activeView === 'reports' && (
             <ReportsView
+              user={user}
+              organization={organization}
+              onOpenAuth={(tab = 'login') => {
+                setPostLoginView('reports');
+                setAuthModalTab(tab);
+                setAuthModalOpen(true);
+              }}
               reports={reports}
               websites={websites}
-              organization={organization}
               onRefreshReports={loadUserData}
             />
           )}
@@ -387,7 +400,7 @@ export default function App() {
           )}
 
           {activeView === 'my-crypto-payments' && user && (
-            <MyCryptoPaymentsView onNavigateToBilling={() => setActiveView('billing')} />
+            <MyCryptoPaymentsView onNavigateToBilling={() => handleNavigate('billing')} />
           )}
 
           {activeView === 'admin-crypto-transactions' && (user?.role === 'admin' || user?.role === 'super_admin') && (
@@ -399,14 +412,14 @@ export default function App() {
           )}
 
           {activeView === 'admin' && user?.role === 'super_admin' && (
-            <AdminView onNavigate={setActiveView} />
+            <AdminView onNavigate={handleNavigate} />
           )}
         </div>
       </main>
 
       {/* Footer */}
       <Footer
-        onNavigate={setActiveView}
+        onNavigate={handleNavigate}
         onOpenLegal={(type) => setLegalModal({ isOpen: true, type })}
         onOpenContact={() => setContactModalOpen(true)}
       />
@@ -434,6 +447,12 @@ export default function App() {
         onClose={() => setContactModalOpen(false)}
         userEmail={user?.email}
         userName={user?.name}
+        onOpenAuth={(tab = 'login') => {
+          setPostLoginView('reports');
+          setAuthModalTab(tab);
+          setAuthModalOpen(true);
+        }}
+        onNavigateReports={() => handleNavigate('reports')}
       />
 
       {/* Legal & Compliance Modal */}

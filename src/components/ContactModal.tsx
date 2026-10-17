@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Mail, Check, Loader2 } from 'lucide-react';
+import { X, Mail, Check, Lock } from 'lucide-react';
 import { apiClient } from '../api/client.ts';
 
 interface ContactModalProps {
@@ -7,6 +7,8 @@ interface ContactModalProps {
   onClose: () => void;
   userEmail?: string;
   userName?: string;
+  onOpenAuth?: (tab?: 'login' | 'register') => void;
+  onNavigateReports?: () => void;
 }
 
 export const ContactModal: React.FC<ContactModalProps> = ({
@@ -14,11 +16,10 @@ export const ContactModal: React.FC<ContactModalProps> = ({
   onClose,
   userEmail = '',
   userName = '',
+  onOpenAuth,
+  onNavigateReports,
 }) => {
-  const [name, setName] = useState(userName);
-  const [email, setEmail] = useState(userEmail);
   const [subject, setSubject] = useState('');
-  const [category, setCategory] = useState<'technical' | 'billing' | 'monitoring' | 'feature'>('technical');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -26,10 +27,12 @@ export const ContactModal: React.FC<ContactModalProps> = ({
 
   if (!isOpen) return null;
 
+  const isAuthenticated = Boolean(userEmail);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !subject.trim() || !message.trim()) {
-      setError('Please fill in all required fields.');
+    if (!subject.trim() || !message.trim()) {
+      setError('Please enter both a subject and a detailed description.');
       return;
     }
 
@@ -37,15 +40,12 @@ export const ContactModal: React.FC<ContactModalProps> = ({
     setError(null);
     try {
       await apiClient.createTicket({
-        name: name.trim() || 'Valued User',
-        email: email.trim(),
         subject: subject.trim(),
-        category,
-        message: message.trim(),
+        description: message.trim(),
       });
       setSubmitted(true);
     } catch (err: any) {
-      setError(err.message || 'Failed to submit inquiry.');
+      setError(err.message || 'Failed to submit support ticket.');
     } finally {
       setLoading(false);
     }
@@ -59,24 +59,81 @@ export const ContactModal: React.FC<ContactModalProps> = ({
             <Mail className="h-4 w-4 text-[#E6A05A]" />
             <h2 className="text-base font-bold text-white">Contact & Support Ticket</h2>
           </div>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-white rounded-lg">
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-white rounded-lg cursor-pointer">
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        {submitted ? (
+        {!isAuthenticated ? (
+          <div className="p-4 text-center space-y-4">
+            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-[#E6A05A]/10 border border-[#E6A05A]/30 text-[#E6A05A]">
+              <Lock className="h-5 w-5" />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-sm font-bold text-white">Sign In Required</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Please sign in to your PulseVanguard account to create and track support tickets in the Reports center.
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  if (onNavigateReports) onNavigateReports();
+                  if (onOpenAuth) onOpenAuth('login');
+                }}
+                className="px-4 py-2 rounded-lg bg-[#E6A05A] text-[#0B1120] text-xs font-bold hover:bg-[#cf863c] cursor-pointer"
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  if (onNavigateReports) onNavigateReports();
+                  if (onOpenAuth) onOpenAuth('register');
+                }}
+                className="px-4 py-2 rounded-lg bg-slate-800 text-white text-xs font-semibold hover:bg-slate-700 cursor-pointer"
+              >
+                Create Account
+              </button>
+            </div>
+          </div>
+        ) : submitted ? (
           <div className="p-6 text-center space-y-3">
             <Check className="h-8 w-8 text-emerald-400 mx-auto" />
             <h3 className="text-sm font-semibold text-white">Support Ticket Created</h3>
             <p className="text-xs text-slate-400">
-              Our engineering and operations team has received your ticket. We typically respond within 2 hours.
+              Our engineering and operations team has received your ticket. You can track replies anytime in Reports.
             </p>
-            <button
-              onClick={onClose}
-              className="mt-2 px-4 py-2 rounded-lg bg-slate-800 text-white text-xs hover:bg-slate-700"
-            >
-              Close Window
-            </button>
+            <div className="flex items-center justify-center gap-2 pt-2">
+              {onNavigateReports && (
+                <button
+                  onClick={() => {
+                    setSubmitted(false);
+                    setSubject('');
+                    setMessage('');
+                    onClose();
+                    onNavigateReports();
+                  }}
+                  className="px-4 py-2 rounded-lg bg-[#E6A05A] text-[#0B1120] text-xs font-bold hover:bg-[#cf863c] cursor-pointer"
+                >
+                  Open in Reports
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setSubmitted(false);
+                  setSubject('');
+                  setMessage('');
+                  onClose();
+                }}
+                className="px-4 py-2 rounded-lg bg-slate-800 text-white text-xs hover:bg-slate-700 cursor-pointer"
+              >
+                Close Window
+              </button>
+            </div>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-3 text-xs">
@@ -86,63 +143,37 @@ export const ContactModal: React.FC<ContactModalProps> = ({
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-slate-300 font-semibold block mb-1">Your Name</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Alexandre"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-[#E6A05A]"
-                />
-              </div>
-              <div>
-                <label className="text-slate-300 font-semibold block mb-1">Email <span className="text-rose-400">*</span></label>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="alex@domain.com"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-[#E6A05A]"
-                />
-              </div>
+            <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 text-[11px] text-slate-400">
+              Submitting as <strong className="text-white">{userName}</strong> (
+              <span className="font-mono text-[#E6A05A]">{userEmail}</span>)
             </div>
 
             <div>
-              <label className="text-slate-300 font-semibold block mb-1">Category</label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value as any)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-[#E6A05A]"
-              >
-                <option value="technical">Technical Monitoring & Node Probes</option>
-                <option value="billing">International Billing & Enterprise Plans</option>
-                <option value="feature">White-Label & Agency Feature Request</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="text-slate-300 font-semibold block mb-1">Subject <span className="text-rose-400">*</span></label>
+              <label className="text-slate-300 font-semibold block mb-1">
+                Subject <span className="text-rose-400">*</span>
+              </label>
               <input
                 type="text"
                 required
+                maxLength={200}
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
-                placeholder="Question regarding custom CNAME or SSL alerts"
+                placeholder="Brief summary of the issue..."
                 className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-[#E6A05A]"
               />
             </div>
 
             <div>
-              <label className="text-slate-300 font-semibold block mb-1">Message <span className="text-rose-400">*</span></label>
+              <label className="text-slate-300 font-semibold block mb-1">
+                Description <span className="text-rose-400">*</span>
+              </label>
               <textarea
                 rows={4}
                 required
+                maxLength={10000}
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                placeholder="Please provide any relevant details or URLs..."
+                placeholder="Explain the problem in detail..."
                 className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-[#E6A05A]"
               />
             </div>
@@ -151,14 +182,14 @@ export const ContactModal: React.FC<ContactModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-3 py-1.5 text-slate-400 hover:text-white"
+                className="px-3 py-1.5 text-slate-400 hover:text-white cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={loading}
-                className="px-4 py-2 rounded-lg bg-[#E6A05A] text-[#0B1120] font-semibold hover:bg-[#cf863c] transition-colors disabled:opacity-50"
+                className="px-4 py-2 rounded-lg bg-[#E6A05A] text-[#0B1120] font-semibold hover:bg-[#cf863c] transition-colors disabled:opacity-50 cursor-pointer"
               >
                 {loading ? 'Submitting...' : 'Submit Support Ticket'}
               </button>

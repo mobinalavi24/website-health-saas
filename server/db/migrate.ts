@@ -184,6 +184,52 @@ export async function applyReferralSchemaMigration(): Promise<void> {
   }
 }
 
+export async function applySupportTicketingSchemaMigration(): Promise<void> {
+  const statements = [
+    'ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
+    'ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS last_message_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
+    'ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS last_reply_by_role TEXT',
+    'ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS needs_admin_response BOOLEAN NOT NULL DEFAULT true',
+    'ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS unread_by_admin BOOLEAN NOT NULL DEFAULT true',
+    'ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS unread_by_customer BOOLEAN NOT NULL DEFAULT false',
+    `CREATE TABLE IF NOT EXISTS ticket_messages (
+      id TEXT PRIMARY KEY,
+      ticket_id TEXT NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+      sender_user_id TEXT NOT NULL,
+      sender_name TEXT NOT NULL,
+      sender_email TEXT NOT NULL,
+      sender_role TEXT NOT NULL,
+      body TEXT NOT NULL,
+      idempotency_key TEXT UNIQUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS ticket_email_logs (
+      id TEXT PRIMARY KEY,
+      ticket_id TEXT NOT NULL,
+      message_id TEXT,
+      event_type TEXT NOT NULL,
+      recipient_email TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      status TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      diagnostic TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    'CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(user_id, updated_at DESC)',
+    'CREATE INDEX IF NOT EXISTS idx_support_tickets_email ON support_tickets(email)',
+    'CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status, updated_at DESC)',
+    'CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket ON ticket_messages(ticket_id, created_at ASC)',
+  ];
+
+  for (const st of statements) {
+    try {
+      await query(st);
+    } catch {
+      // Table/column may already exist
+    }
+  }
+}
+
 export async function runMigration(options: { force?: boolean } = {}): Promise<MigrationSummary> {
   const jsonPath = path.resolve(process.cwd(), 'data/pulsevanguard.db.json');
 
@@ -214,6 +260,7 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
     }
     await applyPaymentApprovalSchemaMigration();
     await applyReferralSchemaMigration();
+    await applySupportTicketingSchemaMigration();
     return {
       success: true,
       source: jsonPath,
@@ -720,6 +767,7 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
   });
 
   await applyReferralSchemaMigration();
+  await applySupportTicketingSchemaMigration();
 
   return {
     success: true,

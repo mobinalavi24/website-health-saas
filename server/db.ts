@@ -228,18 +228,37 @@ export interface ApiKey {
   lastUsedAt?: string;
 }
 
+export type TicketStatus = 'open' | 'in_progress' | 'waiting_for_customer' | 'resolved' | 'closed';
+
+export interface TicketReply {
+  id?: string;
+  ticketId?: string;
+  senderUserId?: string;
+  sender: string;
+  senderEmail?: string;
+  role: 'customer' | 'admin' | string;
+  message: string;
+  timestamp: string;
+}
+
 export interface SupportTicket {
   id: string;
   userId?: string;
   name: string;
   email: string;
   subject: string;
-  category: 'technical' | 'billing' | 'monitoring' | 'feature';
+  category: 'technical' | 'billing' | 'monitoring' | 'feature' | 'general';
   message: string;
-  status: 'open' | 'in_progress' | 'resolved';
+  status: TicketStatus;
   priority: 'low' | 'medium' | 'high';
   createdAt: string;
-  replies: { sender: string; role: string; message: string; timestamp: string }[];
+  updatedAt?: string;
+  lastMessageAt?: string;
+  lastReplyByRole?: 'customer' | 'admin';
+  needsAdminResponse?: boolean;
+  unreadByAdmin?: boolean;
+  unreadByCustomer?: boolean;
+  replies: TicketReply[];
 }
 
 export interface AuditLog {
@@ -1191,8 +1210,17 @@ class Database {
     this.syncToDb(() => GenericRepo.addAuditLog(log), 'GenericRepo.addAuditLog');
   }
 
+  public findTicketById(id: string): SupportTicket | undefined {
+    return this.data.tickets.find((t) => t.id === id);
+  }
+
   public addTicket(ticket: SupportTicket) {
-    this.data.tickets.unshift(ticket);
+    const existingIdx = this.data.tickets.findIndex((t) => t.id === ticket.id);
+    if (existingIdx !== -1) {
+      this.data.tickets[existingIdx] = ticket;
+    } else {
+      this.data.tickets.unshift(ticket);
+    }
     this.persist();
     this.syncToDb(() => GenericRepo.addTicket(ticket), 'GenericRepo.addTicket');
   }

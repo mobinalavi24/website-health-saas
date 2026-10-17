@@ -542,26 +542,48 @@ export const GenericRepo = {
   },
 
   async getAllTickets(): Promise<SupportTicket[]> {
-    const res = await query('SELECT * FROM support_tickets ORDER BY created_at DESC');
+    const res = await query('SELECT * FROM support_tickets ORDER BY COALESCE(updated_at, created_at) DESC');
     return res.rows.map(mapTicketRow);
   },
 
   async addTicket(tkt: SupportTicket): Promise<void> {
+    const createdIso = tkt.createdAt ? new Date(tkt.createdAt).toISOString() : new Date().toISOString();
+    const updatedIso = tkt.updatedAt ? new Date(tkt.updatedAt).toISOString() : createdIso;
+    const lastMsgIso = tkt.lastMessageAt ? new Date(tkt.lastMessageAt).toISOString() : updatedIso;
     await query(
-      `INSERT INTO support_tickets (id, user_id, name, email, subject, category, message, status, priority, created_at, replies)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-       ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, replies = EXCLUDED.replies`,
+      `INSERT INTO support_tickets (
+         id, user_id, name, email, subject, category, message, status, priority,
+         created_at, updated_at, last_message_at, last_reply_by_role,
+         needs_admin_response, unread_by_admin, unread_by_customer, replies
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+       ON CONFLICT (id) DO UPDATE SET
+         user_id = COALESCE(support_tickets.user_id, EXCLUDED.user_id),
+         status = EXCLUDED.status,
+         updated_at = EXCLUDED.updated_at,
+         last_message_at = EXCLUDED.last_message_at,
+         last_reply_by_role = EXCLUDED.last_reply_by_role,
+         needs_admin_response = EXCLUDED.needs_admin_response,
+         unread_by_admin = EXCLUDED.unread_by_admin,
+         unread_by_customer = EXCLUDED.unread_by_customer,
+         replies = EXCLUDED.replies`,
       [
         tkt.id,
         tkt.userId || null,
         tkt.name,
         tkt.email,
         tkt.subject,
-        tkt.category,
+        tkt.category || 'general',
         tkt.message,
         tkt.status,
-        tkt.priority,
-        tkt.createdAt ? new Date(tkt.createdAt).toISOString() : new Date().toISOString(),
+        tkt.priority || 'medium',
+        createdIso,
+        updatedIso,
+        lastMsgIso,
+        tkt.lastReplyByRole || null,
+        tkt.needsAdminResponse ?? true,
+        tkt.unreadByAdmin ?? true,
+        tkt.unreadByCustomer ?? false,
         JSON.stringify(tkt.replies || []),
       ]
     );
@@ -766,18 +788,27 @@ export function mapCryptoOrderRow(row: any): CryptoPaymentOrder {
   };
 }
 
-function mapTicketRow(row: any): SupportTicket {
+export function mapTicketRow(row: any): SupportTicket {
+  const createdIso = row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString();
+  const updatedIso = row.updated_at ? new Date(row.updated_at).toISOString() : createdIso;
+  const lastMsgIso = row.last_message_at ? new Date(row.last_message_at).toISOString() : updatedIso;
   return {
     id: row.id,
     userId: row.user_id || undefined,
     name: row.name,
     email: row.email,
     subject: row.subject,
-    category: row.category,
+    category: row.category || 'general',
     message: row.message,
     status: row.status,
-    priority: row.priority,
-    createdAt: new Date(row.created_at).toISOString(),
+    priority: row.priority || 'medium',
+    createdAt: createdIso,
+    updatedAt: updatedIso,
+    lastMessageAt: lastMsgIso,
+    lastReplyByRole: row.last_reply_by_role || undefined,
+    needsAdminResponse: row.needs_admin_response !== undefined && row.needs_admin_response !== null ? Boolean(row.needs_admin_response) : true,
+    unreadByAdmin: row.unread_by_admin !== undefined && row.unread_by_admin !== null ? Boolean(row.unread_by_admin) : true,
+    unreadByCustomer: row.unread_by_customer !== undefined && row.unread_by_customer !== null ? Boolean(row.unread_by_customer) : false,
     replies: typeof row.replies === 'string' ? JSON.parse(row.replies) : row.replies || [],
   };
 }
