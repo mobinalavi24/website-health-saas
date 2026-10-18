@@ -25,8 +25,6 @@ interface PublicLandingProps {
   onOpenContact: () => void;
   onMonitorNow: (url: string) => void;
   plans: SubscriptionPlan[];
-  currency: 'USD' | 'EUR' | 'GBP';
-  onCurrencyChange: (c: 'USD' | 'EUR' | 'GBP') => void;
 }
 
 export const PublicLanding: React.FC<PublicLandingProps> = ({
@@ -34,18 +32,14 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
   onOpenContact,
   onMonitorNow,
   plans,
-  currency,
-  onCurrencyChange,
 }) => {
   const [billingInterval, setBillingInterval] = useState<'monthly' | 'annual'>('monthly');
   const [openFaq, setOpenFaq] = useState<number | null>(0);
 
-  const currencySymbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : '£';
-
   const faqs = [
     {
       q: 'How does the Free 24-Hour Trial and Pro plan work?',
-      a: 'The Free plan offers a complete 24-hour trial (one-time per account) to test our real-time monitoring and site health diagnostics with no credit card required. To monitor continuously and scan up to 5 websites with 1-minute checks, upgrade to Pro for just $5/month.',
+      a: 'The Free plan offers a complete 24-hour trial (one-time per account) to test our real-time monitoring and site health diagnostics with no credit card required. To monitor continuously and scan up to 5 websites with 1-minute checks, upgrade to Pro for just 5 USDT/month.',
     },
     {
       q: 'Do you require hosting, cPanel, SSH, or server passwords?',
@@ -340,10 +334,10 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
       <section id="pricing" className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 space-y-10">
         <div className="text-center space-y-4 max-w-2xl mx-auto">
           <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
-            Transparent International Pricing
+            Transparent Cryptocurrency Pricing
           </h2>
           <p className="text-sm text-slate-400">
-            Choose monthly or annual billing in USD ($), EUR (€), or GBP (£). Upgrade or cancel anytime.
+            Choose monthly or annual billing in USDT (TRC20). Upgrade or cancel anytime.
           </p>
 
           <div className="flex items-center justify-center gap-3 pt-2">
@@ -369,21 +363,6 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
                 </span>
               </button>
             </div>
-
-            {/* Currency Selector */}
-            <div className="flex items-center p-1 bg-slate-900 border border-slate-800 rounded-lg text-xs font-mono">
-              {(['USD', 'EUR', 'GBP'] as const).map((c) => (
-                <button
-                  key={c}
-                  onClick={() => onCurrencyChange(c)}
-                  className={`px-2 py-1 rounded transition-colors ${
-                    currency === c ? 'bg-slate-800 text-[#E6A05A] font-semibold' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {c}
-                </button>
-              ))}
-            </div>
           </div>
         </div>
 
@@ -391,8 +370,8 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 max-w-4xl mx-auto gap-6 sm:gap-8">
           {plans.map((p) => {
             const price = billingInterval === 'annual'
-              ? p.pricing[currency].annual
-              : p.pricing[currency].monthly;
+              ? (p.pricing.USDT?.annual ?? 50)
+              : (p.pricing.USDT?.monthly ?? 5);
 
             const isPro = p.id === 'pro';
 
@@ -446,7 +425,10 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
                   <div className="py-1">
                     <div className="flex items-baseline gap-1.5">
                       <span className="text-4xl sm:text-5xl font-extrabold font-mono text-white tabular-nums">
-                        {currencySymbol}{price}
+                        {price}
+                      </span>
+                      <span className="text-lg font-bold font-mono text-[#E6A05A]">
+                        USDT
                       </span>
                       <span className="text-xs sm:text-sm text-slate-400 font-mono">
                         {isPro
@@ -456,7 +438,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
                     </div>
                     {isPro && billingInterval === 'annual' && (
                       <p className="text-[11px] text-emerald-400 font-mono mt-1">
-                        Equivalent to {currencySymbol}4.17/mo (2 months free)
+                        Equivalent to 4.17 USDT/mo (2 months free)
                       </p>
                     )}
                   </div>
@@ -480,10 +462,10 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
                         : 'bg-slate-800 text-white hover:bg-slate-700'
                     }`}
                   >
-                    {isPro ? `Get Started with Pro ($5/mo)` : 'Start 24-Hour Free Trial'}
+                    {isPro ? `Get Started with Pro (5 USDT/mo)` : 'Start 24-Hour Free Trial'}
                   </button>
                   <p className="text-[11px] text-center text-slate-500 mt-2 font-mono">
-                    {isPro ? 'Cancel anytime • Billed in USD, EUR, or GBP' : 'No credit card required • One-time evaluation'}
+                    {isPro ? 'Cancel anytime • Billed in USDT (TRC20)' : 'No credit card required • One-time evaluation'}
                   </p>
                 </div>
               </div>
@@ -582,7 +564,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
             Ready to Protect Your Website Uptime?
           </h2>
           <p className="text-xs sm:text-sm text-slate-400 max-w-xl mx-auto leading-relaxed">
-            Start monitoring your public endpoints in 60 seconds. Free 24-hour trial with zero credit card required, or upgrade to Pro for $5/month to scan 5 websites.
+            Start monitoring your public endpoints in 60 seconds. Free 24-hour trial with zero credit card required, or upgrade to Pro for 5 USDT/month to scan 5 websites.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <button

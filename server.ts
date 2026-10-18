@@ -31,6 +31,15 @@ async function startServer() {
   // Start background monitoring worker
   monitorEngine.start(25000);
 
+  // Check PageSpeed configuration status safely without printing secrets
+  const { getPageSpeedApiKey } = await import('./server/pagespeed.ts');
+  const psKeyStatus = getPageSpeedApiKey();
+  if (psKeyStatus.key) {
+    console.log('[PulseVanguard] Google PageSpeed Insights API key active and ready.');
+  } else {
+    console.warn(`[PulseVanguard PageSpeed Notice]: ${psKeyStatus.diagnosticError}`);
+  }
+
   // Health checks for Cloud Run container lifecycle
   app.get(['/healthz', '/api/healthz'], (_req, res) => {
     res.status(200).json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() });

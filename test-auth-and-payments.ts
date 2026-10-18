@@ -257,7 +257,7 @@ async function runAuthAndPaymentTests() {
     {
       planId: 'pro',
       billingInterval: 'monthly',
-      currency: 'USD',
+      currency: 'USDT',
     },
     {
       authorization: `Bearer ${normalToken}`,
@@ -318,7 +318,7 @@ async function runAuthAndPaymentTests() {
     {
       planId: 'pro',
       interval: 'annual',
-      currency: 'USD',
+      currency: 'USDT',
     },
     {
       authorization: `Bearer ${normalToken}`,
@@ -354,7 +354,7 @@ async function runAuthAndPaymentTests() {
     {
       planId: 'pro',
       billingInterval: 'monthly',
-      currency: 'USD',
+      currency: 'USDT',
     },
     {
       authorization: `Bearer ${normalToken}`,

@@ -24,6 +24,44 @@ export async function createSession(
   const id = `sess_${crypto.randomBytes(12).toString('hex')}`;
   const expiresAt = new Date(expiresAtMs).toISOString();
 
+  // Ensure org and user exist in PostgreSQL before creating session record
+  try {
+    const userCheck = await query('SELECT id FROM users WHERE id = $1', [userId]);
+    if (userCheck.rows.length === 0) {
+      const { db } = await import('../db.ts');
+      const memUser = db.findUserById(userId);
+      if (memUser) {
+        const targetOrgId = memUser.orgId || orgId;
+        const orgCheck = await query('SELECT id FROM organizations WHERE id = $1', [targetOrgId]);
+        if (orgCheck.rows.length === 0) {
+          const memOrg = db.findOrgById(targetOrgId);
+          if (memOrg) {
+            await query(
+              `INSERT INTO organizations (id, name, plan_id, billing_interval, currency, owner_id, trial_started_at, trial_ends_at, trial_used, white_label, clients, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+               ON CONFLICT (id) DO NOTHING`,
+              [
+                memOrg.id, memOrg.name, memOrg.planId, memOrg.billingInterval, memOrg.currency, memOrg.ownerId,
+                memOrg.trialStartedAt, memOrg.trialEndsAt, memOrg.trialUsed, JSON.stringify(memOrg.whiteLabel), JSON.stringify(memOrg.clients), memOrg.createdAt
+              ]
+            );
+          }
+        }
+        await query(
+          `INSERT INTO users (id, email, name, password_hash, role, org_id, avatar_url, email_verified, referral_code, referred_by, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+           ON CONFLICT (id) DO NOTHING`,
+          [
+            memUser.id, memUser.email, memUser.name, memUser.passwordHash, memUser.role, targetOrgId,
+            memUser.avatarUrl || null, memUser.emailVerified ?? true, memUser.referralCode || null, memUser.referredBy || null, memUser.createdAt || new Date().toISOString()
+          ]
+        );
+      }
+    }
+  } catch (err: any) {
+    // Non-fatal fallback
+  }
+
   await query(
     `INSERT INTO sessions (id, token_hash, user_id, org_id, expires_at, created_at)
      VALUES ($1, $2, $3, $4, $5, NOW())

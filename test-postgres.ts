@@ -103,7 +103,7 @@ async function runTestSuite() {
     name: 'Postgres Test Corp',
     planId: 'pro',
     billingInterval: 'monthly',
-    currency: 'USD',
+    currency: 'USDT',
     ownerId: testUserId,
     trialStartedAt: new Date().toISOString(),
     trialEndsAt: new Date(Date.now() + 86400000).toISOString(),

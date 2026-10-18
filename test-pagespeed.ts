@@ -85,10 +85,12 @@ async function runTests() {
   console.log('\nTest 2: Missing or Placeholder API Key produces clear diagnostic error');
   const origKey = process.env.PAGESPEED_API_KEY;
   const origGoogleKey = process.env.GOOGLE_API_KEY;
+  const origGooglePsKey = process.env.GOOGLE_PAGESPEED_API_KEY;
   const origGeminiKey = process.env.GEMINI_API_KEY;
   try {
     delete process.env.PAGESPEED_API_KEY;
     delete process.env.GOOGLE_API_KEY;
+    delete process.env.GOOGLE_PAGESPEED_API_KEY;
     delete process.env.GEMINI_API_KEY;
 
     try {
@@ -103,6 +105,7 @@ async function runTests() {
   } finally {
     if (origKey) process.env.PAGESPEED_API_KEY = origKey;
     if (origGoogleKey) process.env.GOOGLE_API_KEY = origGoogleKey;
+    if (origGooglePsKey) process.env.GOOGLE_PAGESPEED_API_KEY = origGooglePsKey;
     if (origGeminiKey) process.env.GEMINI_API_KEY = origGeminiKey;
   }
 

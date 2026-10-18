@@ -17,6 +17,11 @@ import {
   Sparkles,
   Copy,
   Check,
+  Shield,
+  Activity,
+  Globe,
+  TrendingUp,
+  Sliders,
   Gauge,
 } from 'lucide-react';
 import type { ScanResult, CombinedPageSpeedResult } from '../types.ts';
@@ -28,6 +33,8 @@ interface ScanReportViewProps {
   onReScan?: () => void;
   onMonitorNow?: (url: string) => void;
   isPublicView?: boolean;
+  hideNavigationTabs?: boolean;
+  onNavigateTab?: (tab: string) => void;
 }
 
 export const ScanReportView: React.FC<ScanReportViewProps> = ({
@@ -35,6 +42,8 @@ export const ScanReportView: React.FC<ScanReportViewProps> = ({
   onReScan,
   onMonitorNow,
   isPublicView = false,
+  hideNavigationTabs = false,
+  onNavigateTab,
 }) => {
   const [activeTab, setActiveTab] = useState<'recommendations' | 'pagespeed' | 'ssl' | 'dns' | 'security' | 'seo' | 'tech'>('recommendations');
   const [copied, setCopied] = useState(false);
@@ -223,135 +232,376 @@ export const ScanReportView: React.FC<ScanReportViewProps> = ({
         </div>
       </div>
 
-      {/* Interactive Tabs */}
-      <div className="flex items-center gap-1 p-1 bg-slate-900/90 border border-slate-800 rounded-lg overflow-x-auto">
-        <button
-          onClick={() => setActiveTab('recommendations')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-            activeTab === 'recommendations'
-              ? 'bg-slate-800 text-white shadow-sm'
-              : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          Remediation & Issues ({report.recommendations.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('pagespeed')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${
-            activeTab === 'pagespeed'
-              ? 'bg-slate-800 text-[#E6A05A] shadow-sm font-semibold'
-              : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          <Gauge className="h-3.5 w-3.5" />
-          <span>Google PageSpeed Insights</span>
-          {pageSpeedState?.mobile?.scores.performance !== undefined && pageSpeedState.mobile.scores.performance !== null && (
-            <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono ${
-              pageSpeedState.mobile.scores.performance >= 90
-                ? 'bg-emerald-500/10 text-emerald-400'
-                : pageSpeedState.mobile.scores.performance >= 50
-                ? 'bg-amber-500/10 text-amber-400'
-                : 'bg-rose-500/10 text-rose-400'
-            }`}>
-              {pageSpeedState.mobile.scores.performance}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('ssl')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-            activeTab === 'ssl' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          SSL Certificate
-        </button>
-        <button
-          onClick={() => setActiveTab('dns')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-            activeTab === 'dns' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          DNS & Email Authentication
-        </button>
-        <button
-          onClick={() => setActiveTab('security')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-            activeTab === 'security' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          Security Headers
-        </button>
-        <button
-          onClick={() => setActiveTab('seo')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-            activeTab === 'seo' ? 'bg-slate-800 text-[#E6A05A] shadow-sm font-semibold' : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          <span>Advanced SEO Analysis</span>
-          {report.advancedSeo?.score !== undefined && (
-            <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-[#E6A05A]/10 text-[#E6A05A] border border-[#E6A05A]/30">
-              {report.advancedSeo.score}/100
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('tech')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-            activeTab === 'tech' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          Detected Technologies ({report.technologies.length})
-        </button>
-      </div>
-
-      {/* Tab 1: Recommendations */}
-      {activeTab === 'recommendations' && (
-        <div className="space-y-3">
-          {report.recommendations.map((item, idx) => {
-            const isExpanded = expandedIndex === idx;
-            return (
-              <div
-                key={idx}
-                className="rounded-lg border border-slate-800 bg-[#0F172A] p-4 transition-colors hover:border-slate-700"
-              >
-                <div
-                  onClick={() => setExpandedIndex(isExpanded ? null : idx)}
-                  className="flex items-start justify-between gap-4 cursor-pointer"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="mt-0.5">
-                      {item.type === 'passed' && <CheckCircle2 className="h-4 w-4 text-emerald-400" />}
-                      {item.type === 'warning' && <AlertTriangle className="h-4 w-4 text-amber-400" />}
-                      {item.type === 'critical' && <XCircle className="h-4 w-4 text-rose-400" />}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                          {item.category}
-                        </span>
-                        <span className="text-xs text-slate-600">·</span>
-                        <span className="text-sm font-semibold text-white">{item.title}</span>
-                      </div>
-                      <p className="text-xs text-slate-300 mt-1 leading-relaxed">{item.description}</p>
-                    </div>
-                  </div>
-
-                  <button className="text-slate-400 hover:text-white p-1">
-                    {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                  </button>
-                </div>
-
-                {isExpanded && (
-                  <div className="mt-3 pt-3 border-t border-slate-800 text-xs space-y-1 text-slate-300 bg-slate-900/50 p-3 rounded">
-                    <span className="font-semibold text-[#E6A05A] block">Actionable Recommendation:</span>
-                    <p>{item.recommendation}</p>
-                  </div>
-                )}
+      {/* If hideNavigationTabs is true (inside WebsiteDetailView), render consolidated overview without duplicate sub-tabs */}
+      {hideNavigationTabs ? (
+        <div className="space-y-6">
+          {/* Quick Navigation Cards to Top-Level Sections */}
+          {onNavigateTab && (
+            <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-5 space-y-3">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Quick Navigation to Monitoring Sections
+                </span>
+                <span className="text-[11px] text-slate-500">Jump directly to any detailed section</span>
               </div>
-            );
-          })}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab('pagespeed')}
+                  className="p-3 rounded-lg bg-slate-900 border border-slate-800 hover:border-[#E6A05A]/50 hover:bg-slate-800/80 text-left transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                    <span className="group-hover:text-[#E6A05A] transition-colors font-medium">PageSpeed</span>
+                    <Gauge className="h-3.5 w-3.5 text-[#E6A05A]" />
+                  </div>
+                  <div className="text-sm font-bold font-mono text-white">
+                    {pageSpeedState?.mobile?.scores.performance !== undefined && pageSpeedState?.mobile?.scores.performance !== null
+                      ? `${pageSpeedState.mobile.scores.performance} / 100`
+                      : 'Audit Ready'}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab('uptime')}
+                  className="p-3 rounded-lg bg-slate-900 border border-slate-800 hover:border-emerald-500/50 hover:bg-slate-800/80 text-left transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                    <span className="group-hover:text-emerald-400 transition-colors font-medium">Uptime SLA</span>
+                    <Clock className="h-3.5 w-3.5 text-emerald-400" />
+                  </div>
+                  <div className="text-sm font-bold font-mono text-white">
+                    {report.uptime.responseTimeMs}ms
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab('history')}
+                  className="p-3 rounded-lg bg-slate-900 border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-800/80 text-left transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                    <span className="group-hover:text-indigo-400 transition-colors font-medium">History</span>
+                    <Activity className="h-3.5 w-3.5 text-indigo-400" />
+                  </div>
+                  <div className="text-sm font-bold text-white">
+                    Telemetry Logs
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab('ssl')}
+                  className="p-3 rounded-lg bg-slate-900 border border-slate-800 hover:border-[#E6A05A]/50 hover:bg-slate-800/80 text-left transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                    <span className="group-hover:text-[#E6A05A] transition-colors font-medium">SSL / TLS</span>
+                    <Lock className="h-3.5 w-3.5 text-[#E6A05A]" />
+                  </div>
+                  <div className="text-sm font-bold font-mono text-white">
+                    {report.ssl.valid ? `${report.ssl.daysRemaining}d left` : 'Invalid'}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab('dns')}
+                  className="p-3 rounded-lg bg-slate-900 border border-slate-800 hover:border-sky-500/50 hover:bg-slate-800/80 text-left transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                    <span className="group-hover:text-sky-400 transition-colors font-medium">DNS Records</span>
+                    <Globe className="h-3.5 w-3.5 text-sky-400" />
+                  </div>
+                  <div className="text-sm font-bold font-mono text-white">
+                    {report.dns.aRecords.length} A · {report.dns.mxRecords.length} MX
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab('spfdmarc')}
+                  className="p-3 rounded-lg bg-slate-900 border border-slate-800 hover:border-amber-500/50 hover:bg-slate-800/80 text-left transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                    <span className="group-hover:text-amber-400 transition-colors font-medium">SPF / DMARC</span>
+                    <Shield className="h-3.5 w-3.5 text-amber-400" />
+                  </div>
+                  <div className="text-sm font-bold font-mono text-white">
+                    {report.security.spfConfigured && report.security.dmarcConfigured
+                      ? 'Protected'
+                      : report.security.spfConfigured || report.security.dmarcConfigured
+                      ? 'Partial'
+                      : 'Missing'}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab('security')}
+                  className="p-3 rounded-lg bg-slate-900 border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-800/80 text-left transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                    <span className="group-hover:text-indigo-400 transition-colors font-medium">Security Headers</span>
+                    <Shield className="h-3.5 w-3.5 text-indigo-400" />
+                  </div>
+                  <div className="text-sm font-bold font-mono text-white">
+                    {report.security.hsts ? 'HSTS Enforced' : 'Unrestricted'}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab('seo')}
+                  className="p-3 rounded-lg bg-slate-900 border border-slate-800 hover:border-[#E6A05A]/50 hover:bg-slate-800/80 text-left transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                    <span className="group-hover:text-[#E6A05A] transition-colors font-medium">SEO & Crawl</span>
+                    <TrendingUp className="h-3.5 w-3.5 text-[#E6A05A]" />
+                  </div>
+                  <div className="text-sm font-bold font-mono text-white">
+                    {report.advancedSeo?.score !== undefined ? `${report.advancedSeo.score}/100` : 'Analyze'}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab('incidents')}
+                  className="p-3 rounded-lg bg-slate-900 border border-slate-800 hover:border-rose-500/50 hover:bg-slate-800/80 text-left transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                    <span className="group-hover:text-rose-400 transition-colors font-medium">Incidents</span>
+                    <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />
+                  </div>
+                  <div className="text-sm font-bold text-white">
+                    Event Logs
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab('settings')}
+                  className="p-3 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-600 hover:bg-slate-800/80 text-left transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                    <span className="group-hover:text-white transition-colors font-medium">Settings</span>
+                    <Sliders className="h-3.5 w-3.5 text-slate-400" />
+                  </div>
+                  <div className="text-sm font-bold text-white">
+                    Domain & Alerts
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Actionable Recommendations & Issues */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-semibold text-white">
+                Prioritized Issues & Remediation ({report.recommendations.length})
+              </h3>
+              <span className="text-xs text-slate-400">Click any issue to toggle action items</span>
+            </div>
+
+            {report.recommendations.map((item, idx) => {
+              const isExpanded = expandedIndex === idx;
+              return (
+                <div
+                  key={idx}
+                  className="rounded-lg border border-slate-800 bg-[#0F172A] p-4 transition-colors hover:border-slate-700"
+                >
+                  <div
+                    onClick={() => setExpandedIndex(isExpanded ? null : idx)}
+                    className="flex items-start justify-between gap-4 cursor-pointer"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5">
+                        {item.type === 'passed' && <CheckCircle2 className="h-4 w-4 text-emerald-400" />}
+                        {item.type === 'warning' && <AlertTriangle className="h-4 w-4 text-amber-400" />}
+                        {item.type === 'critical' && <XCircle className="h-4 w-4 text-rose-400" />}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                            {item.category}
+                          </span>
+                          <span className="text-xs text-slate-600">·</span>
+                          <span className="text-sm font-semibold text-white">{item.title}</span>
+                        </div>
+                        <p className="text-xs text-slate-300 mt-1 leading-relaxed">{item.description}</p>
+                      </div>
+                    </div>
+
+                    <button className="text-slate-400 hover:text-white p-1">
+                      {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </button>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="mt-3 pt-3 border-t border-slate-800 text-xs space-y-1 text-slate-300 bg-slate-900/50 p-3 rounded">
+                      <span className="font-semibold text-[#E6A05A] block">Actionable Recommendation:</span>
+                      <p>{item.recommendation}</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Detected Technologies */}
+          <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="text-base font-semibold text-white">Publicly Observable Technologies ({report.technologies.length})</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Detected non-intrusively through public HTTP response headers, DOM markers, and asset signatures.
+                </p>
+              </div>
+            </div>
+
+            {report.technologies.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-500">
+                No distinctive technology signatures detected. Server headers may be masked or minimalist.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {report.technologies.map((t, idx) => (
+                  <div key={idx} className="p-3 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between">
+                    <div>
+                      <span className="text-sm font-semibold text-white block">{t.name}</span>
+                      <span className="text-[11px] text-slate-400">{t.category}</span>
+                    </div>
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-[#E6A05A] px-2 py-0.5 rounded bg-[#E6A05A]/10 border border-[#E6A05A]/20">
+                      {t.confidence}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-      )}
+      ) : (
+        <>
+          {/* Interactive Lower Tabs for Standalone / Public Scanner */}
+          <div className="flex items-center gap-1 p-1 bg-slate-900/90 border border-slate-800 rounded-lg overflow-x-auto">
+            <button
+              onClick={() => setActiveTab('recommendations')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                activeTab === 'recommendations'
+                  ? 'bg-slate-800 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Remediation & Issues ({report.recommendations.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('pagespeed')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+                activeTab === 'pagespeed'
+                  ? 'bg-slate-800 text-[#E6A05A] shadow-sm font-semibold'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Gauge className="h-3.5 w-3.5" />
+              <span>Google PageSpeed Insights</span>
+              {pageSpeedState?.mobile?.scores.performance !== undefined && pageSpeedState.mobile.scores.performance !== null && (
+                <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono ${
+                  pageSpeedState.mobile.scores.performance >= 90
+                    ? 'bg-emerald-500/10 text-emerald-400'
+                    : pageSpeedState.mobile.scores.performance >= 50
+                    ? 'bg-amber-500/10 text-amber-400'
+                    : 'bg-rose-500/10 text-rose-400'
+                }`}>
+                  {pageSpeedState.mobile.scores.performance}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('ssl')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                activeTab === 'ssl' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              SSL Certificate
+            </button>
+            <button
+              onClick={() => setActiveTab('dns')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                activeTab === 'dns' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              DNS & Email Authentication
+            </button>
+            <button
+              onClick={() => setActiveTab('security')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                activeTab === 'security' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Security Headers
+            </button>
+            <button
+              onClick={() => setActiveTab('seo')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                activeTab === 'seo' ? 'bg-slate-800 text-[#E6A05A] shadow-sm font-semibold' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <span>Advanced SEO Analysis</span>
+              {report.advancedSeo?.score !== undefined && (
+                <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-[#E6A05A]/10 text-[#E6A05A] border border-[#E6A05A]/30">
+                  {report.advancedSeo.score}/100
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('tech')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                activeTab === 'tech' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Detected Technologies ({report.technologies.length})
+            </button>
+          </div>
+
+          {/* Tab 1: Recommendations */}
+          {activeTab === 'recommendations' && (
+            <div className="space-y-3">
+              {report.recommendations.map((item, idx) => {
+                const isExpanded = expandedIndex === idx;
+                return (
+                  <div
+                    key={idx}
+                    className="rounded-lg border border-slate-800 bg-[#0F172A] p-4 transition-colors hover:border-slate-700"
+                  >
+                    <div
+                      onClick={() => setExpandedIndex(isExpanded ? null : idx)}
+                      className="flex items-start justify-between gap-4 cursor-pointer"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5">
+                          {item.type === 'passed' && <CheckCircle2 className="h-4 w-4 text-emerald-400" />}
+                          {item.type === 'warning' && <AlertTriangle className="h-4 w-4 text-amber-400" />}
+                          {item.type === 'critical' && <XCircle className="h-4 w-4 text-rose-400" />}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                              {item.category}
+                            </span>
+                            <span className="text-xs text-slate-600">·</span>
+                            <span className="text-sm font-semibold text-white">{item.title}</span>
+                          </div>
+                          <p className="text-xs text-slate-300 mt-1 leading-relaxed">{item.description}</p>
+                        </div>
+                      </div>
+
+                      <button className="text-slate-400 hover:text-white p-1">
+                        {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </button>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="mt-3 pt-3 border-t border-slate-800 text-xs space-y-1 text-slate-300 bg-slate-900/50 p-3 rounded">
+                        <span className="font-semibold text-[#E6A05A] block">Actionable Recommendation:</span>
+                        <p>{item.recommendation}</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
       {/* Tab: Google PageSpeed Insights */}
       {activeTab === 'pagespeed' && (
@@ -563,10 +813,12 @@ export const ScanReportView: React.FC<ScanReportViewProps> = ({
                   </span>
                 </div>
               ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
+          </div>
+        )}
+      </div>
+    )}
+  </>
+)}
+</div>
+);
 };

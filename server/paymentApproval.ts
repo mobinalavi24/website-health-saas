@@ -1,6 +1,8 @@
 import { query, withTransaction } from './db/connection.ts';
 import { db, type CryptoPaymentOrder } from './db.ts';
 import { mapCryptoOrderRow } from './db/repositories.ts';
+import { creditReferralCommissionInTransaction } from './referrals.ts';
+import { createSubscriptionEntitlementInTransaction } from './entitlements.ts';
 
 export interface AdminApprovalResult {
   success: boolean;
@@ -30,7 +32,8 @@ export interface OrderCancelResult {
  */
 export async function approvePaymentOrder(
   orderId: string,
-  adminUser: { id: string; email: string; role: string }
+  adminUser: { id: string; email: string; role: string },
+  notes?: string
 ): Promise<AdminApprovalResult> {
   if (adminUser.role !== 'super_admin' && adminUser.role !== 'admin') {
     throw new Error('Unauthorized: Admin privilege required to approve payments.');
@@ -77,12 +80,20 @@ export async function approvePaymentOrder(
       [orderId, adminUser.email, verificationLog]
     );
 
-    // 3. Atomically activate customer subscription on the organization
+    // 3. Atomically create independent subscription entitlement
+    let entitlement;
+    try {
+      entitlement = await createSubscriptionEntitlementInTransaction(client, row);
+    } catch (entErr: any) {
+      console.error('[Entitlement Error]: Failed to create entitlement:', entErr.message);
+    }
+
+    // 4. Atomically activate customer subscription on the organization
     await client.query(
       `UPDATE organizations
        SET plan_id = $1,
            billing_interval = $2,
-           currency = 'USD',
+           currency = 'USDT',
            trial_used = true
        WHERE id = $3`,
       [row.plan_id, row.billing_interval, row.org_id]
@@ -134,7 +145,7 @@ export async function approvePaymentOrder(
     if (org) {
       org.planId = row.plan_id;
       org.billingInterval = row.billing_interval;
-      org.currency = 'USD';
+      org.currency = 'USDT';
       org.trialUsed = true;
       db.persist();
 
@@ -159,6 +170,13 @@ export async function approvePaymentOrder(
         details: `Payment order ${orderId} (${row.amount} USDT) manually approved by ${adminUser.email}. Plan ${row.plan_id.toUpperCase()} activated for ${row.user_email}.`,
         timestamp: nowIso,
       });
+    }
+
+    // 7. Atomically award 40% referral commission if customer was referred
+    try {
+      await creditReferralCommissionInTransaction(client, row);
+    } catch (refErr: any) {
+      console.error('[Referral Commission Error]: Failed to credit commission:', refErr.message);
     }
 
     return {

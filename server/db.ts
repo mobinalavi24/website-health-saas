@@ -26,6 +26,8 @@ export interface User {
   orgId: string;
   avatarUrl?: string;
   emailVerified: boolean;
+  referralCode?: string;
+  referredBy?: string;
   createdAt: string;
 }
 
@@ -34,7 +36,7 @@ export interface Organization {
   name: string;
   planId: 'free' | 'pro' | 'agency' | 'enterprise';
   billingInterval: 'monthly' | 'annual';
-  currency: 'USD' | 'EUR' | 'GBP';
+  currency: string;
   ownerId: string;
   trialStartedAt?: string;
   trialEndsAt?: string;
@@ -155,9 +157,8 @@ export interface SubscriptionPlan {
   badge: string;
   targetAudience: string;
   pricing: {
-    USD: { monthly: number; annual: number };
-    EUR: { monthly: number; annual: number };
-    GBP: { monthly: number; annual: number };
+    USDT?: { monthly: number; annual: number };
+    [key: string]: { monthly: number; annual: number } | undefined;
   };
   limits: {
     maxWebsites: number;
@@ -247,6 +248,21 @@ export interface AuditLog {
   timestamp: string;
 }
 
+export interface SubscriptionEntitlement {
+  id: string;
+  userId: string;
+  orgId: string;
+  planId: 'pro' | 'agency' | 'enterprise';
+  planName: string;
+  billingInterval: 'monthly' | 'annual';
+  websiteSlots: number;
+  orderId?: string;
+  status: 'active' | 'expired' | 'cancelled';
+  startedAt: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
 interface DatabaseSchema {
   users: User[];
   organizations: Organization[];
@@ -261,10 +277,11 @@ interface DatabaseSchema {
   apiKeys: ApiKey[];
   tickets: SupportTicket[];
   auditLogs: AuditLog[];
+  entitlements?: SubscriptionEntitlement[];
   pageSpeedRecords?: StoredPageSpeedRecord[];
   settings: {
     maintenanceMode: boolean;
-    defaultCurrency: 'USD' | 'EUR' | 'GBP';
+    defaultCurrency: string;
     stripeConfigured: boolean;
     workerIntervalSec: number;
     maxFreeScansPerHour: number;
@@ -328,8 +345,12 @@ class Database {
       this.schemaInitPromise = (async () => {
         try {
           await initSchema();
+          const { runMigration } = await import('./db/migrate.ts');
+          await runMigration();
         } catch (e: any) {
-          // Schema init error handled gracefully
+          try {
+            await initSchema();
+          } catch {}
         }
       })();
     }
@@ -352,9 +373,7 @@ class Database {
         badge: '24-Hour Trial',
         targetAudience: '24 hour trial only, one time per account',
         pricing: {
-          USD: { monthly: 0, annual: 0 },
-          EUR: { monthly: 0, annual: 0 },
-          GBP: { monthly: 0, annual: 0 },
+          USDT: { monthly: 0, annual: 0 },
         },
         limits: {
           maxWebsites: 1,
@@ -378,11 +397,9 @@ class Database {
         id: 'pro',
         name: 'Pro',
         badge: 'Recommended',
-        targetAudience: '$5/month · Can scan 5 websites',
+        targetAudience: '5 USDT/month · Can scan 5 websites',
         pricing: {
-          USD: { monthly: 5, annual: 50 },
-          EUR: { monthly: 5, annual: 50 },
-          GBP: { monthly: 4, annual: 40 },
+          USDT: { monthly: 5, annual: 50 },
         },
         limits: {
           maxWebsites: 5,
@@ -395,7 +412,7 @@ class Database {
         },
         features: [
           'Can scan 5 websites',
-          '$5 / month transparent pricing',
+          '5 USDT / month transparent pricing',
           '1-minute rapid monitoring checks',
           'Continuous SSL & TLS certificate expiry alarms',
           'DNS, security headers & SEO health auditing',
@@ -481,6 +498,9 @@ class Database {
             }
           }
         }
+        if (!parsed.entitlements) {
+          parsed.entitlements = [];
+        }
         return parsed;
       }
     } catch (e) {
@@ -523,7 +543,7 @@ class Database {
         name: 'PulseVanguard Systems',
         planId: 'pro',
         billingInterval: 'annual',
-        currency: 'USD',
+        currency: 'USDT',
         ownerId: 'usr_1790775111622',
         trialStartedAt: '2026-01-10T08:00:00.000Z',
         trialEndsAt: '2026-01-11T08:00:00.000Z',
@@ -543,7 +563,7 @@ class Database {
         name: 'Acme Digital Agency',
         planId: 'free',
         billingInterval: 'monthly',
-        currency: 'USD',
+        currency: 'USDT',
         ownerId: 'usr_1790775111622',
         trialStartedAt: '2026-02-14T10:30:00.000Z',
         trialEndsAt: '2026-02-15T10:30:00.000Z',
@@ -748,9 +768,9 @@ class Database {
         invoiceNumber: 'INV-2026-081',
         date: '2026-03-01T00:00:00.000Z',
         amount: 50,
-        currency: 'USD',
+        currency: 'USDT',
         status: 'paid',
-        planName: 'Pro Plan (Annual - $5/mo equivalent)',
+        planName: 'Pro Plan (Annual - 50 USDT)',
       },
       {
         id: 'inv_2026_02',
@@ -758,9 +778,9 @@ class Database {
         invoiceNumber: 'INV-2026-042',
         date: '2026-02-14T10:30:00.000Z',
         amount: 79,
-        currency: 'USD',
+        currency: 'USDT',
         status: 'paid',
-        planName: 'Agency Partner (Monthly)',
+        planName: 'Agency Workspace (Annual)',
       },
     ];
 
@@ -856,9 +876,10 @@ class Database {
       apiKeys,
       tickets,
       auditLogs,
+      entitlements: [],
       settings: {
         maintenanceMode: false,
-        defaultCurrency: 'USD',
+        defaultCurrency: 'USDT',
         stripeConfigured: false,
         workerIntervalSec: 30,
         maxFreeScansPerHour: 25,
@@ -880,6 +901,39 @@ class Database {
   public getTickets() { return this.data.tickets; }
   public getAuditLogs() { return this.data.auditLogs; }
   public getSettings() { return this.data.settings; }
+
+  public getEntitlements(): SubscriptionEntitlement[] {
+    if (!this.data.entitlements) this.data.entitlements = [];
+    return this.data.entitlements;
+  }
+
+  public addEntitlement(entitlement: SubscriptionEntitlement) {
+    if (!this.data.entitlements) this.data.entitlements = [];
+    const idx = this.data.entitlements.findIndex(
+      (e) => e.id === entitlement.id || (e.orderId && e.orderId === entitlement.orderId)
+    );
+    if (idx !== -1) {
+      this.data.entitlements[idx] = entitlement;
+    } else {
+      this.data.entitlements.unshift(entitlement);
+    }
+    this.persist();
+  }
+
+  public findEntitlementByOrderId(orderId: string): SubscriptionEntitlement | undefined {
+    if (!this.data.entitlements) this.data.entitlements = [];
+    return this.data.entitlements.find((e) => e.orderId === orderId);
+  }
+
+  public updateEntitlement(id: string, updates: Partial<SubscriptionEntitlement>) {
+    if (!this.data.entitlements) this.data.entitlements = [];
+    const ent = this.data.entitlements.find((e) => e.id === id);
+    if (ent) {
+      Object.assign(ent, updates);
+      this.persist();
+    }
+    return ent;
+  }
 
   public async initFromPostgres(): Promise<void> {
     try {

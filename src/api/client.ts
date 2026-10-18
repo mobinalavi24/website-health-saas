@@ -13,9 +13,17 @@ import type {
   LBankConnectionTestResult,
   ApiKey,
   SupportTicket,
+  TicketMessage,
+  TicketStatus,
   AuditLog,
   CombinedPageSpeedResult,
   AccountStatus,
+  UserReferralProfile,
+  WithdrawalRequestRecord,
+  AdminReferralOverview,
+  ReferralCommissionRecord,
+  UserCapacityInfo,
+  SubscriptionEntitlement,
 } from '../types.ts';
 
 const TOKEN_KEY = 'pv_auth_token';
@@ -94,10 +102,16 @@ export const apiClient = {
     return res;
   },
 
-  async register(name: string, email: string, password: string, orgName?: string): Promise<{ token: string; user: User; organization: Organization }> {
+  async register(
+    name: string,
+    email: string,
+    password: string,
+    orgName?: string,
+    referralCode?: string
+  ): Promise<{ token: string; user: User; organization: Organization }> {
     const res = await this.request<{ token: string; user: User; organization: Organization }>('/api/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ name, email, password, orgName }),
+      body: JSON.stringify({ name, email, password, orgName, referralCode }),
     });
     this.setToken(res.token);
     return res;
@@ -220,7 +234,7 @@ export const apiClient = {
     return this.request<SubscriptionPlan[]>('/api/billing/plans');
   },
 
-  async changePlan(planId: string, interval: 'monthly' | 'annual', currency: 'USD' | 'EUR' | 'GBP'): Promise<{ success: boolean; organization: Organization }> {
+  async changePlan(planId: string, interval: 'monthly' | 'annual', currency: string = 'USDT'): Promise<{ success: boolean; organization: Organization }> {
     return this.request<{ success: boolean; organization: Organization }>('/api/billing/change-plan', {
       method: 'POST',
       body: JSON.stringify({ planId, interval, currency }),
@@ -232,10 +246,14 @@ export const apiClient = {
   },
 
   // Crypto Payments (USDT TRC20)
-  async createCryptoOrder(planId: string, interval: 'monthly' | 'annual'): Promise<{ success: boolean; order: CryptoPaymentOrder }> {
+  async createCryptoOrder(
+    planId: string,
+    interval: 'monthly' | 'annual',
+    referralCode?: string
+  ): Promise<{ success: boolean; order: CryptoPaymentOrder }> {
     return this.request<{ success: boolean; order: CryptoPaymentOrder }>('/api/crypto/create-order', {
       method: 'POST',
-      body: JSON.stringify({ planId, interval }),
+      body: JSON.stringify({ planId, interval, referralCode }),
     });
   },
 
@@ -264,6 +282,14 @@ export const apiClient = {
 
   async getCryptoOrders(): Promise<CryptoPaymentOrder[]> {
     return this.request<CryptoPaymentOrder[]>('/api/crypto/orders');
+  },
+
+  async getUserSubscriptions(): Promise<{ capacity: UserCapacityInfo; organization: Organization }> {
+    return this.request<{ capacity: UserCapacityInfo; organization: Organization }>('/api/user/subscriptions');
+  },
+
+  async getUserCapacity(): Promise<UserCapacityInfo> {
+    return this.request<UserCapacityInfo>('/api/user/capacity');
   },
 
   async getAdminCryptoOrders(): Promise<CryptoPaymentOrder[]> {
@@ -321,16 +347,47 @@ export const apiClient = {
     return this.request<LBankConnectionTestResult>('/api/crypto/lbank-test');
   },
 
-  // Tickets
+  // Support Ticketing
   async getTickets(): Promise<SupportTicket[]> {
     return this.request<SupportTicket[]>('/api/tickets');
   },
 
-  async createTicket(ticket: { name: string; email: string; subject: string; message: string; category?: string }): Promise<SupportTicket> {
+  async getTicket(ticketId: string): Promise<SupportTicket> {
+    return this.request<SupportTicket>(`/api/tickets/${encodeURIComponent(ticketId)}`);
+  },
+
+  async createTicket(ticket: { subject: string; message: string; category?: string; priority?: string }): Promise<SupportTicket> {
     return this.request<SupportTicket>('/api/tickets', {
       method: 'POST',
       body: JSON.stringify(ticket),
     });
+  },
+
+  async replyToTicket(
+    ticketId: string,
+    message: string,
+    status?: TicketStatus
+  ): Promise<{ success: boolean; reply: TicketMessage; ticket: SupportTicket }> {
+    return this.request<{ success: boolean; reply: TicketMessage; ticket: SupportTicket }>(
+      `/api/tickets/${encodeURIComponent(ticketId)}/replies`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ message, status }),
+      }
+    );
+  },
+
+  async updateTicketStatus(
+    ticketId: string,
+    status: TicketStatus
+  ): Promise<{ success: boolean; ticket: SupportTicket }> {
+    return this.request<{ success: boolean; ticket: SupportTicket }>(
+      `/api/tickets/${encodeURIComponent(ticketId)}/status`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      }
+    );
   },
 
   // Admin
@@ -351,10 +408,88 @@ export const apiClient = {
     return this.request<ApiKey[]>('/api/v1/api-keys');
   },
 
-  async createApiKey(name: string): Promise<ApiKey & { secretToken: string }> {
-    return this.request<ApiKey & { secretToken: string }>('/api/v1/api-keys', {
+  async createApiKey(name: string): Promise<{ key: ApiKey; secretToken: string }> {
+    return this.request<{ key: ApiKey; secretToken: string }>('/api/v1/api-keys', {
       method: 'POST',
       body: JSON.stringify({ name }),
     });
+  },
+
+  // Referral & Commission Wallet
+  async validateReferralCode(code: string): Promise<{
+    valid: boolean;
+    message: string;
+    referrer?: { id: string; email: string; name: string };
+  }> {
+    return this.request<{
+      valid: boolean;
+      message: string;
+      referrer?: { id: string; email: string; name: string };
+    }>(`/api/referral/validate?code=${encodeURIComponent(code)}`);
+  },
+
+  async applyReferralCode(referralCode: string): Promise<{
+    success: boolean;
+    message: string;
+    referrerName?: string;
+  }> {
+    return this.request<{
+      success: boolean;
+      message: string;
+      referrerName?: string;
+    }>('/api/referral/apply', {
+      method: 'POST',
+      body: JSON.stringify({ referralCode }),
+    });
+  },
+
+  async getReferralProfile(): Promise<UserReferralProfile> {
+    return this.request<UserReferralProfile>('/api/referral/profile');
+  },
+
+  async requestWithdrawal(amount: number, trc20Address: string): Promise<WithdrawalRequestRecord> {
+    return this.request<WithdrawalRequestRecord>('/api/referral/withdraw', {
+      method: 'POST',
+      body: JSON.stringify({ amount, trc20Address }),
+    });
+  },
+
+  async cancelWithdrawal(withdrawalId: string): Promise<WithdrawalRequestRecord> {
+    return this.request<WithdrawalRequestRecord>(`/api/referral/withdrawals/${encodeURIComponent(withdrawalId)}/cancel`, {
+      method: 'POST',
+    });
+  },
+
+  // Admin Referral & Withdrawal Management
+  async getAdminReferralOverview(): Promise<AdminReferralOverview> {
+    return this.request<AdminReferralOverview>('/api/admin/referrals/overview');
+  },
+
+  async getAdminWithdrawals(): Promise<WithdrawalRequestRecord[]> {
+    return this.request<WithdrawalRequestRecord[]>('/api/admin/referrals/withdrawals');
+  },
+
+  async approveAdminWithdrawal(withdrawalId: string): Promise<WithdrawalRequestRecord> {
+    return this.request<WithdrawalRequestRecord>(`/api/admin/referrals/withdrawals/${encodeURIComponent(withdrawalId)}/approve`, {
+      method: 'POST',
+    });
+  },
+
+  async payAdminWithdrawal(withdrawalId: string, payoutTxId: string): Promise<WithdrawalRequestRecord> {
+    return this.request<WithdrawalRequestRecord>(`/api/admin/referrals/withdrawals/${encodeURIComponent(withdrawalId)}/pay`, {
+      method: 'POST',
+      body: JSON.stringify({ payoutTxId }),
+    });
+  },
+
+  async rejectAdminWithdrawal(withdrawalId: string, reason: string): Promise<WithdrawalRequestRecord> {
+    return this.request<WithdrawalRequestRecord>(`/api/admin/referrals/withdrawals/${encodeURIComponent(withdrawalId)}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async getAdminCommissions(): Promise<ReferralCommissionRecord[]> {
+    return this.request<ReferralCommissionRecord[]>('/api/admin/referrals/commissions');
   },
 };

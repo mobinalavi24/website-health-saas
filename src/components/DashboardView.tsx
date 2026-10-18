@@ -18,8 +18,10 @@ import {
   SlidersHorizontal,
   ChevronRight,
   TrendingUp,
+  Layers,
 } from 'lucide-react';
-import type { Website, Incident, AlertNotification, Organization } from '../types.ts';
+import { apiClient } from '../api/client.ts';
+import type { Website, Incident, AlertNotification, Organization, UserCapacityInfo } from '../types.ts';
 
 interface DashboardViewProps {
   websites: Website[];
@@ -92,6 +94,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const trialRemainingMs = isFreePlan && trialEndsMs > 0 ? Math.max(0, trialEndsMs - nowMs) : 0;
   const remainingHours = Math.floor(trialRemainingMs / (1000 * 60 * 60));
   const remainingMins = Math.floor((trialRemainingMs % (1000 * 60 * 60)) / (1000 * 60));
+
+  const [capacity, setCapacity] = useState<UserCapacityInfo | null>(null);
+
+  React.useEffect(() => {
+    apiClient.getUserCapacity().then(setCapacity).catch(() => {});
+  }, [websites.length, organization?.planId]);
 
   const handleRunCheck = async (siteId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -177,7 +185,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </span>
                 <p className="text-slate-300 text-[11px]">
                   24 hours of unrestricted full-platform monitoring. Upgrade to{' '}
-                  <strong className="text-white">Pro for $5/month</strong> to monitor up to 5 websites continuously.
+                  <strong className="text-white">Pro for 5 USDT/month</strong> to monitor up to 5 websites continuously.
                 </p>
               </div>
             )}
@@ -190,7 +198,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 : 'bg-[#E6A05A] text-[#0B1120] hover:bg-[#cf863c]'
             }`}
           >
-            Upgrade to Pro ($5/mo)
+            Upgrade to Pro (5 USDT/mo)
           </button>
         </div>
       )}
@@ -235,9 +243,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
           <div className="text-[11px] text-slate-400 font-mono">
-            {organization?.planId === 'pro'
-              ? `Pro Plan ($5/mo): ${totalCount}/5 sites used`
-              : `Free Trial (24h): ${totalCount}/1 site used`}
+            {capacity ? (
+              <span>
+                Active Capacity: <strong className="text-white">{totalCount}/{capacity.totalSlots}</strong> sites ({capacity.remainingSlots} free)
+              </span>
+            ) : organization?.planId === 'pro' ? (
+              <span>Active Capacity: {totalCount} sites used</span>
+            ) : (
+              <span>Free Trial (24h): {totalCount}/1 site used</span>
+            )}
           </div>
         </div>
 

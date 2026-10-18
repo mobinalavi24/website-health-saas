@@ -28,6 +28,8 @@ export interface User {
   orgId: string;
   avatarUrl?: string;
   emailVerified: boolean;
+  referralCode?: string;
+  referredBy?: string;
   createdAt: string;
 }
 
@@ -36,7 +38,7 @@ export interface Organization {
   name: string;
   planId: 'free' | 'pro' | 'agency' | 'enterprise';
   billingInterval: 'monthly' | 'annual';
-  currency: 'USD' | 'EUR' | 'GBP';
+  currency: string;
   ownerId: string;
   trialStartedAt?: string;
   trialEndsAt?: string;
@@ -169,9 +171,8 @@ export interface SubscriptionPlan {
   badge: string;
   targetAudience: string;
   pricing: {
-    USD: { monthly: number; annual: number };
-    EUR: { monthly: number; annual: number };
-    GBP: { monthly: number; annual: number };
+    USDT?: { monthly: number; annual: number };
+    [key: string]: { monthly: number; annual: number } | undefined;
   };
   limits: {
     maxWebsites: number;
@@ -259,18 +260,38 @@ export interface ApiKey {
   lastUsedAt?: string;
 }
 
+export type TicketStatus = 'open' | 'in_progress' | 'waiting_for_customer' | 'resolved' | 'closed';
+
+export interface TicketMessage {
+  id: string;
+  ticketId: string;
+  senderUserId: string;
+  senderName: string;
+  senderEmail: string;
+  senderRole: 'customer' | 'admin' | 'super_admin';
+  message: string;
+  createdAt: string;
+  // Legacy compatibility fields
+  sender?: string;
+  role?: string;
+  timestamp?: string;
+}
+
 export interface SupportTicket {
   id: string;
   userId?: string;
   name: string;
   email: string;
   subject: string;
-  category: 'technical' | 'billing' | 'monitoring' | 'feature';
+  category?: 'technical' | 'billing' | 'monitoring' | 'feature' | 'general';
   message: string;
-  status: 'open' | 'in_progress' | 'resolved';
-  priority: 'low' | 'medium' | 'high';
+  status: TicketStatus;
+  priority?: 'low' | 'medium' | 'high';
   createdAt: string;
-  replies: { sender: string; role: string; message: string; timestamp: string }[];
+  updatedAt?: string;
+  lastMessageAt?: string;
+  requiresAdminResponse?: boolean;
+  replies: TicketMessage[];
 }
 
 export interface AuditLog {
@@ -283,3 +304,100 @@ export interface AuditLog {
   details: string;
   timestamp: string;
 }
+
+export interface ReferralCommissionRecord {
+  id: string;
+  orderId: string;
+  referrerId: string;
+  referredUserId: string;
+  referredUserEmail?: string;
+  referralCode: string;
+  planId: string;
+  planName: string;
+  orderAmountCents: number;
+  commissionAmountCents: number;
+  commissionRate: number;
+  currency: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface WithdrawalRequestRecord {
+  id: string;
+  userId: string;
+  userEmail?: string;
+  referralCode?: string;
+  amountCents: number;
+  currency: string;
+  trc20Address: string;
+  network: string;
+  status: 'pending' | 'approved' | 'paid' | 'rejected' | 'cancelled';
+  balanceBeforeCents: number;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  rejectedBy?: string | null;
+  rejectedAt?: string | null;
+  rejectionReason?: string | null;
+  paidBy?: string | null;
+  paidAt?: string | null;
+  payoutTxId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  associatedCustomers?: Array<{
+    userId: string;
+    email: string;
+    planName: string;
+    commissionCents: number;
+    orderId: string;
+    createdAt: string;
+  }>;
+}
+
+export interface UserReferralProfile {
+  referralCode: string;
+  referralUrl: string;
+  totalReferrals: number;
+  totalEligiblePurchases: number;
+  totalCommissionsEarned: number;
+  availableBalance: number;
+  reservedBalance: number;
+  totalWithdrawn: number;
+  commissions: ReferralCommissionRecord[];
+  withdrawals: WithdrawalRequestRecord[];
+}
+
+export interface AdminReferralOverview {
+  totalCommissionsGenerated: number;
+  totalAvailableLiabilities: number;
+  totalFundsReserved: number;
+  pendingWithdrawalsCount: number;
+  totalPaidWithdrawals: number;
+  totalRejectedCount: number;
+}
+
+export interface SubscriptionEntitlement {
+  id: string;
+  userId: string;
+  orgId: string;
+  planId: 'pro' | 'agency' | 'enterprise';
+  planName: string;
+  billingInterval: 'monthly' | 'annual';
+  websiteSlots: number;
+  orderId?: string;
+  status: 'active' | 'expired' | 'cancelled';
+  startedAt: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface UserCapacityInfo {
+  totalSlots: number;
+  usedSlots: number;
+  remainingSlots: number;
+  activeEntitlements: SubscriptionEntitlement[];
+  allEntitlements: SubscriptionEntitlement[];
+  isTrial: boolean;
+  isExpiredTrial: boolean;
+  trialEndsAt?: string;
+}
+

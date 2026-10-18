@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS organizations (
   name TEXT NOT NULL,
   plan_id TEXT NOT NULL,
   billing_interval TEXT NOT NULL DEFAULT 'monthly',
-  currency TEXT NOT NULL DEFAULT 'USD',
+  currency TEXT NOT NULL DEFAULT 'USDT',
   owner_id TEXT NOT NULL,
   trial_started_at TIMESTAMPTZ,
   trial_ends_at TIMESTAMPTZ,
@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS users (
   org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   avatar_url TEXT,
   email_verified BOOLEAN NOT NULL DEFAULT true,
+  referral_code TEXT UNIQUE,
+  referred_by TEXT REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -210,7 +212,7 @@ CREATE TABLE IF NOT EXISTS pagespeed_records (
 CREATE TABLE IF NOT EXISTS app_settings (
   id TEXT PRIMARY KEY DEFAULT 'default',
   maintenance_mode BOOLEAN NOT NULL DEFAULT false,
-  default_currency TEXT NOT NULL DEFAULT 'USD',
+  default_currency TEXT NOT NULL DEFAULT 'USDT',
   stripe_configured BOOLEAN NOT NULL DEFAULT false,
   worker_interval_sec INTEGER NOT NULL DEFAULT 60,
   max_free_scans_per_hour INTEGER NOT NULL DEFAULT 10,
@@ -224,9 +226,86 @@ CREATE TABLE IF NOT EXISTS migration_history (
   record_counts JSONB NOT NULL
 );
 
+-- Referral & Commission Wallet Tables
+CREATE TABLE IF NOT EXISTS referral_wallets (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  balance_cents INTEGER NOT NULL DEFAULT 0,
+  reserved_cents INTEGER NOT NULL DEFAULT 0,
+  paid_cents INTEGER NOT NULL DEFAULT 0,
+  total_earned_cents INTEGER NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS referral_commissions (
+  id TEXT PRIMARY KEY,
+  order_id TEXT UNIQUE NOT NULL,
+  referrer_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  referred_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  referral_code TEXT NOT NULL,
+  plan_id TEXT NOT NULL,
+  plan_name TEXT NOT NULL,
+  order_amount_cents INTEGER NOT NULL,
+  commission_amount_cents INTEGER NOT NULL,
+  commission_rate NUMERIC NOT NULL DEFAULT 0.40,
+  currency TEXT NOT NULL DEFAULT 'USDT',
+  status TEXT NOT NULL DEFAULT 'earned',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS withdrawal_requests (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  amount_cents INTEGER NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'USDT',
+  trc20_address TEXT NOT NULL,
+  network TEXT NOT NULL DEFAULT 'USDT — TRC20 (TRON)',
+  status TEXT NOT NULL DEFAULT 'pending',
+  balance_before_cents INTEGER NOT NULL DEFAULT 0,
+  approved_by TEXT,
+  approved_at TIMESTAMPTZ,
+  rejected_by TEXT,
+  rejected_at TIMESTAMPTZ,
+  rejection_reason TEXT,
+  paid_by TEXT,
+  paid_at TIMESTAMPTZ,
+  payout_tx_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS referral_ledger_entries (
+  id TEXT PRIMARY KEY,
+  wallet_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  entry_type TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL,
+  reference_id TEXT,
+  balance_after_cents INTEGER NOT NULL,
+  reserved_after_cents INTEGER NOT NULL,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Subscription Entitlements (Stacking multiple purchased subscriptions)
+CREATE TABLE IF NOT EXISTS subscription_entitlements (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  org_id TEXT NOT NULL,
+  plan_id TEXT NOT NULL,
+  plan_name TEXT NOT NULL,
+  billing_interval TEXT NOT NULL DEFAULT 'monthly',
+  website_slots INTEGER NOT NULL DEFAULT 5,
+  order_id TEXT UNIQUE,
+  status TEXT NOT NULL DEFAULT 'active',
+  started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Indexes for performance and query patterns
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_org ON users(org_id);
+CREATE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code);
+CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by);
 CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_websites_org ON websites(org_id);
@@ -238,3 +317,11 @@ CREATE INDEX IF NOT EXISTS idx_reports_share_token ON reports(share_token);
 CREATE INDEX IF NOT EXISTS idx_crypto_orders_tx ON crypto_orders(tx_id);
 CREATE INDEX IF NOT EXISTS idx_crypto_orders_org ON crypto_orders(org_id);
 CREATE INDEX IF NOT EXISTS idx_pagespeed_url ON pagespeed_records(url);
+CREATE INDEX IF NOT EXISTS idx_referral_commissions_referrer ON referral_commissions(referrer_id);
+CREATE INDEX IF NOT EXISTS idx_referral_commissions_order ON referral_commissions(order_id);
+CREATE INDEX IF NOT EXISTS idx_withdrawal_requests_user ON withdrawal_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_withdrawal_requests_status ON withdrawal_requests(status);
+CREATE INDEX IF NOT EXISTS idx_referral_ledger_user ON referral_ledger_entries(wallet_user_id);
+CREATE INDEX IF NOT EXISTS idx_entitlements_user_status ON subscription_entitlements(user_id, status, expires_at);
+CREATE INDEX IF NOT EXISTS idx_entitlements_org ON subscription_entitlements(org_id);
+CREATE INDEX IF NOT EXISTS idx_entitlements_order ON subscription_entitlements(order_id);

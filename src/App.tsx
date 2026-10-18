@@ -12,6 +12,8 @@ import { ApiDocsView } from './components/ApiDocsView.tsx';
 import { AdminView } from './components/AdminView.tsx';
 import { AdminCryptoTransactionsView } from './components/AdminCryptoTransactionsView.tsx';
 import { MyCryptoPaymentsView } from './components/MyCryptoPaymentsView.tsx';
+import { ReferralWalletView } from './components/ReferralWalletView.tsx';
+import { MyProfileView } from './components/MyProfileView.tsx';
 import { AddWebsiteModal } from './components/AddWebsiteModal.tsx';
 import { AuthModal } from './components/AuthModal.tsx';
 import { ContactModal } from './components/ContactModal.tsx';
@@ -23,7 +25,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [activeView, setActiveView] = useState<string>('home');
-  const [currency, setCurrency] = useState<'USD' | 'EUR' | 'GBP'>('USD');
+  const [profileTab, setProfileTab] = useState<'account' | 'subscriptions' | 'referrals' | 'payments'>('account');
 
   // Core Data
   const [websites, setWebsites] = useState<Website[]>([]);
@@ -50,6 +52,11 @@ export default function App() {
   }, []);
 
   const bootstrapSession = async () => {
+    const refParam = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('ref') : null;
+    if (refParam) {
+      localStorage.setItem('pv_referral_code', refParam.trim().toUpperCase());
+    }
+
     try {
       const p = await apiClient.getPlans();
       setPlans(p);
@@ -62,7 +69,11 @@ export default function App() {
         await loadUserData();
       }
     } catch {
-      // User is unauthenticated guest; stay on home view
+      // User is unauthenticated guest; auto-open registration modal if referral link was visited
+      if (refParam) {
+        setAuthModalTab('register');
+        setAuthModalOpen(true);
+      }
     }
   };
 
@@ -157,6 +168,35 @@ export default function App() {
 
   const selectedWebsite = websites.find((w) => w.id === selectedWebsiteId);
 
+  const handleNavigate = (view: string, tab?: 'account' | 'subscriptions' | 'referrals' | 'payments') => {
+    if (view === 'referrals' || view === 'referral') {
+      setProfileTab('referrals');
+      setActiveView('profile');
+      setSelectedWebsiteId(null);
+      return;
+    }
+    if (view === 'my-crypto-payments' || view === 'my-payments' || view === 'payments') {
+      setProfileTab('payments');
+      setActiveView('profile');
+      setSelectedWebsiteId(null);
+      return;
+    }
+    if (view === 'subscriptions') {
+      setProfileTab('subscriptions');
+      setActiveView('profile');
+      setSelectedWebsiteId(null);
+      return;
+    }
+    if (view === 'profile') {
+      if (tab) setProfileTab(tab);
+      setActiveView('profile');
+      setSelectedWebsiteId(null);
+      return;
+    }
+    setActiveView(view);
+    if (view !== 'website-detail') setSelectedWebsiteId(null);
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-[#0B1120] text-slate-100">
       {/* 3-Zone Navigation Header */}
@@ -164,17 +204,12 @@ export default function App() {
         user={user}
         organization={organization}
         activeView={activeView}
-        onNavigate={(view) => {
-          setActiveView(view);
-          if (view !== 'website-detail') setSelectedWebsiteId(null);
-        }}
+        onNavigate={handleNavigate}
         onOpenAuth={(tab = 'login') => {
           setAuthModalTab(tab);
           setAuthModalOpen(true);
         }}
         onLogout={handleLogout}
-        currency={currency}
-        onCurrencyChange={setCurrency}
       />
 
       {/* Main View Area */}
@@ -190,8 +225,6 @@ export default function App() {
               onOpenContact={() => setContactModalOpen(true)}
               onMonitorNow={handleMonitorNow}
               plans={plans}
-              currency={currency}
-              onCurrencyChange={setCurrency}
             />
           )}
 
@@ -209,8 +242,6 @@ export default function App() {
                 onOpenContact={() => setContactModalOpen(true)}
                 onMonitorNow={handleMonitorNow}
                 plans={plans}
-                currency={currency}
-                onCurrencyChange={setCurrency}
               />
             </div>
           )}
@@ -229,8 +260,6 @@ export default function App() {
                 onOpenContact={() => setContactModalOpen(true)}
                 onMonitorNow={handleMonitorNow}
                 plans={plans}
-                currency={currency}
-                onCurrencyChange={setCurrency}
               />
             </div>
           )}
@@ -239,8 +268,6 @@ export default function App() {
             <div className="space-y-6">
               <BillingView
                 organization={organization}
-                currency={currency}
-                onCurrencyChange={setCurrency}
                 onRefreshOrg={loadUserData}
               />
             </div>
@@ -347,16 +374,33 @@ export default function App() {
           {activeView === 'billing' && (
             <BillingView
               organization={organization}
-              currency={currency}
-              onCurrencyChange={setCurrency}
               onRefreshOrg={loadUserData}
+              onNavigateToProfile={(tab) => handleNavigate('profile', tab)}
             />
           )}
 
           {activeView === 'api-docs' && <ApiDocsView />}
 
-          {activeView === 'my-crypto-payments' && user && (
-            <MyCryptoPaymentsView onNavigateToBilling={() => setActiveView('billing')} />
+          {/* Consolidated Unified Account Page */}
+          {activeView === 'profile' && user && (
+            <MyProfileView
+              user={user}
+              organization={organization}
+              initialTab={profileTab}
+              onNavigate={handleNavigate}
+              onRefreshUserData={loadUserData}
+            />
+          )}
+
+          {/* Seamless backward compatibility redirects */}
+          {(activeView === 'referrals' || activeView === 'my-crypto-payments') && user && (
+            <MyProfileView
+              user={user}
+              organization={organization}
+              initialTab={activeView === 'referrals' ? 'referrals' : 'payments'}
+              onNavigate={handleNavigate}
+              onRefreshUserData={loadUserData}
+            />
           )}
 
           {activeView === 'admin-crypto-transactions' && (user?.role === 'admin' || user?.role === 'super_admin') && (

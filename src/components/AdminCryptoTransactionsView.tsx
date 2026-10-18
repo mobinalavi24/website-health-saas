@@ -13,7 +13,6 @@ import {
   Copy,
   Check,
   Layers,
-  DollarSign,
   ShieldCheck,
   User,
   X,
@@ -389,10 +388,10 @@ export const AdminCryptoTransactionsView: React.FC = () => {
         <div className="col-span-2 sm:col-span-1 p-4 rounded-xl border border-[#E6A05A]/30 bg-gradient-to-br from-[#0F172A] to-[#1e1710] relative overflow-hidden">
           <div className="text-[11px] font-semibold text-[#E6A05A] uppercase tracking-wider flex items-center justify-between">
             <span>Total Confirmed</span>
-            <DollarSign className="h-3.5 w-3.5 text-[#E6A05A]" />
+            <Coins className="h-3.5 w-3.5 text-[#E6A05A]" />
           </div>
           <div className="mt-2 text-2xl font-black text-white">
-            ${stats.totalConfirmedUsdt.toFixed(2)}
+            {stats.totalConfirmedUsdt.toFixed(2)}
             <span className="text-xs font-normal text-slate-400 ml-1">USDT</span>
           </div>
           <div className="mt-1 text-[11px] text-[#E6A05A]/80">

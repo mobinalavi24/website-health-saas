@@ -1,21 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Check, CreditCard, Download, FileText, ArrowRight, Sparkles, QrCode, ExternalLink, RefreshCw, AlertCircle, X, Lock } from 'lucide-react';
+import { Shield, Check, CreditCard, Download, FileText, ArrowRight, Sparkles, QrCode, ExternalLink, RefreshCw, AlertCircle, X, Lock, Gift, Layers, PlusCircle } from 'lucide-react';
 import { apiClient } from '../api/client.ts';
-import type { SubscriptionPlan, Organization, Invoice, CryptoPaymentOrder, LBankConnectionTestResult } from '../types.ts';
+import type { SubscriptionPlan, Organization, Invoice, CryptoPaymentOrder, LBankConnectionTestResult, UserCapacityInfo } from '../types.ts';
 import { CryptoPaymentModal } from './CryptoPaymentModal.tsx';
 
 interface BillingViewProps {
   organization: Organization | null;
-  currency: 'USD' | 'EUR' | 'GBP';
-  onCurrencyChange: (c: 'USD' | 'EUR' | 'GBP') => void;
   onRefreshOrg: () => void;
+  onNavigateToProfile?: (tab?: 'account' | 'subscriptions' | 'referrals' | 'payments') => void;
 }
 
 export const BillingView: React.FC<BillingViewProps> = ({
   organization,
-  currency,
-  onCurrencyChange,
   onRefreshOrg,
+  onNavigateToProfile,
 }) => {
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -27,21 +25,49 @@ export const BillingView: React.FC<BillingViewProps> = ({
   const [testingLBank, setTestingLBank] = useState(false);
   const [lbankTestResult, setLbankTestResult] = useState<LBankConnectionTestResult | null>(null);
   const [showTestModal, setShowTestModal] = useState(false);
+  const [checkoutRefCode, setCheckoutRefCode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('pv_referral_code') || '';
+    }
+    return '';
+  });
+  const [validatingRefCode, setValidatingRefCode] = useState(false);
+  const [refCodeFeedback, setRefCodeFeedback] = useState<{ valid: boolean; message: string } | null>(null);
+  const [capacityInfo, setCapacityInfo] = useState<UserCapacityInfo | null>(null);
 
   useEffect(() => {
     loadBillingData();
   }, []);
 
+  const handleValidateRefCode = async (codeToTest?: string) => {
+    const code = (codeToTest || checkoutRefCode).trim().toUpperCase();
+    if (!code) {
+      setRefCodeFeedback(null);
+      return;
+    }
+    setValidatingRefCode(true);
+    try {
+      const res = await apiClient.validateReferralCode(code);
+      setRefCodeFeedback({ valid: res.valid, message: res.valid ? `Valid code from ${res.referrer?.name || 'referrer'}` : res.message });
+    } catch (err: any) {
+      setRefCodeFeedback({ valid: false, message: err.message || 'Invalid referral code' });
+    } finally {
+      setValidatingRefCode(false);
+    }
+  };
+
   const loadBillingData = async () => {
     try {
-      const [p, inv, cryptOrders] = await Promise.all([
+      const [p, inv, cryptOrders, cap] = await Promise.all([
         apiClient.getPlans(),
         apiClient.getInvoices(),
         apiClient.getCryptoOrders().catch(() => []),
+        apiClient.getUserCapacity().catch(() => null),
       ]);
       setPlans(p);
       setInvoices(inv);
       setCryptoOrders(cryptOrders);
+      if (cap) setCapacityInfo(cap);
     } catch (e) {
       console.error('Failed to load billing data', e);
     }
@@ -69,14 +95,14 @@ export const BillingView: React.FC<BillingViewProps> = ({
   };
 
   const handleSelectPlan = async (planId: string) => {
-    if (organization?.planId === planId && organization?.billingInterval === interval) {
+    if (planId === 'free' && organization?.planId === 'free') {
       return;
     }
 
     if (planId === 'free') {
       setLoading(true);
       try {
-        await apiClient.changePlan('free', interval, currency);
+        await apiClient.changePlan('free', interval, 'USDT');
         setActionSuccessToast('Switched to Free 24-Hour Trial.');
         setTimeout(() => setActionSuccessToast(null), 3500);
         await loadBillingData();
@@ -92,7 +118,11 @@ export const BillingView: React.FC<BillingViewProps> = ({
     // Cryptocurrency Payment Flow (USDT TRC20 / LBank)
     setLoading(true);
     try {
-      const res = await apiClient.createCryptoOrder(planId, interval);
+      const res = await apiClient.createCryptoOrder(
+        planId,
+        interval,
+        checkoutRefCode.trim() || undefined
+      );
       if (res.success && res.order) {
         setCryptoModalOrder(res.order);
       }
@@ -110,8 +140,6 @@ export const BillingView: React.FC<BillingViewProps> = ({
     onRefreshOrg();
   };
 
-  const currencySymbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : '£';
-
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -121,11 +149,11 @@ export const BillingView: React.FC<BillingViewProps> = ({
             Subscription Plans & Quotas
           </h1>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Predictable international pricing: Free 24-hour trial (one time per account) or Pro for $5/month to scan 5 websites.
+            Predictable cryptocurrency pricing: Free 24-hour trial (one time per account) or Pro for 5 USDT/month to scan 5 websites.
           </p>
         </div>
 
-        {/* Currency & Cadence Controls */}
+        {/* Billing Cadence Controls */}
         <div className="flex items-center gap-3">
           {/* Monthly / Annual toggle */}
           <div className="flex items-center p-1 bg-slate-900 border border-slate-800 rounded-lg text-xs">
@@ -148,21 +176,6 @@ export const BillingView: React.FC<BillingViewProps> = ({
                 2 Mo Free
               </span>
             </button>
-          </div>
-
-          {/* Currency */}
-          <div className="flex items-center p-1 bg-slate-900 border border-slate-800 rounded-lg text-xs font-mono">
-            {(['USD', 'EUR', 'GBP'] as const).map((c) => (
-              <button
-                key={c}
-                onClick={() => onCurrencyChange(c)}
-                className={`px-2 py-1 rounded transition-colors ${
-                  currency === c ? 'bg-slate-800 text-[#E6A05A] font-semibold' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                {c}
-              </button>
-            ))}
           </div>
 
           {/* LBank API Test Button */}
@@ -189,14 +202,83 @@ export const BillingView: React.FC<BillingViewProps> = ({
         </div>
       )}
 
+      {/* Referral Code Checkout Support */}
+      <div className="max-w-4xl mx-auto p-4 rounded-xl border border-slate-800 bg-[#0F172A] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs w-full">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#E6A05A]/10 text-[#E6A05A] shrink-0">
+            <Gift className="h-4 w-4" />
+          </div>
+          <div>
+            <span className="font-semibold text-white block">Referred by a partner or colleague?</span>
+            <span className="text-slate-400 text-[11px]">Enter their referral code before upgrading to credit them 40% commission upon payment confirmation.</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <input
+            type="text"
+            value={checkoutRefCode}
+            onChange={(e) => {
+              const val = e.target.value.toUpperCase();
+              setCheckoutRefCode(val);
+              if (val.length >= 4) handleValidateRefCode(val);
+              else setRefCodeFeedback(null);
+            }}
+            placeholder="e.g. PV8K2M9X"
+            className="w-full sm:w-36 bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-white font-mono uppercase focus:outline-none focus:border-[#E6A05A]"
+          />
+          {refCodeFeedback && (
+            <span className={`text-[11px] whitespace-nowrap px-2 py-1 rounded font-medium ${
+              refCodeFeedback.valid ? 'bg-emerald-950/40 text-emerald-300 border border-emerald-800' : 'bg-rose-950/40 text-rose-300 border border-rose-800'
+            }`}>
+              {refCodeFeedback.valid ? 'Valid Code' : 'Invalid'}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Subscription Capacity & Stacking Overview */}
+      {capacityInfo && capacityInfo.totalSlots > 0 && (
+        <div className="rounded-xl border border-[#E6A05A]/30 bg-[#E6A05A]/5 p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-lg bg-[#E6A05A]/10 border border-[#E6A05A]/30 text-[#E6A05A]">
+              <Layers className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-white">Active Website Monitoring Capacity</h3>
+                <span className="text-xs px-2 py-0.5 rounded font-mono font-bold bg-[#E6A05A]/20 text-[#E6A05A]">
+                  {capacityInfo.totalSlots} Slots Total
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-0.5">
+                {capacityInfo.usedSlots} sites monitored · {capacityInfo.remainingSlots} slots available
+                {capacityInfo.activeEntitlements && capacityInfo.activeEntitlements.length > 1
+                  ? ` (stacked across ${capacityInfo.activeEntitlements.length} independent subscriptions)`
+                  : ''}
+              </p>
+            </div>
+          </div>
+          {onNavigateToProfile && (
+            <button
+              onClick={() => onNavigateToProfile('subscriptions')}
+              className="text-xs font-semibold text-[#E6A05A] hover:text-[#cf863c] flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <span>Manage Stacked Subscriptions in My Profile</span>
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Plans Tier Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 max-w-4xl mx-auto gap-6 sm:gap-8">
         {plans.map((plan) => {
           const isCurrent = organization?.planId === plan.id;
           const isPro = plan.id === 'pro';
           const price = interval === 'annual'
-            ? plan.pricing[currency].annual
-            : plan.pricing[currency].monthly;
+            ? (plan.pricing.USDT?.annual ?? 50)
+            : (plan.pricing.USDT?.monthly ?? 5);
 
           return (
             <div
@@ -235,7 +317,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
                   <h3 className="text-2xl font-bold text-white">{plan.name}</h3>
                   <p className="text-xs sm:text-sm text-slate-400 mt-1">
                     {isPro
-                      ? '$5/month · Can scan 5 websites'
+                      ? '5 USDT/month · Can scan 5 websites'
                       : '24 hour trial only, one time per account.'}
                   </p>
                 </div>
@@ -264,7 +346,10 @@ export const BillingView: React.FC<BillingViewProps> = ({
                 <div className="py-1">
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-4xl sm:text-5xl font-extrabold font-mono text-white tabular-nums">
-                      {currencySymbol}{price}
+                      {price}
+                    </span>
+                    <span className="text-lg font-bold font-mono text-[#E6A05A]">
+                      USDT
                     </span>
                     <span className="text-xs sm:text-sm text-slate-400 font-mono">
                       {isPro
@@ -274,7 +359,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
                   </div>
                   {isPro && interval === 'annual' && (
                     <p className="text-[11px] text-emerald-400 font-mono mt-1">
-                      Equivalent to {currencySymbol}4.17/mo (2 months free)
+                      Equivalent to 4.17 USDT/mo (2 months free)
                     </p>
                   )}
                 </div>
@@ -297,10 +382,24 @@ export const BillingView: React.FC<BillingViewProps> = ({
                   >
                     <span>Trial Expired (Cannot Restart)</span>
                   </button>
+                ) : isCurrent && isPro ? (
+                  <div className="space-y-2">
+                    <button
+                      onClick={() => handleSelectPlan(plan.id)}
+                      disabled={loading}
+                      className="w-full py-3 rounded-xl text-xs sm:text-sm font-bold bg-[#E6A05A] text-[#0B1120] hover:bg-[#cf863c] cursor-pointer shadow-lg shadow-[#E6A05A]/10 transition-all flex items-center justify-center gap-2"
+                    >
+                      <PlusCircle className="h-4 w-4" />
+                      <span>{loading ? 'Creating Order...' : `+ Buy Additional 5 Sites (${price} USDT)`}</span>
+                    </button>
+                    <p className="text-[11px] text-center text-emerald-400 font-medium">
+                      ✓ Stacks +5 independently expiring website slots
+                    </p>
+                  </div>
                 ) : (
                   <button
                     onClick={() => handleSelectPlan(plan.id)}
-                    disabled={loading || isCurrent}
+                    disabled={loading || (isCurrent && !isPro)}
                     className={`w-full py-3 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
                       isCurrent
                         ? 'bg-slate-800 text-slate-400 cursor-default'
@@ -312,14 +411,14 @@ export const BillingView: React.FC<BillingViewProps> = ({
                     ) : isPro ? (
                       <>
                         <QrCode className="h-4 w-4" />
-                        <span>{loading ? 'Creating Order...' : `Pay ${currencySymbol}${price} with USDT (TRC20)`}</span>
+                        <span>{loading ? 'Creating Order...' : `Pay ${price} USDT (TRC20)`}</span>
                       </>
                     ) : (
                       'Switch to Free 24h Trial'
                     )}
                   </button>
                 )}
-                {isPro && !isCurrent && (
+                {isPro && (
                   <p className="text-[11px] text-center text-slate-400 mt-2 font-mono flex items-center justify-center gap-1">
                     <span>Instant automatic activation via LBank USDT TRC20</span>
                   </p>
@@ -449,7 +548,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
                     <td className="py-3">{new Date(inv.date).toLocaleDateString()}</td>
                     <td className="py-3 font-sans">{inv.planName}</td>
                     <td className="py-3 text-right font-bold text-white tabular-nums">
-                      {currencySymbol}{inv.amount}
+                      {inv.amount} <span className="text-[10px] text-slate-400 font-normal">USDT</span>
                     </td>
                     <td className="py-3 text-center">
                       <span className="text-[10px] text-emerald-400 uppercase bg-emerald-500/10 px-2 py-0.5 rounded font-sans font-semibold">

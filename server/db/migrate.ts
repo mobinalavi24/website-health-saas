@@ -92,6 +92,130 @@ export async function applyPaymentApprovalSchemaMigration(): Promise<void> {
   }
 }
 
+export async function applyReferralSchemaMigration(): Promise<{ backfilledUsers: number }> {
+  let backfilledUsers = 0;
+
+  // 1. Ensure columns exist on users
+  const columnQueries = [
+    'ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code TEXT',
+    'ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by TEXT',
+  ];
+  for (const q of columnQueries) {
+    try {
+      await query(q);
+    } catch {
+      // Column may already exist
+    }
+  }
+
+  // 2. Ensure referral tables exist
+  const tableQueries = [
+    `CREATE TABLE IF NOT EXISTS referral_wallets (
+       user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+       balance_cents INTEGER NOT NULL DEFAULT 0,
+       reserved_cents INTEGER NOT NULL DEFAULT 0,
+       paid_cents INTEGER NOT NULL DEFAULT 0,
+       total_earned_cents INTEGER NOT NULL DEFAULT 0,
+       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE TABLE IF NOT EXISTS referral_commissions (
+       id TEXT PRIMARY KEY,
+       order_id TEXT UNIQUE NOT NULL,
+       referrer_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       referred_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       referral_code TEXT NOT NULL,
+       plan_id TEXT NOT NULL,
+       plan_name TEXT NOT NULL,
+       order_amount_cents INTEGER NOT NULL,
+       commission_amount_cents INTEGER NOT NULL,
+       commission_rate NUMERIC NOT NULL DEFAULT 0.40,
+       currency TEXT NOT NULL DEFAULT 'USDT',
+       status TEXT NOT NULL DEFAULT 'earned',
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE TABLE IF NOT EXISTS withdrawal_requests (
+       id TEXT PRIMARY KEY,
+       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       amount_cents INTEGER NOT NULL,
+       currency TEXT NOT NULL DEFAULT 'USDT',
+       trc20_address TEXT NOT NULL,
+       network TEXT NOT NULL DEFAULT 'USDT — TRC20 (TRON)',
+       status TEXT NOT NULL DEFAULT 'pending',
+       balance_before_cents INTEGER NOT NULL DEFAULT 0,
+       approved_by TEXT,
+       approved_at TIMESTAMPTZ,
+       rejected_by TEXT,
+       rejected_at TIMESTAMPTZ,
+       rejection_reason TEXT,
+       paid_by TEXT,
+       paid_at TIMESTAMPTZ,
+       payout_tx_id TEXT,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE TABLE IF NOT EXISTS referral_ledger_entries (
+       id TEXT PRIMARY KEY,
+       wallet_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       entry_type TEXT NOT NULL,
+       amount_cents INTEGER NOT NULL,
+       reference_id TEXT,
+       balance_after_cents INTEGER NOT NULL,
+       reserved_after_cents INTEGER NOT NULL,
+       notes TEXT,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+  ];
+  for (const tq of tableQueries) {
+    try {
+      await query(tq);
+    } catch {
+      // Table may already exist
+    }
+  }
+
+  // 3. Backfill referral codes for all users that don't have one
+  const { generateReferralCode } = await import('../referrals.ts');
+  await withTransaction(async (client) => {
+    const unassigned = await client.query(
+      `SELECT id, email, referral_code FROM users WHERE referral_code IS NULL OR referral_code = ''`
+    );
+
+    for (const u of unassigned.rows) {
+      let code = '';
+      let isUnique = false;
+      let attempts = 0;
+      while (!isUnique && attempts < 10) {
+        attempts++;
+        code = generateReferralCode();
+        const check = await client.query('SELECT id FROM users WHERE referral_code = $1', [code]);
+        if (check.rows.length === 0) isUnique = true;
+      }
+      await client.query('UPDATE users SET referral_code = $1 WHERE id = $2', [code, u.id]);
+      backfilledUsers++;
+    }
+
+    // 4. Ensure all users have a referral_wallets row
+    await client.query(
+      `INSERT INTO referral_wallets (user_id, balance_cents, reserved_cents, paid_cents, total_earned_cents, updated_at)
+       SELECT id, 0, 0, 0, 0, NOW()
+       FROM users
+       ON CONFLICT (user_id) DO NOTHING`
+    );
+
+    // 5. Record migration in history
+    await client.query(
+      `INSERT INTO migration_history (id, applied_at, source, record_counts)
+       VALUES ('003_referral_system', NOW(), 'referral_system_migration', $1)
+       ON CONFLICT (id) DO UPDATE SET
+         applied_at = NOW(),
+         record_counts = EXCLUDED.record_counts`,
+      [JSON.stringify({ backfilledUsers })]
+    );
+  });
+
+  return { backfilledUsers };
+}
+
 export async function runMigration(options: { force?: boolean } = {}): Promise<MigrationSummary> {
   const jsonPath = path.resolve(process.cwd(), 'data/pulsevanguard.db.json');
 
@@ -121,6 +245,14 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
       console.log(`[Migration]: Auth cleanup applied: removed ${cleanupResult.removedUsers} default users, super admin assigned: ${cleanupResult.superAdminUpdated}`);
     }
     await applyPaymentApprovalSchemaMigration();
+    const refResult = await applyReferralSchemaMigration();
+    if (refResult.backfilledUsers > 0) {
+      console.log(`[Migration]: Referral schema migration applied: backfilled ${refResult.backfilledUsers} users`);
+    }
+    const entResult = await applySubscriptionEntitlementsMigration();
+    if (entResult.backfilled > 0) {
+      console.log(`[Migration]: Subscription entitlements migration applied: backfilled ${entResult.backfilled} entitlements`);
+    }
     return {
       success: true,
       source: jsonPath,
@@ -129,6 +261,8 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
       details: [
         'Migration already applied. Skipped re-inserting to preserve idempotency.',
         `Auth cleanup verified (removed default accounts: ${cleanupResult.removedUsers}, super admin updated: ${cleanupResult.superAdminUpdated})`,
+        `Referral migration verified (backfilled users: ${refResult.backfilledUsers})`,
+        `Subscription entitlements verified (backfilled: ${entResult.backfilled})`,
       ],
     };
   }
@@ -190,7 +324,7 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
           org.name,
           org.planId,
           org.billingInterval || 'monthly',
-          org.currency || 'USD',
+          org.currency || 'USDT',
           org.ownerId,
           org.trialStartedAt ? new Date(org.trialStartedAt).toISOString() : null,
           org.trialEndsAt ? new Date(org.trialEndsAt).toISOString() : null,
@@ -578,7 +712,7 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
     // 15. Settings
     const settings = data.settings || {
       maintenanceMode: false,
-      defaultCurrency: 'USD',
+      defaultCurrency: 'USDT',
       stripeConfigured: false,
       workerIntervalSec: 60,
       maxFreeScansPerHour: 10,
@@ -595,7 +729,7 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
          updated_at = NOW()`,
       [
         Boolean(settings.maintenanceMode),
-        settings.defaultCurrency || 'USD',
+        settings.defaultCurrency || 'USDT',
         Boolean(settings.stripeConfigured),
         settings.workerIntervalSec || 60,
         settings.maxFreeScansPerHour || 10,
@@ -615,6 +749,11 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
     );
   });
 
+  await applyAuthCleanupMigration();
+  await applyPaymentApprovalSchemaMigration();
+  await applyReferralSchemaMigration();
+  await applySubscriptionEntitlementsMigration();
+
   return {
     success: true,
     source: jsonPath,
@@ -623,3 +762,16 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
     details,
   };
 }
+
+export async function applySubscriptionEntitlementsMigration(): Promise<{ backfilled: number }> {
+  try {
+    const { ensureEntitlementsTable, backfillExistingSubEntitlements } = await import('../entitlements.ts');
+    await ensureEntitlementsTable();
+    const backfilled = await backfillExistingSubEntitlements();
+    return { backfilled };
+  } catch (err: any) {
+    console.warn('[Migration Warning]: Subscription entitlements migration notice:', err.message);
+    return { backfilled: 0 };
+  }
+}
+

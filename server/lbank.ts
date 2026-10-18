@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import QRCode from 'qrcode';
 import { db, type CryptoPaymentOrder, type CryptoPaymentStatus } from './db.ts';
+import { creditReferralCommission } from './referrals.ts';
 
 // USDT TRC20 Contract Address on TRON Mainnet
 export const TRON_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
@@ -302,9 +303,10 @@ export async function createCryptoPaymentOrder(params: {
   const plan = db.getPlans().find((p) => p.id === params.planId);
   if (!plan) throw new Error('Invalid plan selected');
 
+  const pricingObj = plan.pricing.USDT;
   const amount = params.billingInterval === 'annual'
-    ? plan.pricing.USD.annual
-    : plan.pricing.USD.monthly;
+    ? (pricingObj?.annual ?? 50)
+    : (pricingObj?.monthly ?? 5);
 
   if (amount <= 0) {
     throw new Error('Selected plan is free and does not require cryptocurrency payment.');
@@ -513,7 +515,7 @@ function activatePaidOrder(
   if (org) {
     org.planId = order.planId;
     org.billingInterval = order.billingInterval;
-    org.currency = 'USD';
+    org.currency = 'USDT';
     db.persist();
 
     // Create official invoice record
@@ -538,6 +540,11 @@ function activatePaidOrder(
       target: order.planName,
       details: `Plan upgraded to ${order.planId.toUpperCase()} via ${order.amount} USDT (TRC20). TXID: ${txId}`,
       timestamp: new Date().toISOString(),
+    });
+
+    // Credit 40% referral commission asynchronously in PostgreSQL
+    creditReferralCommission(updatedOrder).catch((err) => {
+      console.error('[Referral Commission Error in LBank]:', err.message);
     });
   }
 

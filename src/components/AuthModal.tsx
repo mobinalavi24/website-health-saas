@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Activity, Loader2, ArrowRight, ShieldCheck } from 'lucide-react';
 import { apiClient } from '../api/client.ts';
 import type { User, Organization } from '../types.ts';
@@ -21,9 +21,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [orgName, setOrgName] = useState('');
+  const [referralCode, setReferralCode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('ref');
+      if (p) {
+        localStorage.setItem('pv_referral_code', p.trim().toUpperCase());
+        return p.trim().toUpperCase();
+      }
+      return localStorage.getItem('pv_referral_code') || '';
+    }
+    return '';
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resetSent, setResetSent] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('ref');
+      if (p) {
+        const clean = p.trim().toUpperCase();
+        localStorage.setItem('pv_referral_code', clean);
+        setReferralCode(clean);
+      }
+    }
+  }, []);
 
   if (!isOpen) return null;
 
@@ -41,7 +63,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         onClose();
       } else if (tab === 'register') {
         apiClient.clearToken();
-        const res = await apiClient.register(name.trim(), email.trim(), password, orgName.trim());
+        const res = await apiClient.register(
+          name.trim(),
+          email.trim(),
+          password,
+          orgName.trim(),
+          referralCode.trim() || undefined
+        );
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('pv_referral_code');
+        }
         onSuccess(res.user, res.organization);
         onClose();
       } else if (tab === 'reset') {
@@ -177,16 +208,36 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             )}
 
             {tab === 'register' && (
-              <div>
-                <label className="text-slate-300 font-semibold block mb-1">Organization / Agency Name</label>
-                <input
-                  type="text"
-                  value={orgName}
-                  onChange={(e) => setOrgName(e.target.value)}
-                  placeholder="e.g. Acme Studio"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-[#E6A05A]"
-                />
-              </div>
+              <>
+                <div>
+                  <label className="text-slate-300 font-semibold block mb-1">Organization / Agency Name</label>
+                  <input
+                    type="text"
+                    value={orgName}
+                    onChange={(e) => setOrgName(e.target.value)}
+                    placeholder="e.g. Acme Studio"
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-[#E6A05A]"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-300 font-semibold">Referral Code (Optional)</label>
+                    {referralCode && (
+                      <span className="text-[10px] text-[#E6A05A] font-medium bg-[#E6A05A]/10 px-2 py-0.5 rounded">
+                        Referral Applied
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    value={referralCode}
+                    onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                    placeholder="e.g. PV8K2M9X"
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-white font-mono uppercase focus:outline-none focus:border-[#E6A05A]"
+                  />
+                </div>
+              </>
             )}
 
             <button

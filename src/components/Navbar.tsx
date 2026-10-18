@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Shield, Globe, Terminal, LogIn, LayoutDashboard, UserCheck, QrCode, Coins } from 'lucide-react';
+import { Activity, Shield, Globe, Terminal, LogIn, LayoutDashboard, UserCheck, QrCode, Coins, Gift } from 'lucide-react';
 import type { User, Organization } from '../types.ts';
 
 interface NavbarProps {
@@ -9,8 +9,6 @@ interface NavbarProps {
   onNavigate: (view: string) => void;
   onOpenAuth: (initialTab?: 'login' | 'register') => void;
   onLogout: () => void;
-  currency: 'USD' | 'EUR' | 'GBP';
-  onCurrencyChange: (c: 'USD' | 'EUR' | 'GBP') => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -20,8 +18,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigate,
   onOpenAuth,
   onLogout,
-  currency,
-  onCurrencyChange,
 }) => {
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-[#0B1120]/95 backdrop-blur-md">
@@ -89,18 +85,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 Monitored Sites
               </button>
               <button
-                onClick={() => onNavigate('scanner')}
-                className={`transition-colors hover:text-white ${activeView === 'scanner' ? 'text-[#E6A05A]' : ''}`}
-              >
-                Instant Scanner
-              </button>
-              <button
-                onClick={() => onNavigate('agency')}
-                className={`transition-colors hover:text-white ${activeView === 'agency' ? 'text-[#E6A05A]' : ''}`}
-              >
-                Agency & Clients
-              </button>
-              <button
                 onClick={() => onNavigate('reports')}
                 className={`transition-colors hover:text-white ${activeView === 'reports' ? 'text-[#E6A05A]' : ''}`}
               >
@@ -120,10 +104,13 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
               {user && (
                 <button
-                  onClick={() => onNavigate('my-crypto-payments')}
-                  className={`transition-colors hover:text-white ${activeView === 'my-crypto-payments' ? 'text-[#E6A05A]' : ''}`}
+                  onClick={() => onNavigate('profile')}
+                  className={`transition-colors hover:text-white flex items-center gap-1.5 ${
+                    activeView === 'profile' ? 'text-[#E6A05A] font-semibold' : ''
+                  }`}
                 >
-                  My Crypto Payments
+                  <UserCheck className="h-3.5 w-3.5 text-[#E6A05A]" />
+                  <span>My Profile</span>
                 </button>
               )}
               {(user.role === 'admin' || user.role === 'super_admin') && (
@@ -151,22 +138,6 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Zone 3: 1-2 primary actions */}
         <div className="flex items-center gap-3">
-          {/* Currency Selector (international SaaS requirement) */}
-          <div className="hidden sm:flex items-center rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-xs text-slate-300">
-            {(['USD', 'EUR', 'GBP'] as const).map((curr) => (
-              <button
-                key={curr}
-                onClick={() => onCurrencyChange(curr)}
-                className={`px-2 py-1 rounded font-mono transition-colors ${
-                  currency === curr
-                    ? 'bg-slate-800 text-[#E6A05A] font-semibold'
-                    : 'hover:text-white'
-                }`}
-              >
-                {curr === 'USD' ? '$' : curr === 'EUR' ? '€' : '£'} {curr}
-              </button>
-            ))}
-          </div>
 
           {!user ? (
             <div className="flex items-center gap-2">
@@ -215,16 +186,16 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
               {user && (
                 <button
-                  onClick={() => onNavigate('my-crypto-payments')}
-                  title="My Crypto Payments"
+                  onClick={() => onNavigate('profile')}
+                  title="My Profile & Subscriptions"
                   className={`flex h-8 items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-colors ${
-                    activeView === 'my-crypto-payments'
+                    activeView === 'profile'
                       ? 'bg-[#E6A05A] text-[#0B1120] border-[#E6A05A]'
                       : 'bg-slate-800 border-slate-700 text-[#E6A05A] hover:bg-slate-700'
                   }`}
                 >
-                  <QrCode className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">My Payments</span>
+                  <UserCheck className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">My Profile</span>
                 </button>
               )}
               <button

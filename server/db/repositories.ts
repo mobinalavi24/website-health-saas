@@ -43,8 +43,8 @@ export const UserRepo = {
     }
     const role = cleanEmail === 'mobinalavi7491@gmail.com' ? 'super_admin' : user.role;
     await query(
-      `INSERT INTO users (id, email, name, password_hash, role, org_id, avatar_url, email_verified, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO users (id, email, name, password_hash, role, org_id, avatar_url, email_verified, referral_code, referred_by, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        ON CONFLICT (id) DO UPDATE SET
          email = EXCLUDED.email,
          name = EXCLUDED.name,
@@ -52,7 +52,9 @@ export const UserRepo = {
          role = EXCLUDED.role,
          org_id = EXCLUDED.org_id,
          avatar_url = EXCLUDED.avatar_url,
-         email_verified = EXCLUDED.email_verified`,
+         email_verified = EXCLUDED.email_verified,
+         referral_code = COALESCE(users.referral_code, EXCLUDED.referral_code),
+         referred_by = COALESCE(users.referred_by, EXCLUDED.referred_by)`,
       [
         user.id,
         cleanEmail,
@@ -62,6 +64,8 @@ export const UserRepo = {
         user.orgId,
         user.avatarUrl || null,
         user.emailVerified ?? true,
+        user.referralCode || null,
+        user.referredBy || null,
         user.createdAt ? new Date(user.createdAt).toISOString() : new Date().toISOString(),
       ]
     );
@@ -113,7 +117,7 @@ export const OrgRepo = {
         org.name,
         org.planId,
         org.billingInterval || 'monthly',
-        org.currency || 'USD',
+        org.currency || 'USDT',
         org.ownerId,
         org.trialStartedAt ? new Date(org.trialStartedAt).toISOString() : null,
         org.trialEndsAt ? new Date(org.trialEndsAt).toISOString() : null,
@@ -531,21 +535,32 @@ export const GenericRepo = {
     return res.rows.map(mapTicketRow);
   },
 
+  async getTicketById(id: string): Promise<SupportTicket | null> {
+    const res = await query('SELECT * FROM support_tickets WHERE id = $1', [id]);
+    if (res.rows.length === 0) return null;
+    return mapTicketRow(res.rows[0]);
+  },
+
   async addTicket(tkt: SupportTicket): Promise<void> {
     await query(
       `INSERT INTO support_tickets (id, user_id, name, email, subject, category, message, status, priority, created_at, replies)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-       ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, replies = EXCLUDED.replies`,
+       ON CONFLICT (id) DO UPDATE SET 
+         status = EXCLUDED.status, 
+         replies = EXCLUDED.replies,
+         name = EXCLUDED.name,
+         email = EXCLUDED.email,
+         subject = EXCLUDED.subject`,
       [
         tkt.id,
         tkt.userId || null,
         tkt.name,
         tkt.email,
         tkt.subject,
-        tkt.category,
+        tkt.category || 'general',
         tkt.message,
         tkt.status,
-        tkt.priority,
+        tkt.priority || 'medium',
         tkt.createdAt ? new Date(tkt.createdAt).toISOString() : new Date().toISOString(),
         JSON.stringify(tkt.replies || []),
       ]
@@ -608,7 +623,7 @@ export const GenericRepo = {
          updated_at = NOW()`,
       [
         Boolean(settings.maintenanceMode),
-        settings.defaultCurrency || 'USD',
+        settings.defaultCurrency || 'USDT',
         Boolean(settings.stripeConfigured),
         settings.workerIntervalSec || 60,
         settings.maxFreeScansPerHour || 10,
@@ -628,6 +643,8 @@ function mapUserRow(row: any): User {
     orgId: row.org_id,
     avatarUrl: row.avatar_url || undefined,
     emailVerified: Boolean(row.email_verified),
+    referralCode: row.referral_code || undefined,
+    referredBy: row.referred_by || undefined,
     createdAt: new Date(row.created_at).toISOString(),
   };
 }
