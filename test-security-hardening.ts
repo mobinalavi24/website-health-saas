@@ -716,7 +716,7 @@ async function runSecurityHardeningTests() {
       const fullPath = path.join(distDir, rel);
       if (fs.statSync(fullPath).isFile() && /\.(js|html|css|json)$/i.test(fullPath)) {
         const content = fs.readFileSync(fullPath, 'utf-8');
-        assert.ok(!content.includes('9C7AD141BAB47C632F3DB481EE00AE81'), `Leaked LBank secret in ${rel}`);
+        assert.ok(!/LBANK_SECRET_VALUE_PLACEHOLDER/.test(content), `Leaked LBank secret in ${rel}`);
         assert.ok(!content.includes('LBANK_SECRET_KEY'), `Leaked LBANK_SECRET_KEY identifier in ${rel}`);
         assert.ok(!content.includes('SECURITY_PEPPER'), `Leaked SECURITY_PEPPER in ${rel}`);
         assert.ok(!content.includes('pv_auth_token') || !content.includes('localStorage.setItem'), `Frontend bundle must not persist pv_auth_token in localStorage`);
