@@ -160,6 +160,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    void apiClient.logout().catch(() => {});
     apiClient.clearToken();
     setUser(null);
     setOrganization(null);

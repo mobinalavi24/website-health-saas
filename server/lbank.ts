@@ -13,14 +13,17 @@ import {
 // USDT TRC20 Contract Address on TRON Mainnet
 export const TRON_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
 
-// Default LBank credentials provided by user (can be overridden via environment variables)
-const LBANK_API_KEY = process.env.LBANK_API_KEY || 'c4bf07aa-cc79-47a3-b74e-eb4a27ab28b1';
-const LBANK_SECRET_KEY = process.env.LBANK_SECRET_KEY || '9C7AD141BAB47C632F3DB481EE00AE81';
-const LBANK_BASE_URL = process.env.LBANK_BASE_URL || 'https://api.lbank.info';
+// LBank credentials MUST come from server environment variables (never hardcoded in source)
+function getLBankApiKey(): string {
+  return (process.env.LBANK_API_KEY || '').trim();
+}
+function getLBankSecretKey(): string {
+  return (process.env.LBANK_SECRET_KEY || '').trim();
+}
+const LBANK_BASE_URL = (process.env.LBANK_BASE_URL || 'https://api.lbank.info').trim();
 
-// User's LBank TRC20 deposit address (configured via env or fallback)
-// User can specify LBANK_USDT_TRC20_ADDRESS in environment
-export const DEFAULT_DEPOSIT_ADDRESS = process.env.LBANK_USDT_TRC20_ADDRESS || 'TYDzsYUEpvnYmQk4zGP9sWWcTEd36AmyWP';
+// Configured TRC20 deposit address (public receiving wallet address, overridable via env)
+export const DEFAULT_DEPOSIT_ADDRESS = (process.env.LBANK_USDT_TRC20_ADDRESS || 'TYDzsYUEpvnYmQk4zGP9sWWcTEd36AmyWP').trim();
 
 // In-memory cache for resolved LBank deposit address
 let cachedDepositAddress: string | null = null;
@@ -43,13 +46,14 @@ function generateEchoStr(): string {
 export function signLBankRequest(params: Record<string, string | number>, secretKey: string): { sign: string; echostr: string; timestamp: string } {
   const timestamp = Date.now().toString();
   const echostr = generateEchoStr();
+  const apiKey = getLBankApiKey();
 
   const allParams: Record<string, string> = {
     ...Object.entries(params).reduce((acc, [k, v]) => {
       acc[k] = String(v);
       return acc;
     }, {} as Record<string, string>),
-    api_key: LBANK_API_KEY,
+    api_key: apiKey,
     signature_method: 'HmacSHA256',
     timestamp,
     echostr,
@@ -78,17 +82,23 @@ export async function getLBankDepositAddress(): Promise<string> {
     return cachedDepositAddress;
   }
 
+  const apiKey = getLBankApiKey();
+  const secretKey = getLBankSecretKey();
+  if (!apiKey || !secretKey) {
+    return DEFAULT_DEPOSIT_ADDRESS;
+  }
+
   try {
     const params: Record<string, string> = {
       coin: 'usdt',
       networkName: 'TRC20',
     };
 
-    const { sign, echostr, timestamp } = signLBankRequest(params, LBANK_SECRET_KEY);
+    const { sign, echostr, timestamp } = signLBankRequest(params, secretKey);
 
     const body = new URLSearchParams({
       ...params,
-      api_key: LBANK_API_KEY,
+      api_key: apiKey,
       sign,
     }).toString();
 
@@ -112,11 +122,10 @@ export async function getLBankDepositAddress(): Promise<string> {
         return data.data.address;
       }
     }
-  } catch (err) {
-    console.warn('[LBank API] Could not retrieve deposit address via API, using configured address:', err);
+  } catch {
+    // Fall back to configured deposit address without logging sensitive request details
   }
 
-  // Fallback to configured deposit address
   return DEFAULT_DEPOSIT_ADDRESS;
 }
 
@@ -124,16 +133,20 @@ export async function getLBankDepositAddress(): Promise<string> {
  * Query LBank Deposit History for recent USDT deposits
  */
 export async function fetchLBankDepositHistory(): Promise<any[]> {
+  const apiKey = getLBankApiKey();
+  const secretKey = getLBankSecretKey();
+  if (!apiKey || !secretKey) return [];
+
   try {
     const params: Record<string, string> = {
       coin: 'usdt',
     };
 
-    const { sign, echostr, timestamp } = signLBankRequest(params, LBANK_SECRET_KEY);
+    const { sign, echostr, timestamp } = signLBankRequest(params, secretKey);
 
     const query = new URLSearchParams({
       ...params,
-      api_key: LBANK_API_KEY,
+      api_key: apiKey,
       sign,
     }).toString();
 
@@ -154,8 +167,8 @@ export async function fetchLBankDepositHistory(): Promise<any[]> {
         return data.data;
       }
     }
-  } catch (err) {
-    console.warn('[LBank API] Deposit history query note:', err);
+  } catch {
+    // Ignore transient network errors
   }
   return [];
 }
@@ -188,23 +201,25 @@ export async function fetchTronBlockchainTransfers(depositAddress: string): Prom
       const json = await resp.json();
       if (Array.isArray(json?.data)) {
         for (const item of json.data) {
-          if (item.to_address === depositAddress && item.token_info?.symbol?.toUpperCase() === 'USDT') {
+          if (item.to === depositAddress && item.token_info?.symbol?.toUpperCase() === 'USDT') {
             const rawAmount = Number(item.value);
             const decimals = item.token_info?.decimals || 6;
             const amountUsdt = rawAmount / Math.pow(10, decimals);
-            transfers.push({
-              txId: item.transaction_id,
-              from: item.from_address,
-              to: item.to_address,
-              amountUsdt,
-              timestamp: Number(item.block_timestamp),
-              confirmed: true,
-            });
+            if (Number.isFinite(amountUsdt) && amountUsdt > 0) {
+              transfers.push({
+                txId: item.transaction_id,
+                from: item.from,
+                to: item.to,
+                amountUsdt,
+                timestamp: Number(item.block_timestamp),
+                confirmed: true,
+              });
+            }
           }
         }
       }
     }
-  } catch (e) {
+  } catch {
     // Continue to fallback
   }
 
@@ -222,14 +237,16 @@ export async function fetchTronBlockchainTransfers(depositAddress: string): Prom
           for (const item of json.data) {
             if (item.to_address === depositAddress) {
               const amountUsdt = Number(item.amount_str || item.quant || 0) / 1e6;
-              transfers.push({
-                txId: item.transaction_id || item.hash,
-                from: item.from_address,
-                to: item.to_address,
-                amountUsdt,
-                timestamp: Number(item.timestamp),
-                confirmed: item.confirmed !== false,
-              });
+              if (Number.isFinite(amountUsdt) && amountUsdt > 0) {
+                transfers.push({
+                  txId: item.transaction_id || item.hash,
+                  from: item.from_address,
+                  to: item.to_address,
+                  amountUsdt,
+                  timestamp: Number(item.timestamp),
+                  confirmed: item.confirmed !== false,
+                });
+              }
             }
           }
         }
@@ -243,58 +260,83 @@ export async function fetchTronBlockchainTransfers(depositAddress: string): Prom
 }
 
 /**
- * Verify a single transaction ID directly on the TRON blockchain
+ * Verify a single transaction ID directly on the TRON blockchain against expectedAddress and TRON_USDT_CONTRACT.
+ * Never returns valid:true unless a confirmed TRC20 USDT transfer to expectedAddress with amountUsdt > 0 is verified.
  */
 export async function inspectTronTransaction(txId: string, expectedAddress: string): Promise<{
   valid: boolean;
   amountUsdt: number;
   to: string;
+  timestamp?: number;
   confirmed: boolean;
   error?: string;
 }> {
+  const cleanHash = (txId || '').trim();
+  if (!/^[0-9a-fA-F]{64}$/.test(cleanHash)) {
+    return { valid: false, amountUsdt: 0, to: '', confirmed: false, error: 'Invalid TRON transaction hash format (must be 64 hex characters).' };
+  }
+
   try {
-    const resp = await fetch('https://api.trongrid.io/wallet/gettransactioninfobyid', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value: txId.trim() }),
+    // Check confirmed incoming TRC20 transfers for the expected deposit address first
+    const transfers = await fetchTronBlockchainTransfers(expectedAddress);
+    const matched = transfers.find((t) => t.txId && t.txId.toLowerCase() === cleanHash.toLowerCase());
+    if (matched && matched.to === expectedAddress && matched.amountUsdt > 0) {
+      return {
+        valid: true,
+        amountUsdt: matched.amountUsdt,
+        to: matched.to,
+        timestamp: matched.timestamp,
+        confirmed: matched.confirmed,
+      };
+    }
+
+    // Fallback: query TronScan transaction detail API which decodes TRC20 contract & base58 addresses
+    const resp = await fetch(`https://apilist.tronscanapi.com/api/transaction-info?hash=${cleanHash}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 PulseVanguard-CryptoValidator' },
       signal: AbortSignal.timeout(6000),
     });
-
     if (resp.ok) {
       const info = await resp.json();
-      if (!info || Object.keys(info).length === 0) {
+      if (!info || Object.keys(info).length === 0 || !info.hash) {
         return { valid: false, amountUsdt: 0, to: '', confirmed: false, error: 'Transaction not found on TRON blockchain.' };
       }
-
-      if (info.receipt?.result && info.receipt.result !== 'SUCCESS') {
-        return { valid: false, amountUsdt: 0, to: '', confirmed: false, error: `Transaction failed on-chain: ${info.receipt.result}` };
+      if (info.contractRet && info.contractRet !== 'SUCCESS') {
+        return { valid: false, amountUsdt: 0, to: '', confirmed: false, error: `Transaction failed on-chain: ${info.contractRet}` };
       }
-
-      // Check log events for TRC20 transfer
-      if (Array.isArray(info.log)) {
-        for (const log of info.log) {
-          // Topic 0 for Transfer(address,address,uint256) is ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef
-          if (log.topics && log.topics[0]?.toLowerCase().includes('ddf252ad')) {
-            const rawAmountHex = log.data;
-            const rawAmount = parseInt(rawAmountHex, 16);
-            const amountUsdt = rawAmount / 1e6;
-            return {
-              valid: true,
-              amountUsdt,
-              to: expectedAddress,
-              confirmed: true,
-            };
-          }
+      const trc20List = Array.isArray(info.trc20TransferInfo) ? info.trc20TransferInfo : [];
+      for (const tr of trc20List) {
+        const contractAddr = String(tr.contract_address || '');
+        const toAddr = String(tr.to_address || '');
+        const decimals = Number(tr.decimals || 6);
+        const amountUsdt = Number(tr.amount_str || 0) / Math.pow(10, decimals);
+        if (
+          contractAddr === TRON_USDT_CONTRACT &&
+          toAddr === expectedAddress &&
+          Number.isFinite(amountUsdt) &&
+          amountUsdt > 0
+        ) {
+          return {
+            valid: true,
+            amountUsdt,
+            to: toAddr,
+            timestamp: Number(info.timestamp || Date.now()),
+            confirmed: Boolean(info.confirmed),
+          };
         }
       }
-
-      return { valid: true, amountUsdt: 0, to: expectedAddress, confirmed: true };
+      return {
+        valid: false,
+        amountUsdt: 0,
+        to: '',
+        confirmed: false,
+        error: 'Transaction does not contain a valid USDT TRC20 transfer to the deposit address.',
+      };
     }
   } catch (err: any) {
     return { valid: false, amountUsdt: 0, to: '', confirmed: false, error: err.message };
   }
 
-  return { valid: false, amountUsdt: 0, to: '', confirmed: false, error: 'Could not inspect transaction' };
+  return { valid: false, amountUsdt: 0, to: '', confirmed: false, error: 'Could not verify transaction on TRON blockchain.' };
 }
 
 /**
@@ -436,11 +478,25 @@ export async function verifyPaymentOrder(orderId: string, manualTxId?: string): 
     }
 
     const txInspection = await inspectTronTransaction(cleanTxId, order.depositAddress);
+    const orderCreatedTs = new Date(order.createdAt).getTime() - 120000;
 
-    if (txInspection.valid) {
-      // Validate amount (allow within 0.05 USDT tolerance if network fee deduction occurred)
+    if (txInspection.valid && txInspection.amountUsdt > 0 && txInspection.to === order.depositAddress) {
+      if (txInspection.timestamp && txInspection.timestamp < orderCreatedTs) {
+        db.updateCryptoOrder(order.id, {
+          status: 'Manual Review',
+          txId: cleanTxId,
+          verificationLog: `Timestamp precedes order creation (${new Date(txInspection.timestamp).toISOString()} < ${order.createdAt}).`,
+        });
+        return {
+          order: db.findCryptoOrderById(order.id)!,
+          activated: false,
+          message: 'Transaction timestamp predates this payment order. Flagged for Manual Review.',
+        };
+      }
+
+      // Validate amount (allow within 0.05 USDT tolerance)
       const amountDiff = Math.abs(txInspection.amountUsdt - order.amount);
-      if (amountDiff > 0.1 && txInspection.amountUsdt > 0) {
+      if (amountDiff > 0.05) {
         db.updateCryptoOrder(order.id, {
           status: 'Manual Review',
           txId: cleanTxId,
@@ -450,6 +506,20 @@ export async function verifyPaymentOrder(orderId: string, manualTxId?: string): 
           order: db.findCryptoOrderById(order.id)!,
           activated: false,
           message: `Amount mismatch: Detected ${txInspection.amountUsdt} USDT, but order requires ${order.amount} USDT. Flagged for Manual Review.`,
+        };
+      }
+
+      if (!txInspection.confirmed) {
+        db.updateCryptoOrder(order.id, {
+          status: 'Confirming',
+          txId: cleanTxId,
+          detectedAt: new Date().toISOString(),
+          verificationLog: 'Transaction detected on TRON network. Awaiting block confirmations.',
+        });
+        return {
+          order: db.findCryptoOrderById(order.id)!,
+          activated: false,
+          message: 'Deposit detected on TRON blockchain! Awaiting network confirmations...',
         };
       }
 
@@ -644,12 +714,14 @@ export interface LBankConnectionTestResult {
  */
 export async function testLBankConnection(): Promise<LBankConnectionTestResult> {
   const endpoint = `${LBANK_BASE_URL}/v2/supplement/api_Restrictions.do`;
-  const maskedKey = LBANK_API_KEY
-    ? `${LBANK_API_KEY.substring(0, 8)}...${LBANK_API_KEY.substring(LBANK_API_KEY.length - 4)}`
+  const apiKey = getLBankApiKey();
+  const secretKey = getLBankSecretKey();
+  const maskedKey = apiKey
+    ? `${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 4)}`
     : 'Not configured';
 
   // 1. Basic validation of environment variables
-  if (!LBANK_API_KEY || LBANK_API_KEY.trim().length === 0) {
+  if (!apiKey) {
     return {
       status: 'FAILED',
       title: 'LBank API Connection: FAILED',
@@ -660,7 +732,7 @@ export async function testLBankConnection(): Promise<LBankConnectionTestResult> 
     };
   }
 
-  if (!LBANK_SECRET_KEY || LBANK_SECRET_KEY.trim().length === 0) {
+  if (!secretKey) {
     return {
       status: 'FAILED',
       title: 'LBank API Connection: FAILED',
@@ -674,10 +746,10 @@ export async function testLBankConnection(): Promise<LBankConnectionTestResult> 
   // 2. Perform authenticated read-only request to api_Restrictions.do
   try {
     const params: Record<string, string> = {};
-    const { sign, echostr, timestamp } = signLBankRequest(params, LBANK_SECRET_KEY);
+    const { sign, echostr, timestamp } = signLBankRequest(params, secretKey);
 
     const body = new URLSearchParams({
-      api_key: LBANK_API_KEY,
+      api_key: apiKey,
       sign,
     }).toString();
 
@@ -724,9 +796,9 @@ export async function testLBankConnection(): Promise<LBankConnectionTestResult> 
 
       try {
         const userParams: Record<string, string> = {};
-        const signedUser = signLBankRequest(userParams, LBANK_SECRET_KEY);
+        const signedUser = signLBankRequest(userParams, secretKey);
         const userBody = new URLSearchParams({
-          api_key: LBANK_API_KEY,
+          api_key: apiKey,
           sign: signedUser.sign,
         }).toString();
 

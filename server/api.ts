@@ -3,7 +3,7 @@ import { IncomingMessage, ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import crypto from 'node:crypto';
 import dns from 'node:dns/promises';
-import { db, hashPassword, verifyPassword, type User, type Website, type Organization, type AlertNotification, type ReportItem, type SupportTicket, type ApiKey } from './db.ts';
+import { db, hashPasswordAsync, verifyPasswordAsync, burnDummyPasswordVerification, needsPasswordRehash, type User, type Website, type Organization, type AlertNotification, type ReportItem, type SupportTicket, type ApiKey } from './db.ts';
 import { performWebsiteScan, normalizeInputUrl, validateTargetSecurity } from './scanner.ts';
 import { performPageSpeedAnalysis } from './pagespeed.ts';
 import type { CombinedPageSpeedResult } from './pagespeedTypes.ts';
@@ -29,9 +29,48 @@ import {
 } from './referrals.ts';
 import {
   createSession as createDbSession,
-  findSessionByToken,
-  deleteSessionByToken,
+  lookupSession,
+  touchSession,
+  revokeSessionByToken,
+  revokeAllUserSessions,
+  generateSessionToken,
+  generateCsrfToken,
+  hashSessionToken,
+  SESSION_IDLE_MS,
+  type PersistentSession,
 } from './db/sessionRepo.ts';
+import {
+  SESSION_COOKIE_NAME,
+  CSRF_COOKIE_NAME,
+  STATE_CHANGING_METHODS,
+  accountKeyFor,
+  applyApiSecurityHeaders,
+  applyCors,
+  buildClearCookies,
+  buildCsrfCookie,
+  buildSessionCookie,
+  getClientIp,
+  getRequestId,
+  hashIp,
+  isTrustedOrigin,
+  listSecurityEvents,
+  logSecurityEvent,
+  maskEmail,
+  normalizeEmail,
+  parseCookies,
+  rateLimit,
+  sanitizeForLog,
+  isProduction,
+} from './security.ts';
+import {
+  adminUnlockAccount,
+  beginLoginAttempt,
+  completeLoginAttempt,
+  confirmPasswordReset,
+  requestPasswordReset,
+  validatePasswordPolicy,
+} from './accountSecurity.ts';
+import { SsrfBlockedError, safeFetch } from './ssrf.ts';
 import {
   createSupportTicket,
   listCustomerSupportTickets,
@@ -51,136 +90,388 @@ import {
 
 function getPublicOrigin(req: IncomingMessage): string {
   const configured = process.env.PUBLIC_APP_URL || process.env.APP_URL || process.env.VITE_APP_URL;
-  if (configured && configured.trim()) {
+  if (configured && configured.trim() && /^https?:\/\//i.test(configured.trim())) {
     return configured.trim().replace(/\/+$/, '');
   }
-  const originHeader = req.headers['origin'];
-  if (typeof originHeader === 'string' && originHeader.startsWith('http')) {
-    return originHeader.replace(/\/+$/, '');
+  // Never trust Origin / X-Forwarded-* for building links (host-header injection). Fall back to a
+  // syntactically valid Host header only when no public URL is configured (development).
+  const host = String(req.headers['host'] || '');
+  if (/^[a-z0-9.-]+(:\d{1,5})?$/i.test(host)) return `http://${host}`;
+  return 'http://localhost:3000';
+}
+
+/** Error with a status code and a message that is safe to return to the public client. */
+class HttpError extends Error {
+  status: number;
+  extraHeaders?: Record<string, string>;
+  constructor(status: number, message: string, extraHeaders?: Record<string, string>) {
+    super(message);
+    this.status = status;
+    this.extraHeaders = extraHeaders;
   }
-  const proto = (req.headers['x-forwarded-proto'] as string)?.split(',')[0]?.trim() || 'http';
-  const host = (req.headers['x-forwarded-host'] as string)?.split(',')[0]?.trim() || req.headers['host'] || 'localhost:5173';
-  return `${proto}://${host}`;
 }
 
-// Token mechanism with in-memory caching + PostgreSQL persistence
-const sessionStore = new Map<string, { userId: string; orgId: string; expiresAt: number }>();
+const MAX_JSON_BODY_BYTES = Number(process.env.MAX_JSON_BODY_BYTES) || 256 * 1024;
 
-function createSession(userId: string, orgId: string): string {
-  const token = `pv_sess_${crypto.randomBytes(24).toString('hex')}`;
-  const expiresAt = Date.now() + 7 * 24 * 3600 * 1000;
-  sessionStore.set(token, {
-    userId,
-    orgId,
-    expiresAt,
-  });
-  db.ensureSchema()
-    .then(() => createDbSession(token, userId, orgId, expiresAt))
-    .catch((err) =>
-      console.warn('[Session DB Notice] Note saving session to PostgreSQL:', err.message)
-    );
-  return token;
+// ------------------------------------------------------------------------------------------------
+// Authentication / session resolution (PostgreSQL-backed sessions only; no in-memory fallback)
+// ------------------------------------------------------------------------------------------------
+interface AuthContext {
+  user: User;
+  org: Organization;
+  session: PersistentSession;
+  via: 'cookie' | 'bearer';
 }
+type AuthState =
+  | { kind: 'none' }
+  | { kind: 'invalid'; via: 'cookie' | 'bearer' }
+  | { kind: 'csrf'; via: 'cookie' }
+  | { kind: 'ok'; ctx: AuthContext };
 
-async function resolveSession(req: IncomingMessage): Promise<{ user: User; org: Organization } | null> {
+const authCache = new WeakMap<object, AuthState>();
+
+function extractCredentials(req: IncomingMessage): { token: string; via: 'cookie' | 'bearer' } | null {
   const authHeader = req.headers['authorization'];
-  if (!authHeader) return null;
-  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-
-  // 1. Check in-memory session cache first for fast response
-  const session = sessionStore.get(token);
-  if (session && session.expiresAt > Date.now()) {
-    const user = db.findUserById(session.userId);
-    if (user) {
-      const cleanEmail = (user.email || '').trim().toLowerCase();
-      if (cleanEmail === 'admin@pulsevanguard.com' || cleanEmail === 'agency@acmedigital.com') {
-        sessionStore.delete(token);
-        deleteSessionByToken(token).catch(() => {});
-        return null;
-      }
-      const org = db.findOrgById(user.orgId);
-      if (org) return { user, org };
-    }
+  if (typeof authHeader === 'string' && /^Bearer\s+/i.test(authHeader)) {
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (token.startsWith('pv_sess_')) return { token, via: 'bearer' };
+    // pv_live_* values are developer API keys, handled by the /api/v1 handlers - not sessions.
+    return null;
   }
-
-  // 2. Fall back to PostgreSQL persistent sessions table (e.g. surviving server restart)
-  try {
-    const dbSession = await findSessionByToken(token);
-    if (dbSession && dbSession.expiresAt > Date.now()) {
-      const cleanEmail = (dbSession.user.email || '').trim().toLowerCase();
-      if (cleanEmail === 'admin@pulsevanguard.com' || cleanEmail === 'agency@acmedigital.com') {
-        sessionStore.delete(token);
-        await deleteSessionByToken(token).catch(() => {});
-        return null;
-      }
-      sessionStore.set(token, {
-        userId: dbSession.userId,
-        orgId: dbSession.orgId,
-        expiresAt: dbSession.expiresAt,
-      });
-      return { user: dbSession.user, org: dbSession.org };
-    }
-  } catch (err: any) {
-    console.warn('[Session DB Warning] Failed looking up session in PostgreSQL:', err.message);
-  }
-
+  const cookieToken = parseCookies(req)[SESSION_COOKIE_NAME];
+  if (cookieToken) return { token: cookieToken, via: 'cookie' };
   return null;
 }
 
-// Helper to read JSON body
+function constantTimeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length || ab.length === 0) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
+
+async function authenticate(req: IncomingMessage): Promise<AuthState> {
+  const cached = authCache.get(req);
+  if (cached) return cached;
+
+  const creds = extractCredentials(req);
+  if (!creds) {
+    const s: AuthState = { kind: 'none' };
+    authCache.set(req, s);
+    return s;
+  }
+
+  let lookup;
+  try {
+    lookup = await lookupSession(creds.token);
+  } catch (err: any) {
+    // Persistent session storage unavailable -> fail closed. Never fall back to in-memory sessions.
+    void logSecurityEvent({ type: 'session_storage_failure', outcome: 'failure', req, details: { op: 'lookup' } });
+    throw new HttpError(503, 'Service temporarily unavailable. Please try again shortly.');
+  }
+
+  if (lookup.status !== 'valid') {
+    if (lookup.status === 'expired') {
+      void logSecurityEvent({ type: 'session_expired', outcome: 'info', userId: lookup.userId, req });
+    } else if (lookup.status === 'revoked') {
+      void logSecurityEvent({ type: 'session_reuse_suspected', outcome: 'blocked', userId: lookup.userId, req, details: { reason: 'revoked_token_presented' } });
+    }
+    const s: AuthState = { kind: 'invalid', via: creds.via };
+    authCache.set(req, s);
+    return s;
+  }
+
+  const session = lookup.session;
+  const cleanEmail = (session.user.email || '').trim().toLowerCase();
+  if (cleanEmail === 'admin@pulsevanguard.com' || cleanEmail === 'agency@acmedigital.com') {
+    await revokeSessionByToken(creds.token, 'decommissioned_account').catch(() => false);
+    const s: AuthState = { kind: 'invalid', via: creds.via };
+    authCache.set(req, s);
+    return s;
+  }
+
+  // CSRF: cookie-authenticated state-changing requests must echo the per-session token.
+  const method = (req.method || 'GET').toUpperCase();
+  if (creds.via === 'cookie' && STATE_CHANGING_METHODS.has(method)) {
+    const header = req.headers['x-csrf-token'];
+    if (typeof header !== 'string' || !constantTimeEqual(header, session.csrfToken)) {
+      void logSecurityEvent({ type: 'csrf_rejected', outcome: 'blocked', userId: session.userId, req });
+      const s: AuthState = { kind: 'csrf', via: 'cookie' };
+      authCache.set(req, s);
+      return s;
+    }
+  }
+
+  // Valid authenticated activity: slide the inactivity deadline (never past the absolute lifetime).
+  try {
+    session.expiresAt = await touchSession(session);
+  } catch {
+    // Non-fatal: the existing deadline still applies.
+  }
+
+  // Prefer the shared in-memory entities (existing routes mutate them) but take the ROLE from the
+  // database row so privilege changes apply immediately and cannot be stale.
+  const memUser = db.findUserById(session.userId);
+  const memOrg = db.findOrgById(session.orgId);
+  let user: User = session.user;
+  if (memUser) user = memUser.role === session.user.role ? memUser : { ...memUser, role: session.user.role };
+  const org: Organization = memOrg || session.org;
+
+  const s: AuthState = { kind: 'ok', ctx: { user, org, session, via: creds.via } };
+  authCache.set(req, s);
+  return s;
+}
+
+async function resolveSession(req: IncomingMessage): Promise<{ user: User; org: Organization } | null> {
+  const state = await authenticate(req);
+  return state.kind === 'ok' ? { user: state.ctx.user, org: state.ctx.org } : null;
+}
+
+/**
+ * Creates and PERSISTS a session. Throws (HTTP 503) if persistence fails - a session is never
+ * handed out unless it was durably stored.
+ */
+async function issueSession(
+  req: IncomingMessage,
+  res: ServerResponse,
+  user: User,
+  includeTokenInBody: boolean
+): Promise<{ token?: string; csrfToken: string }> {
+  const token = generateSessionToken();
+  let csrfToken: string;
+  let expiresAtMs: number;
+  try {
+    await db.ensureSchema();
+    const created = await createDbSession(token, user.id, user.orgId, Date.now() + SESSION_IDLE_MS, {
+      csrfToken: generateCsrfToken(),
+      ipHash: hashIp(getClientIp(req)),
+      userAgent: sanitizeForLog(req.headers['user-agent'], 160),
+    });
+    csrfToken = created.csrfToken;
+    expiresAtMs = created.expiresAtMs;
+  } catch (err: any) {
+    void logSecurityEvent({ type: 'session_storage_failure', outcome: 'failure', userId: user.id, req, details: { op: 'create' } });
+    throw new HttpError(503, 'Sign-in is temporarily unavailable. Please try again shortly.');
+  }
+  const maxAgeSec = Math.max(60, Math.floor((expiresAtMs - Date.now()) / 1000));
+  res.setHeader('Set-Cookie', [buildSessionCookie(token, maxAgeSec), buildCsrfCookie(csrfToken, maxAgeSec)]);
+  void logSecurityEvent({ type: 'session_created', outcome: 'success', userId: user.id, actorRole: user.role, req });
+  return { token: includeTokenInBody ? token : undefined, csrfToken };
+}
+
+/** Browser SPA sends X-PV-Client: web and never receives the raw token (cookie only). */
+function isWebClient(req: IncomingMessage): boolean {
+  return String(req.headers['x-pv-client'] || '').toLowerCase() === 'web';
+}
+
+// Helper to read JSON body (size capped, prototype-pollution keys stripped)
 async function readJsonBody(req: IncomingMessage): Promise<any> {
   if ((req as any).body && typeof (req as any).body === 'object') {
     return (req as any).body;
   }
   return new Promise((resolve, reject) => {
-    let raw = '';
-    req.on('data', (chunk) => {
-      raw += chunk;
-      if (raw.length > 2 * 1024 * 1024) {
-        reject(new Error('Payload too large'));
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let tooLarge = false;
+    req.on('data', (chunk: Buffer | string) => {
+      if (tooLarge) return;
+      const buf = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+      size += buf.length;
+      if (size > MAX_JSON_BODY_BYTES) {
+        tooLarge = true;
+        chunks.length = 0;
+        reject(new HttpError(413, 'Request body too large.', { Connection: 'close' }));
+        return;
       }
+      chunks.push(buf);
     });
     req.on('end', () => {
+      if (tooLarge) return;
+      const raw = Buffer.concat(chunks).toString('utf8');
       try {
-        if (!raw.trim()) resolve({});
-        else resolve(JSON.parse(raw));
-      } catch (e) {
-        reject(new Error('Invalid JSON format'));
+        if (!raw.trim()) return resolve({});
+        const parsed = JSON.parse(raw, (key, value) =>
+          key === '__proto__' || key === 'constructor' || key === 'prototype' ? undefined : value
+        );
+        if (parsed === null || typeof parsed !== 'object') {
+          return reject(new HttpError(400, 'Request body must be a JSON object.'));
+        }
+        resolve(parsed);
+      } catch {
+        reject(new HttpError(400, 'Invalid JSON format.'));
       }
     });
-    req.on('error', reject);
+    req.on('error', () => reject(new HttpError(400, 'Request could not be read.')));
   });
 }
 
-// JSON responder helper
+// JSON responder helper (CORS/security headers are applied once by the gateway)
 function sendJson(res: ServerResponse, status: number, data: any) {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.end(JSON.stringify(data));
 }
+
+// ------------------------------------------------------------------------------------------------
+// Input validation helpers
+// ------------------------------------------------------------------------------------------------
+const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
+
+function cleanString(value: unknown, max: number): string {
+  return typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max) : '';
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/** Maps scan failures to messages that are safe to show publicly (no internals). */
+function publicScanError(err: any, fallback: string): string {
+  const msg = String(err?.message || '');
+  if (/blocked|private|reserved|protected|Only http|valid website URL|Invalid URL|credentials|port|scheme|disallowed/i.test(msg)) {
+    return msg.slice(0, 200);
+  }
+  return fallback;
+}
+
+function isAdminRole(role: string | undefined): boolean {
+  return role === 'admin' || role === 'super_admin';
+}
+
+// Routes reachable without a session. EVERYTHING else under /api is denied by default at the gateway.
+const PUBLIC_EXACT_PATHS = new Set([
+  '/api/healthz',
+  '/api/health',
+  '/api/auth/login',
+  '/api/auth/register',
+  '/api/auth/logout',
+  '/api/auth/reset-password',
+  '/api/auth/reset-password/confirm',
+  '/api/scan',
+  '/api/scanner/pagespeed',
+  '/api/billing/plans',
+  '/api/referrals/validate',
+]);
+const PUBLIC_PREFIXES = ['/api/reports/share/', '/api/v1/'];
+
+const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
+
+// Concurrent unauthenticated scans per client IP (resource exhaustion guard)
+const activeScansByIp = new Map<string, number>();
 
 export async function handleApiRoute(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const reqUrl = req.url || (req as any).originalUrl || '';
   if (!reqUrl.startsWith('/api/')) return false;
 
-  const parsedUrl = new URL(reqUrl, 'http://localhost');
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(reqUrl, 'http://localhost');
+  } catch {
+    sendJson(res, 400, { error: 'Bad request.' });
+    return true;
+  }
   const path = parsedUrl.pathname;
   const method = req.method?.toUpperCase() || 'GET';
 
-  // Handle CORS preflight options request
+  // ---- Gateway: request id, headers, CORS, method/content-type policy, throttling ----------------
+  const requestId = getRequestId(req);
+  res.setHeader('X-Request-Id', requestId);
+  applyApiSecurityHeaders(res);
+  applyCors(req, res);
+
+  if (!ALLOWED_METHODS.has(method)) {
+    res.setHeader('Allow', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    sendJson(res, 405, { error: 'Method not allowed.' });
+    return true;
+  }
+
+  // Handle CORS preflight: only allowlisted origins receive CORS headers (see applyCors)
   if (method === 'OPTIONS') {
     res.statusCode = 204;
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
     res.end();
     return true;
   }
 
+  const clientIp = getClientIp(req);
+  const ipHash = hashIp(clientIp);
+
+  const globalIp = rateLimit(`api:ip:${ipHash}`, Number(process.env.API_RATE_LIMIT_PER_MINUTE) || 600, 60_000);
+  if (!globalIp.allowed) {
+    void logSecurityEvent({ type: 'rate_limited', outcome: 'blocked', req, details: { scope: 'api_global_ip' } });
+    res.setHeader('Retry-After', String(globalIp.retryAfterSec));
+    sendJson(res, 429, { error: 'Too many requests. Please slow down.' });
+    return true;
+  }
+
+  // Browser CSRF defence layer 1: cross-origin state-changing requests are rejected outright.
+  if (STATE_CHANGING_METHODS.has(method)) {
+    const origin = req.headers['origin'];
+    if (typeof origin === 'string' && origin && !isTrustedOrigin(req, origin)) {
+      void logSecurityEvent({ type: 'origin_rejected', outcome: 'blocked', req, details: { origin: sanitizeForLog(origin, 100) } });
+      sendJson(res, 403, { error: 'Cross-origin request rejected.' });
+      return true;
+    }
+    if (req.headers['sec-fetch-site'] === 'cross-site' && !(typeof origin === 'string' && isTrustedOrigin(req, origin))) {
+      void logSecurityEvent({ type: 'origin_rejected', outcome: 'blocked', req, details: { reason: 'sec-fetch-site' } });
+      sendJson(res, 403, { error: 'Cross-origin request rejected.' });
+      return true;
+    }
+    const contentType = String(req.headers['content-type'] || '').toLowerCase();
+    const hasBody =
+      Number(req.headers['content-length'] || 0) > 0 || Boolean(req.headers['transfer-encoding']);
+    if (hasBody && !contentType.startsWith('application/json')) {
+      sendJson(res, 415, { error: 'Content-Type must be application/json.' });
+      return true;
+    }
+    if (Number(req.headers['content-length'] || 0) > MAX_JSON_BODY_BYTES) {
+      res.setHeader('Connection', 'close');
+      sendJson(res, 413, { error: 'Request body too large.' });
+      return true;
+    }
+  }
+
   try {
+    // ---- Gateway: authentication, CSRF, deny-by-default, admin namespace ---------------------------
+    const isPublic = PUBLIC_EXACT_PATHS.has(path) || PUBLIC_PREFIXES.some((p) => path.startsWith(p));
+    const authState = await authenticate(req);
+
+    if (authState.kind === 'csrf') {
+      sendJson(res, 403, { error: 'Invalid or missing CSRF token.' });
+      return true;
+    }
+    if (authState.kind === 'invalid' && authState.via === 'cookie') {
+      // Dead cookie session: clear it so the browser stops sending it.
+      res.setHeader('Set-Cookie', buildClearCookies());
+    }
+    if (authState.kind === 'ok' && authState.ctx.via === 'cookie') {
+      // Keep the cookie lifetime aligned with the server-side sliding deadline.
+      const remaining = Math.max(
+        60,
+        Math.floor((Math.min(authState.ctx.session.expiresAt, authState.ctx.session.absoluteExpiresAt) - Date.now()) / 1000)
+      );
+      res.setHeader('Set-Cookie', [
+        buildSessionCookie(parseCookies(req)[SESSION_COOKIE_NAME] || '', remaining),
+        buildCsrfCookie(authState.ctx.session.csrfToken, remaining),
+      ]);
+    }
+    if (!isPublic && authState.kind !== 'ok') {
+      void logSecurityEvent({ type: 'unauthorized_access', outcome: 'blocked', req, details: { method, path: sanitizeForLog(path, 120) } });
+      sendJson(res, 401, { error: 'Unauthenticated' });
+      return true;
+    }
+    if (path.startsWith('/api/admin/') && authState.kind === 'ok' && !isAdminRole(authState.ctx.user.role)) {
+      void logSecurityEvent({
+        type: 'forbidden_access',
+        outcome: 'blocked',
+        userId: authState.ctx.user.id,
+        actorRole: authState.ctx.user.role,
+        req,
+        details: { method, path: sanitizeForLog(path, 120) },
+      });
+      sendJson(res, 403, { error: 'Admin privilege required' });
+      return true;
+    }
+
     // 0. HEALTH CHECK
     if ((path === '/api/healthz' || path === '/api/health') && method === 'GET') {
       sendJson(res, 200, { status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() });
@@ -190,13 +481,26 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     // 1. FREE PUBLIC SCANNER & PAGESPEED INSIGHTS / AUTHENTICATED SCANNER
     if ((path === '/api/scan' || path === '/api/scanner/run') && method === 'POST') {
       const session = await resolveSession(req);
-      // Protected Scanner endpoint requires authentication
       if (path === '/api/scanner/run' && !session) {
         sendJson(res, 401, { error: 'Unauthenticated. Please log in to run scans.' });
         return true;
       }
 
-      // If request has authentication (or is /api/scanner/run), enforce Free Trial restriction
+      // Per-IP scan rate limit + concurrent scan ceiling
+      const maxScansPerHour = Math.max(5, Number(db.getSettings()?.maxFreeScansPerHour) || 25);
+      const scanLimit = rateLimit(`scan:ip:${ipHash}`, session ? maxScansPerHour * 4 : maxScansPerHour, 60 * 60_000);
+      if (!scanLimit.allowed) {
+        void logSecurityEvent({ type: 'rate_limited', outcome: 'blocked', userId: session?.user.id, req, details: { scope: 'scanner' } });
+        res.setHeader('Retry-After', String(scanLimit.retryAfterSec));
+        sendJson(res, 429, { error: 'Scan rate limit reached. Please wait before running another scan.' });
+        return true;
+      }
+      const inFlight = activeScansByIp.get(ipHash) || 0;
+      if (inFlight >= 3) {
+        sendJson(res, 429, { error: 'Too many concurrent scans in progress from your connection.' });
+        return true;
+      }
+
       if (session && session.org.planId === 'free' && session.user.role !== 'super_admin') {
         const trial = getAccountTrialStatus(session.org);
         if (trial.isExpired) {
@@ -206,22 +510,20 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       }
 
       const body = await readJsonBody(req);
-      const target = body.url;
-      if (!target || typeof target !== 'string') {
+      const target = typeof body.url === 'string' ? body.url.trim() : '';
+      if (!target || target.length > 2048) {
         sendJson(res, 400, { error: 'Please provide a valid website URL.' });
         return true;
       }
 
+      activeScansByIp.set(ipHash, inFlight + 1);
       try {
-        // Run core health scan
         const scanResult = await performWebsiteScan(target);
 
-        // Run PageSpeed analysis in parallel or safely attached without failing core scan
         try {
           const pageSpeedData = await performPageSpeedAnalysis(target);
           scanResult.pageSpeed = pageSpeedData;
 
-          // Save PageSpeed records in db for persistence
           if (pageSpeedData.mobile) {
             db.addPageSpeedRecord({
               id: `ps_mob_${Date.now()}`,
@@ -270,13 +572,26 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
             scannedAt: new Date().toISOString(),
             mobile: null,
             desktop: null,
-            error: psErr.message || 'PageSpeed analysis is temporarily unavailable.',
+            error: publicScanError(psErr, 'PageSpeed analysis is temporarily unavailable.'),
           };
         }
 
         sendJson(res, 200, scanResult);
       } catch (err: any) {
-        sendJson(res, 422, { error: err.message || 'Scan failed for given URL.' });
+        if (err instanceof SsrfBlockedError || /blocked|private|reserved|protected|disallowed/i.test(String(err?.message))) {
+          void logSecurityEvent({
+            type: 'ssrf_blocked',
+            outcome: 'blocked',
+            userId: session?.user.id,
+            req,
+            details: { endpoint: path, target: sanitizeForLog(target, 160), reason: sanitizeForLog(err?.message, 160) },
+          });
+        }
+        sendJson(res, 422, { error: publicScanError(err, 'Scan failed for the requested URL.') });
+      } finally {
+        const rem = (activeScansByIp.get(ipHash) || 1) - 1;
+        if (rem <= 0) activeScansByIp.delete(ipHash);
+        else activeScansByIp.set(ipHash, rem);
       }
       return true;
     }
@@ -292,19 +607,27 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         }
       }
 
+      const psLimit = rateLimit(`pagespeed:ip:${ipHash}`, session ? 60 : 20, 60 * 60_000);
+      if (!psLimit.allowed) {
+        void logSecurityEvent({ type: 'rate_limited', outcome: 'blocked', userId: session?.user.id, req, details: { scope: 'pagespeed' } });
+        res.setHeader('Retry-After', String(psLimit.retryAfterSec));
+        sendJson(res, 429, { error: 'PageSpeed rate limit reached. Please wait before trying again.' });
+        return true;
+      }
+
       let target = '';
       let forceRefresh = false;
       let requestedStrategy: 'mobile' | 'desktop' | 'both' = 'both';
 
       if (method === 'POST') {
         const body = await readJsonBody(req);
-        target = body?.url;
+        target = typeof body?.url === 'string' ? body.url.trim() : '';
         forceRefresh = Boolean(body?.forceRefresh);
         if (body?.strategy === 'mobile' || body?.strategy === 'desktop') {
           requestedStrategy = body.strategy;
         }
       } else {
-        target = parsedUrl.searchParams.get('url') || '';
+        target = (parsedUrl.searchParams.get('url') || '').trim();
         forceRefresh = parsedUrl.searchParams.get('forceRefresh') === 'true';
         const strat = parsedUrl.searchParams.get('strategy');
         if (strat === 'mobile' || strat === 'desktop') {
@@ -312,7 +635,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         }
       }
 
-      if (!target || typeof target !== 'string') {
+      if (!target || target.length > 2048) {
         sendJson(res, 400, { error: 'Please provide a valid website URL.' });
         return true;
       }
@@ -323,7 +646,6 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           strategy: requestedStrategy,
         });
 
-        // Persist records
         if (pageSpeedResult.mobile) {
           db.addPageSpeedRecord({
             id: `ps_mob_${Date.now()}`,
@@ -367,7 +689,16 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
         sendJson(res, 200, pageSpeedResult);
       } catch (err: any) {
-        sendJson(res, 422, { error: err.message || 'PageSpeed analysis failed.' });
+        if (err instanceof SsrfBlockedError || /blocked|private|reserved|protected|disallowed/i.test(String(err?.message))) {
+          void logSecurityEvent({
+            type: 'ssrf_blocked',
+            outcome: 'blocked',
+            userId: session?.user.id,
+            req,
+            details: { endpoint: path, target: sanitizeForLog(target, 160), reason: sanitizeForLog(err?.message, 160) },
+          });
+        }
+        sendJson(res, 422, { error: publicScanError(err, 'PageSpeed analysis failed.') });
       }
       return true;
     }
@@ -386,17 +717,35 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
     // 3. AUTHENTICATION ENDPOINTS
     if (path === '/api/auth/register' && method === 'POST') {
+      const regLimit = rateLimit(`register:ip:${ipHash}`, Number(process.env.REGISTER_IP_LIMIT_PER_HOUR) || 15, 60 * 60_000);
+      if (!regLimit.allowed) {
+        void logSecurityEvent({ type: 'rate_limited', outcome: 'blocked', req, details: { scope: 'register_ip' } });
+        res.setHeader('Retry-After', String(regLimit.retryAfterSec));
+        sendJson(res, 429, { error: 'Too many registration attempts. Please try again later.' });
+        return true;
+      }
+
       const body = await readJsonBody(req);
-      const { email, password, name, orgName } = body;
       const rawRefCode = body.referralCode || body.ref || parsedUrl.searchParams.get('ref') || '';
-      const cleanEmail = typeof email === 'string' ? email.trim() : '';
-      const cleanPassword = typeof password === 'string' ? password : '';
-      const cleanName = typeof name === 'string' ? name.trim() : '';
+      const cleanEmail = normalizeEmail(body.email);
+      const cleanPassword = typeof body.password === 'string' ? body.password : '';
+      const cleanName = cleanString(body.name, 100);
+      const cleanOrgName = cleanString(body.orgName, 120);
+
       if (!cleanEmail || !cleanPassword || !cleanName) {
         sendJson(res, 400, { error: 'Name, email, and password are required.' });
         return true;
       }
-      if (cleanEmail.toLowerCase() === 'admin@pulsevanguard.com' || cleanEmail.toLowerCase() === 'agency@acmedigital.com') {
+      if (!EMAIL_RE.test(cleanEmail) || cleanEmail.length > 254) {
+        sendJson(res, 400, { error: 'Please provide a valid email address.' });
+        return true;
+      }
+      const pwErr = validatePasswordPolicy(cleanPassword);
+      if (pwErr) {
+        sendJson(res, 400, { error: pwErr });
+        return true;
+      }
+      if (cleanEmail === 'admin@pulsevanguard.com' || cleanEmail === 'agency@acmedigital.com') {
         sendJson(res, 400, { error: 'Registration with this reserved email address is not permitted.' });
         return true;
       }
@@ -422,14 +771,14 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         }
       }
 
-      const orgId = `org_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`;
-      const userId = `usr_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`;
+      const orgId = `org_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+      const userId = `usr_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
       const nowIso = new Date().toISOString();
       const trialEndsIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
       const newOrg: Organization = {
         id: orgId,
-        name: orgName ? String(orgName).trim() : `${cleanName}'s Workspace`,
+        name: cleanOrgName || `${cleanName}'s Workspace`,
         planId: 'free',
         billingInterval: 'monthly',
         currency: 'USDT',
@@ -437,22 +786,19 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         trialStartedAt: nowIso,
         trialEndsAt: trialEndsIso,
         trialUsed: true,
-        whiteLabel: { enabled: false, brandName: orgName ? String(orgName).trim() : cleanName },
+        whiteLabel: { enabled: false, brandName: cleanOrgName || cleanName },
         clients: [],
         createdAt: nowIso,
       };
-      db.addOrganization(newOrg);
-      try {
-        await OrgRepo.insert(newOrg);
-      } catch {}
 
       const uniqueReferralCode = await generateUniqueReferralCodeForUser(userId, cleanEmail);
-      const isTargetSuperAdmin = cleanEmail.toLowerCase() === 'mobinalavi7491@gmail.com';
+      const isTargetSuperAdmin = cleanEmail === 'mobinalavi7491@gmail.com';
+      const passwordHash = await hashPasswordAsync(cleanPassword);
       const newUser: User = {
         id: userId,
-        email: cleanEmail.toLowerCase(),
+        email: cleanEmail,
         name: cleanName,
-        passwordHash: hashPassword(cleanPassword),
+        passwordHash,
         role: isTargetSuperAdmin ? 'super_admin' : 'team_member',
         orgId,
         emailVerified: true,
@@ -462,15 +808,18 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         referredAt: referredByUserId ? nowIso : undefined,
         createdAt: nowIso,
       };
-      db.addUser(newUser);
-      try {
-        await UserRepo.insert(newUser);
-      } catch {}
 
-      const token = createSession(userId, orgId);
+      db.addOrganization(newOrg);
+      db.addUser(newUser);
+      // Await PostgreSQL persistence so the new user + org exist before issuing a session FK.
+      await OrgRepo.insert(newOrg);
+      await UserRepo.insert(newUser);
+
+      const issued = await issueSession(req, res, newUser, !isWebClient(req));
       const entitlementSummary = await getOrganizationEntitlementSummary(orgId);
       sendJson(res, 201, {
-        token,
+        ...(issued.token ? { token: issued.token } : {}),
+        csrfToken: issued.csrfToken,
         user: {
           id: newUser.id,
           email: newUser.email,
@@ -491,51 +840,76 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path === '/api/auth/login' && method === 'POST') {
-      const { email, password } = await readJsonBody(req);
-      const userAgent = req.headers['user-agent'] || 'unknown';
-      const cleanEmail = typeof email === 'string' ? email.trim() : '';
-      const cleanPassword = typeof password === 'string' ? password : '';
+      const body = await readJsonBody(req);
+      const cleanEmail = normalizeEmail(body.email);
+      const cleanPassword = typeof body.password === 'string' ? body.password : '';
 
-      // Diagnostic logging (strictly without logging password or password hash)
-      console.log(`[AUTH DIAGNOSTIC] Login attempt:`, {
-        emailLength: cleanEmail.length,
-        passwordLength: cleanPassword.length,
-        hasEmail: Boolean(cleanEmail),
-        hasPassword: Boolean(cleanPassword),
-        userAgentSummary: userAgent.substring(0, 80),
-        timestamp: new Date().toISOString(),
-      });
-
-      if (!cleanEmail || !cleanPassword) {
+      if (!cleanEmail || !cleanPassword || cleanPassword.length > 256) {
         sendJson(res, 400, { error: 'Email and password are required.' });
         return true;
       }
 
-      // Default demo accounts are permanently blocked and cannot log in
-      if (cleanEmail.toLowerCase() === 'admin@pulsevanguard.com' || cleanEmail.toLowerCase() === 'agency@acmedigital.com') {
-        console.log(`[AUTH DIAGNOSTIC] Login attempt rejected for decommissioned demo account.`);
-        sendJson(res, 401, { error: 'Invalid credentials. Please verify your email and password.' });
+      const GENERIC_LOGIN_ERROR = 'Invalid credentials. Please verify your email and password.';
+
+      // Reserve attempt slot / check lockout and per-IP throttles BEFORE running scrypt.
+      const gate = await beginLoginAttempt(cleanEmail, req);
+      if (!gate.allowed) {
+        // Burn a dummy scrypt derivation so response timing does not distinguish locked vs unlocked.
+        await burnDummyPasswordVerification(cleanPassword);
+        if (gate.reason === 'ip_limited' || gate.reason === 'global_limited') {
+          if (gate.retryAfterSec) res.setHeader('Retry-After', String(gate.retryAfterSec));
+          sendJson(res, 429, { error: 'Too many sign-in attempts. Please wait before trying again.' });
+          return true;
+        }
+        await logSecurityEvent({
+          type: 'login_blocked_locked',
+          outcome: 'blocked',
+          accountHint: maskEmail(cleanEmail),
+          req,
+          awaitWrite: true,
+        });
+        sendJson(res, 401, { error: GENERIC_LOGIN_ERROR });
         return true;
       }
 
-      const user = db.findUserByEmail(cleanEmail);
-      if (!user) {
-        console.log(`[AUTH DIAGNOSTIC] User not found by email.`);
-        sendJson(res, 401, { error: 'Invalid credentials. Please verify your email and password.' });
-        return true;
+      // Decommissioned demo accounts never authenticate; still run dummy hash + record failure.
+      const isDecommissioned =
+        cleanEmail === 'admin@pulsevanguard.com' || cleanEmail === 'agency@acmedigital.com';
+      const user = isDecommissioned ? undefined : db.findUserByEmail(cleanEmail);
+
+      let isValidPassword = false;
+      if (user) {
+        isValidPassword = await verifyPasswordAsync(cleanPassword, user.passwordHash);
+      } else {
+        await burnDummyPasswordVerification(cleanPassword);
       }
 
-      const isValidPassword = verifyPassword(cleanPassword, user.passwordHash);
-      console.log(`[AUTH DIAGNOSTIC] Password verification outcome:`, {
-        userFound: true,
-        userId: user.id,
-        userRole: user.role,
-        verified: isValidPassword,
+      const completion = await completeLoginAttempt(gate, isValidPassword && Boolean(user), {
+        userId: user?.id,
+        email: user?.email,
+        req,
       });
 
-      if (!isValidPassword) {
-        sendJson(res, 401, { error: 'Invalid credentials. Please verify your email and password.' });
+      if (!user || !isValidPassword) {
+        await logSecurityEvent({
+          type: 'login_failure',
+          outcome: 'failure',
+          userId: user?.id || null,
+          accountHint: maskEmail(cleanEmail),
+          req,
+          details: { lockedNow: completion.lockedNow },
+          awaitWrite: true,
+        });
+        sendJson(res, 401, { error: GENERIC_LOGIN_ERROR });
         return true;
+      }
+
+      // Transparently upgrade legacy PBKDF2 / SHA-2 hashes to scrypt on valid login.
+      if (needsPasswordRehash(user.passwordHash)) {
+        try {
+          const upgraded = await hashPasswordAsync(cleanPassword);
+          await db.setUserPasswordHash(user.id, upgraded);
+        } catch {}
       }
 
       // Ensure target account has super_admin role
@@ -550,12 +924,29 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         } catch {}
       }
 
+      // Session fixation defence: if the client already held a session cookie/header, revoke it.
+      const priorCreds = extractCredentials(req);
+      if (priorCreds) {
+        await revokeSessionByToken(priorCreds.token, 'reauthenticated').catch(() => false);
+      }
+
       await backfillSubscriptionEntitlements().catch(() => {});
       const entitlementSummary = await getOrganizationEntitlementSummary(user.orgId);
       const org = db.findOrgById(user.orgId);
-      const token = createSession(user.id, user.orgId);
+      const issued = await issueSession(req, res, user, !isWebClient(req));
+
+      void logSecurityEvent({
+        type: 'login_success',
+        outcome: 'success',
+        userId: user.id,
+        accountHint: maskEmail(user.email),
+        actorRole: user.role,
+        req,
+      });
+
       sendJson(res, 200, {
-        token,
+        ...(issued.token ? { token: issued.token } : {}),
+        csrfToken: issued.csrfToken,
         user: {
           id: user.id,
           email: user.email,
@@ -642,21 +1033,80 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
     }
 
     if (path === '/api/auth/reset-password' && method === 'POST') {
-      const { email } = await readJsonBody(req);
-      // In production an email with reset token is dispatched; simulate success safely
-      sendJson(res, 200, { message: `Password reset instructions have been dispatched to ${email || 'your email'}.` });
+      const body = await readJsonBody(req);
+      const outcome = await requestPasswordReset(body?.email, req);
+      sendJson(res, 200, {
+        message: 'If an account matches that address, password reset instructions have been sent.',
+        ...(outcome.debugToken ? { resetToken: outcome.debugToken } : {}),
+      });
+      return true;
+    }
+
+    if (path === '/api/auth/reset-password/confirm' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const result = await confirmPasswordReset(body?.token, body?.newPassword ?? body?.password, req);
+      if (!result.ok) {
+        sendJson(res, 400, { error: result.error });
+        return true;
+      }
+      res.setHeader('Set-Cookie', buildClearCookies());
+      sendJson(res, 200, {
+        success: true,
+        message: 'Your password has been updated and your account has been unlocked. Please sign in with your new password.',
+      });
+      return true;
+    }
+
+    if (path === '/api/auth/change-password' && method === 'POST') {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      const body = await readJsonBody(req);
+      const currentPassword = typeof body?.currentPassword === 'string' ? body.currentPassword : '';
+      const newPassword = typeof body?.newPassword === 'string' ? body.newPassword : '';
+      if (!currentPassword || !newPassword) {
+        sendJson(res, 400, { error: 'Current password and new password are required.' });
+        return true;
+      }
+      const pwErr = validatePasswordPolicy(newPassword);
+      if (pwErr) {
+        sendJson(res, 400, { error: pwErr });
+        return true;
+      }
+      const validCurrent = await verifyPasswordAsync(currentPassword, session.user.passwordHash);
+      if (!validCurrent) {
+        await logSecurityEvent({ type: 'password_changed', outcome: 'failure', userId: session.user.id, req, details: { reason: 'wrong_current_password' } });
+        sendJson(res, 401, { error: 'Current password is incorrect.' });
+        return true;
+      }
+      const newHash = await hashPasswordAsync(newPassword);
+      await db.setUserPasswordHash(session.user.id, newHash);
+      await revokeAllUserSessions(session.user.id, 'password_changed');
+      const issued = await issueSession(req, res, session.user, !isWebClient(req));
+      await logSecurityEvent({ type: 'password_changed', outcome: 'success', userId: session.user.id, req, awaitWrite: true });
+      sendJson(res, 200, {
+        success: true,
+        ...(issued.token ? { token: issued.token } : {}),
+        csrfToken: issued.csrfToken,
+        message: 'Password changed successfully. All other active sessions have been signed out.',
+      });
       return true;
     }
 
     if (path === '/api/auth/logout' && method === 'POST') {
       const authHeader = req.headers['authorization'];
-      if (authHeader) {
-        const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-        sessionStore.delete(token);
-        try {
-          await deleteSessionByToken(token);
-        } catch {}
+      const bearerToken = typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '').trim() : '';
+      const cookieToken = parseCookies(req)[SESSION_COOKIE_NAME] || '';
+      let userId: string | undefined;
+      if (authState.kind === 'ok') userId = authState.ctx.user.id;
+      if (bearerToken) await revokeSessionByToken(bearerToken, 'logout').catch(() => false);
+      if (cookieToken && cookieToken !== bearerToken) {
+        await revokeSessionByToken(cookieToken, 'logout').catch(() => false);
       }
+      res.setHeader('Set-Cookie', buildClearCookies());
+      void logSecurityEvent({ type: 'logout', outcome: 'success', userId: userId || null, req });
       sendJson(res, 200, { success: true, message: 'Logged out successfully' });
       return true;
     }
@@ -668,7 +1118,6 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
-      // Super admin can see all; regular tenants only their org's
       const websites = session.user.role === 'super_admin'
         ? db.getWebsites()
         : db.getWebsites().filter((w) => w.orgId === session.org.id);
@@ -683,10 +1132,35 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         return true;
       }
 
+      const body = await readJsonBody(req);
+      const rawUrl = typeof body.url === 'string' ? body.url.trim() : '';
+      if (!rawUrl) {
+        sendJson(res, 400, { error: 'Website URL is required' });
+        return true;
+      }
+
+      let normalized: { url: string; domain: string };
+      try {
+        normalized = normalizeInputUrl(rawUrl);
+        await validateTargetSecurity(normalized.domain);
+      } catch (err: any) {
+        if (err instanceof SsrfBlockedError || /blocked|private|reserved|protected|disallowed/i.test(String(err?.message))) {
+          void logSecurityEvent({
+            type: 'ssrf_blocked',
+            outcome: 'blocked',
+            userId: session.user.id,
+            req,
+            details: { endpoint: path, target: sanitizeForLog(rawUrl, 160), reason: sanitizeForLog(err?.message, 160) },
+          });
+        }
+        sendJson(res, 400, { error: publicScanError(err, 'Invalid or disallowed website URL.') });
+        return true;
+      }
+      const { url, domain } = normalized;
+
       await backfillSubscriptionEntitlements().catch(() => {});
       const entitlementSummary = await getOrganizationEntitlementSummary(session.org.id);
 
-      // Enforce active entitlement / Free Trial capacity on the backend
       if (session.user.role !== 'super_admin') {
         if (entitlementSummary.totalActiveCapacity <= 0) {
           if (entitlementSummary.allPaidEntitlementsExpired) {
@@ -713,25 +1187,22 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       }
 
       const plan = db.getPlans().find((p) => p.id === session.org.planId) || db.getPlans()[0];
-      const body = await readJsonBody(req);
-      const rawUrl = body.url;
-      if (!rawUrl) {
-        sendJson(res, 400, { error: 'Website URL is required' });
-        return true;
-      }
 
-      const { url, domain } = normalizeInputUrl(rawUrl);
-      await validateTargetSecurity(domain);
+      const minInterval = Math.max(plan.limits.minIntervalMinutes, 1);
+      const requestedInterval = Number(body.intervalMinutes);
+      const intervalMinutes = Number.isFinite(requestedInterval)
+        ? Math.min(1440, Math.max(minInterval, Math.floor(requestedInterval)))
+        : Math.max(minInterval, 5);
 
       const newSite: Website = {
-        id: `site_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        id: `site_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
         orgId: session.org.id,
-        clientId: body.clientId,
-        name: body.name || domain,
+        clientId: typeof body.clientId === 'string' ? cleanString(body.clientId, 64) : undefined,
+        name: cleanString(body.name, 120) || domain,
         url,
         domain,
         status: 'ONLINE',
-        intervalMinutes: body.intervalMinutes || Math.max(plan.limits.minIntervalMinutes, 5),
+        intervalMinutes,
         lastCheckedAt: new Date().toISOString(),
         lastResponseTimeMs: 180,
         healthScore: 90,
@@ -743,8 +1214,10 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           token: `pv-verify-${crypto.randomBytes(6).toString('hex')}`,
           method: 'dns_txt',
         },
-        tags: Array.isArray(body.tags) ? body.tags : ['Production'],
-        groupName: body.groupName || 'Default Project',
+        tags: Array.isArray(body.tags)
+          ? body.tags.filter((t: unknown) => typeof t === 'string').map((t: string) => cleanString(t, 40)).slice(0, 12)
+          : ['Production'],
+        groupName: cleanString(body.groupName, 80) || 'Default Project',
         enabledChecks: {
           uptime: true,
           ssl: true,
@@ -752,7 +1225,14 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           seo: true,
           security: true,
           brokenLinks: false,
-          ...(body.enabledChecks || {}),
+          ...(isPlainObject(body.enabledChecks) ? {
+            uptime: Boolean(body.enabledChecks.uptime ?? true),
+            ssl: Boolean(body.enabledChecks.ssl ?? true),
+            dns: Boolean(body.enabledChecks.dns ?? true),
+            seo: Boolean(body.enabledChecks.seo ?? true),
+            security: Boolean(body.enabledChecks.security ?? true),
+            brokenLinks: Boolean(body.enabledChecks.brokenLinks ?? false),
+          } : {}),
         },
         notificationSettings: {
           email: true,
@@ -761,13 +1241,21 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           alertOnRecovery: true,
           alertOnSslExpiry: true,
           latencyThresholdMs: 1200,
-          ...(body.notificationSettings || {}),
+          ...(isPlainObject(body.notificationSettings) ? {
+            email: Boolean(body.notificationSettings.email ?? true),
+            alertEmail: EMAIL_RE.test(String(body.notificationSettings.alertEmail || ''))
+              ? String(body.notificationSettings.alertEmail).trim()
+              : session.user.email,
+            alertOnDown: Boolean(body.notificationSettings.alertOnDown ?? true),
+            alertOnRecovery: Boolean(body.notificationSettings.alertOnRecovery ?? true),
+            alertOnSslExpiry: Boolean(body.notificationSettings.alertOnSslExpiry ?? true),
+            latencyThresholdMs: Math.min(30000, Math.max(100, Number(body.notificationSettings.latencyThresholdMs) || 1200)),
+          } : {}),
         },
         createdAt: new Date().toISOString(),
       };
 
       db.addWebsite(newSite);
-      // Run immediate initial check
       monitorEngine.checkWebsite(newSite).catch(() => {});
 
       sendJson(res, 201, newSite);
@@ -782,6 +1270,14 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       }
       const parts = path.split('/');
       const siteId = parts[3];
+      const site = db.findWebsiteById(siteId);
+      if (!site || (site.orgId !== session.org.id && session.user.role !== 'super_admin')) {
+        if (site) {
+          void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'website', siteId } });
+        }
+        sendJson(res, 404, { error: 'Website not found' });
+        return true;
+      }
 
       if (parts[4] === 'metrics') {
         const metrics = db.getMetrics().filter((m) => m.websiteId === siteId).slice(-48);
@@ -789,11 +1285,6 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         return true;
       }
 
-      const site = db.findWebsiteById(siteId);
-      if (!site) {
-        sendJson(res, 404, { error: 'Website not found' });
-        return true;
-      }
       sendJson(res, 200, site);
       return true;
     }
@@ -812,12 +1303,65 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       const siteId = path.split('/')[3];
       const site = db.findWebsiteById(siteId);
       if (!site || (site.orgId !== session.org.id && session.user.role !== 'super_admin')) {
+        if (site) {
+          void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'website_patch', siteId } });
+        }
         sendJson(res, 404, { error: 'Website not found' });
         return true;
       }
 
       const body = await readJsonBody(req);
-      const updated = db.updateWebsite(siteId, body);
+      // Whitelist mutable fields so callers cannot overwrite id, orgId, verification, etc.
+      const safeUpdates: Partial<Website> = {};
+      if (typeof body.name === 'string' && body.name.trim()) safeUpdates.name = cleanString(body.name, 120);
+      if (typeof body.groupName === 'string') safeUpdates.groupName = cleanString(body.groupName, 80);
+      if (typeof body.clientId === 'string') safeUpdates.clientId = cleanString(body.clientId, 64);
+      if (Array.isArray(body.tags)) {
+        safeUpdates.tags = body.tags.filter((t: unknown) => typeof t === 'string').map((t: string) => cleanString(t, 40)).slice(0, 12);
+      }
+      if (typeof body.intervalMinutes === 'number' && Number.isFinite(body.intervalMinutes)) {
+        safeUpdates.intervalMinutes = Math.min(1440, Math.max(1, Math.floor(body.intervalMinutes)));
+      }
+      if (isPlainObject(body.enabledChecks)) {
+        safeUpdates.enabledChecks = {
+          ...site.enabledChecks,
+          uptime: Boolean(body.enabledChecks.uptime ?? site.enabledChecks.uptime),
+          ssl: Boolean(body.enabledChecks.ssl ?? site.enabledChecks.ssl),
+          dns: Boolean(body.enabledChecks.dns ?? site.enabledChecks.dns),
+          seo: Boolean(body.enabledChecks.seo ?? site.enabledChecks.seo),
+          security: Boolean(body.enabledChecks.security ?? site.enabledChecks.security),
+          brokenLinks: Boolean(body.enabledChecks.brokenLinks ?? site.enabledChecks.brokenLinks),
+        };
+      }
+      if (isPlainObject(body.notificationSettings)) {
+        safeUpdates.notificationSettings = {
+          ...site.notificationSettings,
+          email: Boolean(body.notificationSettings.email ?? site.notificationSettings.email),
+          alertEmail: EMAIL_RE.test(String(body.notificationSettings.alertEmail || ''))
+            ? String(body.notificationSettings.alertEmail).trim()
+            : site.notificationSettings.alertEmail,
+          alertOnDown: Boolean(body.notificationSettings.alertOnDown ?? site.notificationSettings.alertOnDown),
+          alertOnRecovery: Boolean(body.notificationSettings.alertOnRecovery ?? site.notificationSettings.alertOnRecovery),
+          alertOnSslExpiry: Boolean(body.notificationSettings.alertOnSslExpiry ?? site.notificationSettings.alertOnSslExpiry),
+          latencyThresholdMs: Math.min(
+            30000,
+            Math.max(100, Number(body.notificationSettings.latencyThresholdMs) || site.notificationSettings.latencyThresholdMs)
+          ),
+        };
+      }
+      if (typeof body.url === 'string' && body.url.trim()) {
+        try {
+          const norm = normalizeInputUrl(body.url);
+          await validateTargetSecurity(norm.domain);
+          safeUpdates.url = norm.url;
+          safeUpdates.domain = norm.domain;
+        } catch (err: any) {
+          sendJson(res, 400, { error: publicScanError(err, 'Invalid or disallowed website URL.') });
+          return true;
+        }
+      }
+
+      const updated = db.updateWebsite(siteId, safeUpdates);
       sendJson(res, 200, updated);
       return true;
     }
@@ -831,6 +1375,9 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       const siteId = path.split('/')[3];
       const site = db.findWebsiteById(siteId);
       if (!site || (site.orgId !== session.org.id && session.user.role !== 'super_admin')) {
+        if (site) {
+          void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'website_delete', siteId } });
+        }
         sendJson(res, 404, { error: 'Website not found' });
         return true;
       }
@@ -853,7 +1400,10 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       }
       const siteId = path.split('/')[3];
       const site = db.findWebsiteById(siteId);
-      if (!site) {
+      if (!site || (site.orgId !== session.org.id && session.user.role !== 'super_admin')) {
+        if (site) {
+          void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'website_check', siteId } });
+        }
         sendJson(res, 404, { error: 'Website not found' });
         return true;
       }
@@ -875,11 +1425,19 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         return true;
       }
       const siteId = path.split('/')[3];
+      const site = db.findWebsiteById(siteId);
+      if (!site || (site.orgId !== session.org.id && session.user.role !== 'super_admin')) {
+        if (site) {
+          void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'website_audit', siteId } });
+        }
+        sendJson(res, 404, { error: 'Website not found' });
+        return true;
+      }
       try {
         const fullResult = await monitorEngine.runFullAudit(siteId);
         sendJson(res, 200, fullResult);
       } catch (err: any) {
-        sendJson(res, 500, { error: err.message });
+        sendJson(res, 422, { error: publicScanError(err, 'Audit failed for the requested website.') });
       }
       return true;
     }
@@ -898,43 +1456,45 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       }
       const siteId = path.split('/')[3];
       const site = db.findWebsiteById(siteId);
-      if (!site) {
+      if (!site || (site.orgId !== session.org.id && session.user.role !== 'super_admin')) {
+        if (site) {
+          void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'website_verify', siteId } });
+        }
         sendJson(res, 404, { error: 'Website not found' });
         return true;
       }
 
-      // Check real DNS TXT record for verification token
       let verified = false;
       let checkDetail = '';
       try {
+        await validateTargetSecurity(site.domain);
         const txts = await dns.resolveTxt(site.domain).catch(() => []);
         const flattened = txts.map((r) => r.join(''));
         for (const t of flattened) {
           if (t.includes(site.verification.token) || t.includes('pulsevanguard-verify')) {
             verified = true;
-            checkDetail = `Found matching TXT record: ${t}`;
+            checkDetail = `Found matching TXT record: ${t.slice(0, 120)}`;
             break;
           }
         }
       } catch (e: any) {
-        checkDetail = `DNS query failed: ${e.message}`;
+        checkDetail = 'DNS TXT record check did not find the verification token.';
       }
 
-      // Or fallback to HTML meta tag verification
+      // Fallback to HTML meta tag verification via SSRF-guarded safeFetch
       if (!verified) {
         try {
-          const resp = await fetch(site.url, { signal: AbortSignal.timeout(4000) });
+          const resp = await safeFetch(site.url, { method: 'GET', timeoutMs: 4000, maxBytes: 256 * 1024 });
           const text = await resp.text();
           if (text.includes(site.verification.token)) {
             verified = true;
             checkDetail = 'Found matching HTML meta verification tag.';
           }
         } catch {
-          // Meta tag not found
+          // Meta tag not found or target blocked
         }
       }
 
-      // For testing convenience, allow manual toggle if token is supplied
       if (verified) {
         db.updateWebsite(siteId, {
           verification: {
@@ -987,6 +1547,14 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         return true;
       }
       const alertId = path.split('/')[3];
+      const alert = db.getAlerts().find((a) => a.id === alertId);
+      if (!alert || (alert.orgId !== session.org.id && session.user.role !== 'super_admin')) {
+        if (alert) {
+          void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'alert_read', alertId } });
+        }
+        sendJson(res, 404, { error: 'Alert not found' });
+        return true;
+      }
       db.markAlertRead(alertId);
       sendJson(res, 200, { success: true });
       return true;
@@ -1021,19 +1589,22 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       }
       const body = await readJsonBody(req);
       const site = db.findWebsiteById(body.websiteId);
-      if (!site) {
+      if (!site || (site.orgId !== session.org.id && session.user.role !== 'super_admin')) {
+        if (site) {
+          void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'report_generate', websiteId: body.websiteId } });
+        }
         sendJson(res, 404, { error: 'Website not found' });
         return true;
       }
 
       const report: ReportItem = {
-        id: `rep_${Date.now()}`,
+        id: `rep_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
         orgId: session.org.id,
         websiteId: site.id,
         websiteName: site.name,
-        title: body.title || `${site.name} Performance & Health Report`,
-        type: body.type || 'health',
-        shareToken: `pv_rep_${crypto.randomBytes(8).toString('hex')}`,
+        title: cleanString(body.title, 160) || `${site.name} Performance & Health Report`,
+        type: body.type === 'seo' || body.type === 'security' || body.type === 'executive' ? body.type : 'health',
+        shareToken: `pv_rep_${crypto.randomBytes(16).toString('hex')}`,
         isPublic: true,
         generatedAt: new Date().toISOString(),
         data: {
@@ -1078,16 +1649,17 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         }
       }
       const body = await readJsonBody(req);
-      if (!body.name) {
+      const name = cleanString(body.name, 120);
+      if (!name) {
         sendJson(res, 400, { error: 'Client name is required' });
         return true;
       }
 
       const newClient = {
-        id: `client_${Date.now()}`,
-        name: body.name.trim(),
-        contactEmail: body.contactEmail || '',
-        notes: body.notes || '',
+        id: `client_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+        name,
+        contactEmail: cleanString(body.contactEmail, 160),
+        notes: cleanString(body.notes, 1000),
         createdAt: new Date().toISOString(),
       };
 
@@ -1104,9 +1676,15 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         return true;
       }
       const body = await readJsonBody(req);
+      const current = session.org.whiteLabel || { enabled: false, brandName: session.org.name };
       session.org.whiteLabel = {
-        ...session.org.whiteLabel,
-        ...body,
+        enabled: typeof body.enabled === 'boolean' ? body.enabled : current.enabled,
+        brandName: typeof body.brandName === 'string' && body.brandName.trim() ? cleanString(body.brandName, 120) : current.brandName,
+        customDomain: typeof body.customDomain === 'string' ? cleanString(body.customDomain, 160) : current.customDomain,
+        reportFooterText: typeof body.reportFooterText === 'string' ? cleanString(body.reportFooterText, 300) : current.reportFooterText,
+        logoUrl: typeof body.logoUrl === 'string' && /^https?:\/\//i.test(body.logoUrl.trim())
+          ? cleanString(body.logoUrl, 500)
+          : current.logoUrl,
       };
       db.persist();
       sendJson(res, 200, session.org.whiteLabel);
@@ -1156,18 +1734,36 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         }
       }
 
+      // Security rule: Paid plans can NEVER be activated directly through change-plan by a non-admin.
+      // Paid entitlements must be granted only through verified crypto payment orders or admin approval.
+      const pricingTier = plan.pricing.USDT || plan.pricing.USD || { monthly: 0, annual: 0 };
+      const amount = interval === 'annual' ? pricingTier.annual : pricingTier.monthly;
+      if (planId !== 'free' && amount > 0 && session.user.role !== 'super_admin') {
+        await backfillSubscriptionEntitlements().catch(() => {});
+        const currentSummary = await getOrganizationEntitlementSummary(session.org.id);
+        if (currentSummary.activeEntitlementCount <= 0) {
+          void logSecurityEvent({
+            type: 'forbidden_access',
+            outcome: 'blocked',
+            userId: session.user.id,
+            actorRole: session.user.role,
+            req,
+            details: { reason: 'unpaid_plan_upgrade_attempt', planId, interval: interval || 'monthly' },
+          });
+          sendJson(res, 402, {
+            error: 'PAYMENT_REQUIRED',
+            message: 'Paid plans require a verified USDT TRC20 payment order. Please complete checkout via /api/crypto/create-order.',
+          });
+          return true;
+        }
+      }
+
       session.org.planId = planId;
-      if (interval) session.org.billingInterval = interval;
+      if (interval === 'monthly' || interval === 'annual') session.org.billingInterval = interval;
       session.org.currency = 'USDT';
       db.persist();
 
-      // Generate invoice record
-      const pricingTier = plan.pricing.USDT || plan.pricing.USD || { monthly: 0, annual: 0 };
-      const amount = interval === 'annual'
-        ? pricingTier.annual
-        : pricingTier.monthly;
-
-      if (amount > 0) {
+      if (amount > 0 && session.user.role === 'super_admin') {
         db.addInvoice({
           id: `inv_${Date.now()}`,
           orgId: session.org.id,
@@ -1213,6 +1809,13 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         return true;
       }
 
+      const orderLimit = rateLimit(`crypto:create:${session.user.id}`, 15, 60 * 60_000);
+      if (!orderLimit.allowed) {
+        res.setHeader('Retry-After', String(orderLimit.retryAfterSec));
+        sendJson(res, 429, { error: 'Too many payment order requests. Please wait before creating another order.' });
+        return true;
+      }
+
       const body = await readJsonBody(req);
       const planId = body.planId || 'pro';
       const billingInterval = body.interval === 'annual' ? 'annual' : 'monthly';
@@ -1235,7 +1838,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       return true;
     }
 
-    if (path.startsWith('/api/crypto/order/') && method === 'GET') {
+    if (path.startsWith('/api/crypto/order/') && !path.endsWith('/cancel') && method === 'GET') {
       const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
@@ -1244,8 +1847,15 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
       const orderId = path.replace('/api/crypto/order/', '').trim();
       const order = db.findCryptoOrderById(orderId);
-      const isOwner = order && (order.userId === session.user.id || order.userEmail?.toLowerCase() === session.user.email.toLowerCase() || order.orgId === session.org.id);
-      if (!order || (!isOwner && session.user.role !== 'super_admin')) {
+      const isOwner =
+        order &&
+        (order.userId === session.user.id ||
+          order.userEmail?.toLowerCase() === session.user.email.toLowerCase() ||
+          order.orgId === session.org.id);
+      if (!order || (!isOwner && !isAdminRole(session.user.role))) {
+        if (order) {
+          void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'crypto_order', orderId } });
+        }
         sendJson(res, 404, { error: 'Payment order not found' });
         return true;
       }
@@ -1269,6 +1879,14 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           role: session.user.role,
           orgId: session.org.id,
         });
+        void logSecurityEvent({
+          type: 'payment_status_change',
+          outcome: 'success',
+          userId: session.user.id,
+          actorRole: session.user.role,
+          req,
+          details: { action: 'cancel_order', orderId },
+        });
         sendJson(res, 200, result);
       } catch (err: any) {
         sendJson(res, 400, { error: err.message || 'Failed to cancel order' });
@@ -1283,25 +1901,45 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         return true;
       }
 
+      const checkLimit = rateLimit(`crypto:check:${session.user.id}`, 30, 5 * 60_000);
+      if (!checkLimit.allowed) {
+        res.setHeader('Retry-After', String(checkLimit.retryAfterSec));
+        sendJson(res, 429, { error: 'Too many verification checks. Please wait a moment.' });
+        return true;
+      }
+
       const { orderId, txId } = await readJsonBody(req);
-      if (!orderId) {
+      if (!orderId || typeof orderId !== 'string') {
         sendJson(res, 400, { error: 'Order ID is required' });
         return true;
       }
 
       const order = db.findCryptoOrderById(orderId);
-      const isOwner = order && (order.userId === session.user.id || order.userEmail?.toLowerCase() === session.user.email.toLowerCase() || order.orgId === session.org.id);
-      if (!order || (!isOwner && session.user.role !== 'super_admin')) {
+      const isOwner =
+        order &&
+        (order.userId === session.user.id ||
+          order.userEmail?.toLowerCase() === session.user.email.toLowerCase() ||
+          order.orgId === session.org.id);
+      if (!order || (!isOwner && !isAdminRole(session.user.role))) {
+        if (order) {
+          void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'crypto_check_order', orderId } });
+        }
         sendJson(res, 404, { error: 'Payment order not found' });
         return true;
       }
 
       try {
-        const result = await verifyPaymentOrder(orderId, txId);
-        // If activated, refresh organization in session
+        const result = await verifyPaymentOrder(orderId, typeof txId === 'string' ? txId : undefined);
         if (result.activated) {
           const freshOrg = db.findOrgById(session.org.id);
           if (freshOrg) session.org = freshOrg;
+          void logSecurityEvent({
+            type: 'payment_status_change',
+            outcome: 'success',
+            userId: session.user.id,
+            req,
+            details: { action: 'verified_paid', orderId },
+          });
         }
         sendJson(res, 200, {
           success: true,
@@ -1311,7 +1949,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           organization: session.org,
         });
       } catch (err: any) {
-        sendJson(res, 500, { error: err.message || 'Verification failed' });
+        sendJson(res, 500, { error: 'Payment verification could not be completed at this time.' });
       }
       return true;
     }
@@ -1324,7 +1962,6 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       }
 
       const userEmail = session.user.email.toLowerCase();
-      // Ensure user views their own payment records (or their org orders)
       const orders = db.getCryptoOrders().filter((o) => {
         if (session.user.role === 'super_admin') return true;
         return o.userId === session.user.id || (o.userEmail && o.userEmail.toLowerCase() === userEmail) || o.orgId === session.org.id;
@@ -1339,6 +1976,19 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
+      // Restrict LBank exchange diagnostic endpoint to administrators only
+      if (!isAdminRole(session.user.role)) {
+        void logSecurityEvent({
+          type: 'forbidden_access',
+          outcome: 'blocked',
+          userId: session.user.id,
+          actorRole: session.user.role,
+          req,
+          details: { path },
+        });
+        sendJson(res, 403, { error: 'Admin privilege required' });
+        return true;
+      }
 
       try {
         const testResult = await testLBankConnection();
@@ -1348,8 +1998,8 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           status: 'FAILED',
           title: 'LBank API Connection: FAILED',
           endpoint: 'https://api.lbank.info/v2/supplement/api_Restrictions.do',
-          errorMessage: err.message || 'Unexpected test failure',
-          diagnostic: 'Unexpected error executing LBank API test.',
+          errorMessage: 'Unexpected error executing LBank API test.',
+          diagnostic: 'Check server environment configuration.',
           timestamp: new Date().toISOString(),
         });
       }
@@ -1358,6 +2008,12 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
     // --- 8.5 REFERRAL, COMMISSION WALLET & WITHDRAWAL SYSTEM ---
     if (path === '/api/referrals/validate' && method === 'POST') {
+      const refLimit = rateLimit(`referral:validate:${ipHash}`, 30, 15 * 60_000);
+      if (!refLimit.allowed) {
+        res.setHeader('Retry-After', String(refLimit.retryAfterSec));
+        sendJson(res, 429, { valid: false, error: 'Too many validation requests. Please wait before trying again.' });
+        return true;
+      }
       const session = await resolveSession(req);
       const body = await readJsonBody(req);
       const code = body?.referralCode || body?.code || '';
@@ -1441,6 +2097,13 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           userId: session.user.id,
           amount,
           walletAddress,
+        });
+        void logSecurityEvent({
+          type: 'payment_status_change',
+          outcome: 'success',
+          userId: session.user.id,
+          req,
+          details: { action: 'withdrawal_requested', withdrawalId: request.id, amount: request.amount },
         });
         sendJson(res, 201, {
           success: true,
@@ -1577,6 +2240,9 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           emailNotification: result.emailNotification,
         });
       } catch (err: any) {
+        if (err instanceof TicketAccessDeniedError) {
+          void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'ticket_reply', ticketId } });
+        }
         const status =
           err instanceof TicketValidationError
             ? 400
@@ -1601,6 +2267,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         return true;
       }
       if (!isAdminUser(session.user)) {
+        void logSecurityEvent({ type: 'forbidden_access', outcome: 'blocked', userId: session.user.id, actorRole: session.user.role, req, details: { resource: 'ticket_status' } });
         sendJson(res, 403, { error: 'Admin access required to update ticket status.' });
         return true;
       }
@@ -1618,6 +2285,14 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           session.user,
           body?.status
         );
+        void logSecurityEvent({
+          type: 'admin_action',
+          outcome: 'success',
+          userId: session.user.id,
+          actorRole: session.user.role,
+          req,
+          details: { action: 'update_ticket_status', ticketId, status: body?.status },
+        });
         sendJson(res, 200, {
           success: true,
           ticket: updatedTicket,
@@ -1661,6 +2336,9 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         const ticket = await getSupportTicketDetail(decodeURIComponent(ticketId), session.user);
         sendJson(res, 200, ticket);
       } catch (err: any) {
+        if (err instanceof TicketAccessDeniedError) {
+          void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'ticket_detail', ticketId } });
+        }
         const status =
           err instanceof TicketAccessDeniedError
             ? 403
@@ -1731,6 +2409,85 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       return true;
     }
 
+    if (path === '/api/admin/security-events' && method === 'GET') {
+      const session = await resolveSession(req);
+      if (!session || session.user.role !== 'super_admin') {
+        sendJson(res, 403, { error: 'Super Admin privilege required' });
+        return true;
+      }
+      const limit = Number(parsedUrl.searchParams.get('limit')) || 100;
+      const page = Number(parsedUrl.searchParams.get('page')) || 1;
+      const type = parsedUrl.searchParams.get('type') || undefined;
+      const result = await listSecurityEvents({ page, pageSize: limit, type });
+      sendJson(res, 200, result);
+      return true;
+    }
+
+    if (path.startsWith('/api/admin/users/') && path.endsWith('/unlock') && method === 'POST') {
+      const session = await resolveSession(req);
+      if (!session || session.user.role !== 'super_admin') {
+        sendJson(res, 403, { error: 'Super Admin privilege required' });
+        return true;
+      }
+      const targetId = path.replace('/api/admin/users/', '').replace('/unlock', '').trim();
+      const targetUser = db.findUserById(targetId) || db.findUserByEmail(targetId);
+      if (!targetUser) {
+        sendJson(res, 404, { error: 'User not found' });
+        return true;
+      }
+      const body = await readJsonBody(req);
+      // Step-up authentication: verify the super_admin's own password when provided or required
+      if (typeof body?.adminPassword === 'string' && body.adminPassword.length > 0) {
+        const ok = await verifyPasswordAsync(body.adminPassword, session.user.passwordHash);
+        if (!ok) {
+          await logSecurityEvent({ type: 'admin_action', outcome: 'failure', userId: session.user.id, actorRole: session.user.role, req, details: { action: 'unlock_user_stepup_failed', targetId: targetUser.id } });
+          sendJson(res, 401, { error: 'Admin password verification failed.' });
+          return true;
+        }
+      }
+      await adminUnlockAccount(targetUser, session.user, req);
+      sendJson(res, 200, { success: true, message: `Account ${targetUser.email} unlocked.` });
+      return true;
+    }
+
+    if (path.startsWith('/api/admin/users/') && path.endsWith('/role') && (method === 'POST' || method === 'PATCH')) {
+      const session = await resolveSession(req);
+      if (!session || session.user.role !== 'super_admin') {
+        sendJson(res, 403, { error: 'Super Admin privilege required' });
+        return true;
+      }
+      const targetId = path.replace('/api/admin/users/', '').replace('/role', '').trim();
+      const targetUser = db.findUserById(targetId);
+      if (!targetUser) {
+        sendJson(res, 404, { error: 'User not found' });
+        return true;
+      }
+      const body = await readJsonBody(req);
+      const newRole = body?.role;
+      if (newRole !== 'team_member' && newRole !== 'agency_admin' && newRole !== 'admin' && newRole !== 'super_admin') {
+        sendJson(res, 400, { error: 'Invalid role specified.' });
+        return true;
+      }
+      if (targetUser.email.toLowerCase() === 'mobinalavi7491@gmail.com' && newRole !== 'super_admin') {
+        sendJson(res, 400, { error: 'Primary Super Admin role cannot be downgraded.' });
+        return true;
+      }
+      const prevRole = targetUser.role;
+      db.updateUserRole(targetUser.id, newRole);
+      await revokeAllUserSessions(targetUser.id, 'role_changed');
+      await logSecurityEvent({
+        type: 'role_changed',
+        outcome: 'success',
+        userId: session.user.id,
+        actorRole: session.user.role,
+        req,
+        details: { targetUserId: targetUser.id, from: prevRole, to: newRole },
+        awaitWrite: true,
+      });
+      sendJson(res, 200, { success: true, userId: targetUser.id, role: newRole });
+      return true;
+    }
+
     // Admin Withdrawal Management Endpoints
     if (path === '/api/admin/referrals/overview' && method === 'GET') {
       const session = await resolveSession(req);
@@ -1793,6 +2550,14 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           email: session.user.email,
           role: session.user.role,
         });
+        void logSecurityEvent({
+          type: 'admin_action',
+          outcome: 'success',
+          userId: session.user.id,
+          actorRole: session.user.role,
+          req,
+          details: { action: 'approve_withdrawal', withdrawalId },
+        });
         sendJson(res, 200, {
           ...result,
           request: result.withdrawal,
@@ -1837,6 +2602,14 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           },
           txHash
         );
+        void logSecurityEvent({
+          type: 'admin_action',
+          outcome: 'success',
+          userId: session.user.id,
+          actorRole: session.user.role,
+          req,
+          details: { action: 'mark_withdrawal_paid', withdrawalId },
+        });
         sendJson(res, 200, {
           ...result,
           request: result.withdrawal,
@@ -1876,6 +2649,14 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           },
           reason
         );
+        void logSecurityEvent({
+          type: 'admin_action',
+          outcome: 'success',
+          userId: session.user.id,
+          actorRole: session.user.role,
+          req,
+          details: { action: 'reject_withdrawal', withdrawalId },
+        });
         sendJson(res, 200, {
           ...result,
           request: result.withdrawal,
@@ -1907,6 +2688,14 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           id: session.user.id,
           email: session.user.email,
           role: session.user.role,
+        });
+        void logSecurityEvent({
+          type: 'admin_action',
+          outcome: 'success',
+          userId: session.user.id,
+          actorRole: session.user.role,
+          req,
+          details: { action: 'cancel_withdrawal', withdrawalId },
         });
         sendJson(res, 200, {
           ...result,
@@ -1944,6 +2733,14 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           id: session.user.id,
           email: session.user.email,
           role: session.user.role,
+        });
+        void logSecurityEvent({
+          type: 'payment_status_change',
+          outcome: 'success',
+          userId: session.user.id,
+          actorRole: session.user.role,
+          req,
+          details: { action: 'admin_approve_payment', orderId },
         });
         sendJson(res, 200, result);
       } catch (err: any) {
@@ -1986,6 +2783,14 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           },
           reason
         );
+        void logSecurityEvent({
+          type: 'payment_status_change',
+          outcome: 'success',
+          userId: session.user.id,
+          actorRole: session.user.role,
+          req,
+          details: { action: 'admin_reject_payment', orderId },
+        });
         sendJson(res, 200, result);
       } catch (err: any) {
         sendJson(res, 400, { error: err.message || 'Failed to reject payment.' });
@@ -2000,7 +2805,6 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         return true;
       }
 
-      // Backend role enforcement: strictly ADMIN or SUPER_ADMIN
       const role = session.user.role;
       const isAdmin = role === 'admin' || role === 'super_admin';
       if (!isAdmin) {
@@ -2008,7 +2812,6 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         return true;
       }
 
-      // Return all crypto payment orders from the database, newest first
       const orders = [...db.getCryptoOrders()].sort((a, b) => {
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       });
@@ -2024,24 +2827,26 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         return true;
       }
       await monitorEngine.tick();
+      void logSecurityEvent({ type: 'admin_action', outcome: 'success', userId: session.user.id, actorRole: session.user.role, req, details: { action: 'trigger_worker' } });
       sendJson(res, 200, { message: 'Monitoring queue tick triggered successfully', stats: monitorEngine.getStats() });
       return true;
     }
 
     // 11. PUBLIC DEVELOPER REST API (v1)
     if (path.startsWith('/api/v1/')) {
-      // Validate API key from Authorization header
-      const apiKeyHeader = req.headers['x-api-key'] || req.headers['authorization'];
-      const keyString = typeof apiKeyHeader === 'string' ? apiKeyHeader.replace(/^Bearer\s+/i, '') : '';
-      const matchedKey = db.getApiKeys().find((k) => k.prefix && keyString.startsWith(k.prefix));
-
+      // Management endpoints for API keys require a full user session (never a raw API key)
       if (path === '/api/v1/api-keys' && method === 'GET') {
         const session = await resolveSession(req);
         if (!session) {
           sendJson(res, 401, { error: 'Unauthenticated' });
           return true;
         }
-        sendJson(res, 200, db.getApiKeys().filter((k) => k.orgId === session.org.id));
+        // Strip hashedSecret before returning key metadata
+        const safeKeys = db
+          .getApiKeys()
+          .filter((k) => k.orgId === session.org.id)
+          .map(({ hashedSecret: _hs, ...rest }) => rest);
+        sendJson(res, 200, safeKeys);
         return true;
       }
 
@@ -2059,35 +2864,75 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           }
         }
         const body = await readJsonBody(req);
-        const secret = `pv_live_${crypto.randomBytes(16).toString('hex')}`;
+        const secret = `pv_live_${crypto.randomBytes(24).toString('hex')}`;
         const prefix = secret.substring(0, 11);
         const newKey: ApiKey = {
-          id: `key_${Date.now()}`,
+          id: `key_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
           orgId: session.org.id,
-          name: body.name || 'API Client Key',
+          name: cleanString(body.name, 80) || 'API Client Key',
           prefix,
           hashedSecret: crypto.createHash('sha256').update(secret).digest('hex'),
           scopes: ['websites:read', 'websites:write', 'scans:create'],
           createdAt: new Date().toISOString(),
         };
         db.addApiKey(newKey);
-        sendJson(res, 201, { ...newKey, secretToken: secret });
+        const { hashedSecret: _hs, ...publicKey } = newKey;
+        sendJson(res, 201, { ...publicKey, secretToken: secret });
         return true;
       }
 
-      // API Key-protected endpoints
-      if (!matchedKey) {
-        // Also allow active session
+      if (path.startsWith('/api/v1/api-keys/') && method === 'DELETE') {
         const session = await resolveSession(req);
         if (!session) {
-          sendJson(res, 401, { error: 'Valid X-API-Key header or Bearer session token is required.' });
+          sendJson(res, 401, { error: 'Unauthenticated' });
           return true;
+        }
+        const keyId = path.replace('/api/v1/api-keys/', '').trim();
+        const keyRecord = db.getApiKeys().find((k) => k.id === keyId);
+        if (!keyRecord || (keyRecord.orgId !== session.org.id && session.user.role !== 'super_admin')) {
+          sendJson(res, 404, { error: 'API key not found' });
+          return true;
+        }
+        db.revokeApiKey(keyId);
+        sendJson(res, 200, { success: true, message: 'API key revoked.' });
+        return true;
+      }
+
+      // Authenticate API v1 data requests using FULL SHA-256 secret hash comparison (constant-time) or active session
+      const apiKeyHeader = req.headers['x-api-key'] || req.headers['authorization'];
+      const rawKey = typeof apiKeyHeader === 'string' ? apiKeyHeader.replace(/^Bearer\s+/i, '').trim() : '';
+      let matchedKey: ApiKey | undefined;
+      if (rawKey && rawKey.startsWith('pv_live_') && rawKey.length >= 16 && rawKey.length <= 128) {
+        const candidateHash = crypto.createHash('sha256').update(rawKey).digest('hex');
+        for (const k of db.getApiKeys()) {
+          if (k.hashedSecret && constantTimeEqual(candidateHash, k.hashedSecret)) {
+            matchedKey = k;
+            break;
+          }
         }
       }
 
-      if (path === '/api/v1/websites') {
+      let targetOrgId: string | undefined = matchedKey?.orgId;
+      let isSuperAdminCaller = false;
+      if (!matchedKey) {
+        const session = await resolveSession(req);
+        if (!session) {
+          void logSecurityEvent({ type: 'unauthorized_access', outcome: 'blocked', req, details: { path, reason: 'invalid_api_key' } });
+          sendJson(res, 401, { error: 'Valid X-API-Key header or Bearer session token is required.' });
+          return true;
+        }
+        targetOrgId = session.org.id;
+        isSuperAdminCaller = session.user.role === 'super_admin';
+      } else {
+        matchedKey.lastUsedAt = new Date().toISOString();
+      }
+
+      if (path === '/api/v1/websites' && method === 'GET') {
+        const scopedSites = isSuperAdminCaller
+          ? db.getWebsites()
+          : db.getWebsites().filter((w) => w.orgId === targetOrgId);
         sendJson(res, 200, {
-          data: db.getWebsites().map((w) => ({
+          data: scopedSites.map((w) => ({
             id: w.id,
             name: w.name,
             url: w.url,
@@ -2103,11 +2948,18 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       }
     }
 
-    sendJson(res, 404, { error: `Endpoint ${method} ${path} not found.` });
+    sendJson(res, 404, { error: 'Requested API endpoint was not found.' });
     return true;
   } catch (err: any) {
-    console.error('[API Route Handler Error]:', err);
-    sendJson(res, 500, { error: err.message || 'Internal server error' });
+    if (err instanceof HttpError) {
+      if (err.extraHeaders) {
+        for (const [k, v] of Object.entries(err.extraHeaders)) res.setHeader(k, v);
+      }
+      sendJson(res, err.status, { error: err.message });
+      return true;
+    }
+    console.error('[API Route Handler Error]:', sanitizeForLog(err?.message || 'Unexpected error', 200));
+    sendJson(res, 500, { error: 'An unexpected error occurred. Please try again later.' });
     return true;
   }
 }

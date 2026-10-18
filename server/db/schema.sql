@@ -334,7 +334,7 @@ CREATE TABLE IF NOT EXISTS withdrawal_requests (
 CREATE TABLE IF NOT EXISTS subscription_entitlements (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
-  org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  org_id TEXT NOT NULL,
   plan_id TEXT NOT NULL,
   plan_name TEXT NOT NULL,
   billing_interval TEXT NOT NULL DEFAULT 'monthly',

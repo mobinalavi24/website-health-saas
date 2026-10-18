@@ -5,6 +5,15 @@ import { URL } from 'node:url';
 import type { CombinedPageSpeedResult } from './pagespeedTypes.ts';
 import type { AdvancedSeoResult, SeoIssue } from './seoTypes.ts';
 import { runAdvancedSeoAnalysis } from './advancedSeo.ts';
+import {
+  guardedLookup,
+  isBlockedIp,
+  parseSafeUrl,
+  safeFetch,
+  SsrfBlockedError,
+  stripIpBrackets,
+  validateResolvedHost,
+} from './ssrf.ts';
 
 export interface ScanResult {
   url: string;
@@ -115,103 +124,51 @@ export interface ScanResult {
   }[];
 }
 
-// IP range SSRF validation
+// IP range SSRF validation (delegated to the shared hardened implementation in ssrf.ts)
 function isPrivateOrReservedIP(ip: string): boolean {
-  if (net.isIPv4(ip)) {
-    const parts = ip.split('.').map(Number);
-    if (parts.length !== 4) return true;
-    // 0.0.0.0/8
-    if (parts[0] === 0) return true;
-    // 10.0.0.0/8
-    if (parts[0] === 10) return true;
-    // 127.0.0.0/8
-    if (parts[0] === 127) return true;
-    // 169.254.0.0/16 (Link Local / Cloud Metadata)
-    if (parts[0] === 169 && parts[1] === 254) return true;
-    // 172.16.0.0/12
-    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
-    // 192.168.0.0/16
-    if (parts[0] === 192 && parts[1] === 168) return true;
-    // 224.0.0.0/4 Multicast
-    if (parts[0] >= 224) return true;
-    return false;
-  }
-  if (net.isIPv6(ip)) {
-    const lower = ip.toLowerCase();
-    if (
-      lower === '::1' ||
-      lower === '::' ||
-      lower.startsWith('fe80:') ||
-      lower.startsWith('fc00:') ||
-      lower.startsWith('fd00:')
-    ) {
-      return true;
-    }
-    if (lower.startsWith('::ffff:')) {
-      const v4part = lower.replace('::ffff:', '');
-      return isPrivateOrReservedIP(v4part);
-    }
-  }
-  return false;
+  return isBlockedIp(ip);
 }
 
 export function normalizeInputUrl(rawUrl: string): { url: string; domain: string } {
+  if (typeof rawUrl !== 'string') {
+    throw new Error('Please provide a valid website URL.');
+  }
   let cleaned = rawUrl.trim();
+  if (cleaned.length === 0 || cleaned.length > 2048 || /[\u0000-\u001f\u007f\s]/.test(cleaned)) {
+    throw new Error('Please provide a valid website URL.');
+  }
+  // Reject any explicit non-http(s) scheme (javascript:, file:, ftp:, gopher:, data:, ...)
+  const schemeMatch = cleaned.match(/^([a-z][a-z0-9+.-]*):/i);
+  if (schemeMatch && /^[a-z][a-z0-9+.-]*:\/\//i.test(cleaned)) {
+    const scheme = schemeMatch[1].toLowerCase();
+    if (scheme !== 'http' && scheme !== 'https') {
+      throw new Error('Only http and https URLs can be scanned.');
+    }
+  } else if (schemeMatch && !/^[^/?#]+:\d+/.test(cleaned)) {
+    // "javascript:alert(1)", "data:text/html,..." (but allow "example.com:8080")
+    throw new Error('Only http and https URLs can be scanned.');
+  }
   if (!cleaned.startsWith('http://') && !cleaned.startsWith('https://')) {
     cleaned = 'https://' + cleaned;
   }
-  const parsed = new URL(cleaned);
+  let parsed: URL;
+  try {
+    parsed = parseSafeUrl(cleaned); // scheme, credentials, port and static hostname policy
+  } catch (err: any) {
+    throw new Error(err instanceof SsrfBlockedError ? err.message : 'Please provide a valid website URL.');
+  }
   return {
     url: parsed.toString(),
-    domain: parsed.hostname.toLowerCase(),
+    domain: stripIpBrackets(parsed.hostname.toLowerCase()),
   };
 }
 
 export async function validateTargetSecurity(domain: string): Promise<void> {
-  const lower = domain.toLowerCase();
-
-  // If domain is directly an IP literal, validate immediately
-  if (net.isIP(lower)) {
-    if (isPrivateOrReservedIP(lower)) {
-      throw new Error(`Access to private or reserved IP address "${domain}" is blocked for security.`);
-    }
-  }
-
-  const forbiddenDomains = [
-    'localhost',
-    '127.0.0.1',
-    'metadata.google.internal',
-    '169.254.169.254',
-    'instance-data',
-    '.local',
-    '.internal',
-    '.lan',
-  ];
-  for (const f of forbiddenDomains) {
-    if (lower === f || lower.endsWith(f)) {
-      throw new Error(`Access to private or metadata endpoint "${domain}" is blocked for security.`);
-    }
-  }
-
-  // Resolve DNS to verify public IP (both IPv4 and IPv6)
   try {
-    const [ipv4s, ipv6s] = await Promise.all([
-      dns.resolve4(domain).catch(() => []),
-      dns.resolve6(domain).catch(() => []),
-    ]);
-    for (const ip of ipv4s) {
-      if (isPrivateOrReservedIP(ip)) {
-        throw new Error(`Domain resolves to protected/private IP (${ip}). Scanning disallowed.`);
-      }
-    }
-    for (const ip of ipv6s) {
-      if (isPrivateOrReservedIP(ip)) {
-        throw new Error(`Domain resolves to protected/private IPv6 (${ip}). Scanning disallowed.`);
-      }
-    }
+    await validateResolvedHost(domain);
   } catch (err: any) {
-    if (err.message.includes('protected/private')) throw err;
-    // Domain could have temporary resolution issue; continue
+    if (err instanceof SsrfBlockedError) throw new Error(err.message);
+    throw err;
   }
 }
 
@@ -222,52 +179,26 @@ export async function fetchSafeText(
   timeoutMs = 3500,
   maxRedirects = 3
 ): Promise<{ status: number; text: string } | null> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-  let currentUrl = targetUrl;
-  let hopsRemaining = maxRedirects;
-
   try {
-    while (hopsRemaining >= 0) {
-      const parsed = new URL(currentUrl);
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        return null;
-      }
-      await validateTargetSecurity(parsed.hostname);
-
-      const resp = await fetch(currentUrl, {
-        method: 'GET',
-        headers: {
-          'User-Agent': 'PulseVanguard-Monitor/1.0 (+https://pulsevanguard.com/bot; website health check)',
-          Accept: 'text/plain,text/xml,application/xml;q=0.9,*/*;q=0.8',
-        },
-        signal: controller.signal,
-        redirect: 'manual',
-      });
-
-      if (resp.status >= 300 && resp.status < 400) {
-        const location = resp.headers.get('location');
-        if (!location || hopsRemaining === 0) {
-          return { status: resp.status, text: '' };
-        }
-        currentUrl = new URL(location, currentUrl).toString();
-        hopsRemaining--;
-        continue;
-      }
-
-      if (resp.status !== 200) {
-        return { status: resp.status, text: '' };
-      }
-
-      const text = await resp.text();
-      return { status: resp.status, text: text.substring(0, maxBytes) };
+    const resp = await safeFetch(targetUrl, {
+      method: 'GET',
+      headers: { Accept: 'text/plain,text/xml,application/xml;q=0.9,*/*;q=0.8' },
+      timeoutMs,
+      maxBytes,
+      maxRedirects,
+    });
+    if (resp.status >= 300 && resp.status < 400) {
+      await resp.text();
+      return { status: resp.status, text: '' };
     }
-    return null;
+    if (resp.status !== 200) {
+      await resp.text();
+      return { status: resp.status, text: '' };
+    }
+    const text = await resp.text();
+    return { status: resp.status, text: text.substring(0, maxBytes) };
   } catch {
     return null;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -278,9 +209,10 @@ async function inspectSslCert(domain: string, port = 443): Promise<ScanResult['s
       {
         host: domain,
         port,
-        servername: domain,
+        servername: net.isIP(domain) ? undefined : domain,
         rejectUnauthorized: false,
         timeout: 5000,
+        lookup: guardedLookup as any,
       },
       () => {
         try {
@@ -427,61 +359,35 @@ export async function performWebsiteScan(rawUrl: string): Promise<ScanResult> {
   let responseBody = '';
   let finalUrl = url;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
-
   try {
-    let currentFetchUrl = url;
-    let hops = 0;
-    const maxHops = 5;
+    const resp = await safeFetch(url, {
+      method: 'GET',
+      headers: {
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+      timeoutMs: 8000,
+      maxBytes: 1024 * 1024, // 1MB maximum size limit
+      maxRedirects: 5,
+    });
 
-    while (hops <= maxHops) {
-      const parsedFetch = new URL(currentFetchUrl);
-      if (parsedFetch.protocol !== 'http:' && parsedFetch.protocol !== 'https:') {
-        throw new Error(`Unsupported protocol: ${parsedFetch.protocol}`);
-      }
-      await validateTargetSecurity(parsedFetch.hostname);
+    responseTimeMs = Date.now() - httpStart;
+    httpStatus = resp.status;
+    httpStatusText = resp.statusText || (resp.status === 200 ? 'OK' : `Status ${resp.status}`);
+    finalUrl = resp.url;
 
-      const resp = await fetch(currentFetchUrl, {
-        method: 'GET',
-        headers: {
-          'User-Agent': 'PulseVanguard-Monitor/1.0 (+https://pulsevanguard.com/bot; website health check)',
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Encoding': 'gzip, deflate, br',
-        },
-        signal: controller.signal,
-        redirect: 'manual',
-      });
+    resp.headers.forEach((val, key) => {
+      responseHeaders[key.toLowerCase()] = val;
+    });
 
-      responseTimeMs = Date.now() - httpStart;
-      httpStatus = resp.status;
-      httpStatusText = resp.statusText || (resp.status === 200 ? 'OK' : `Status ${resp.status}`);
-      finalUrl = currentFetchUrl;
-
-      // Handle redirect
-      if (resp.status >= 300 && resp.status < 400) {
-        const location = resp.headers.get('location');
-        if (location && hops < maxHops) {
-          currentFetchUrl = new URL(location, currentFetchUrl).toString();
-          hops++;
-          continue;
-        }
-      }
-
-      resp.headers.forEach((val, key) => {
-        responseHeaders[key.toLowerCase()] = val;
-      });
-
-      const fullText = await resp.text().catch(() => '');
-      responseBody = fullText.substring(0, 1024 * 1024); // 1MB maximum size limit
-      break;
-    }
+    responseBody = await resp.text();
   } catch (err: any) {
     responseTimeMs = Date.now() - httpStart;
     httpStatus = 0;
-    httpStatusText = err.name === 'AbortError' ? 'Connection Timeout (8s)' : err.message;
-  } finally {
-    clearTimeout(timeoutId);
+    httpStatusText = /timed out/i.test(err?.message || '')
+      ? 'Connection Timeout (8s)'
+      : err instanceof SsrfBlockedError || /protected|private|reserved/i.test(err?.message || '')
+      ? 'Target blocked by security policy'
+      : 'Connection Error';
   }
 
   const ssl = await sslPromise;

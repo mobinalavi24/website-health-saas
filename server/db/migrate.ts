@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { query, withTransaction } from './connection.ts';
 import { initSchema } from './init.ts';
+import { ensureSecuritySchema } from '../securitySchema.ts';
 
 export interface MigrationSummary {
   success: boolean;
@@ -235,7 +236,7 @@ export async function applySubscriptionEntitlementsMigration(): Promise<void> {
     `CREATE TABLE IF NOT EXISTS subscription_entitlements (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
-      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      org_id TEXT NOT NULL,
       plan_id TEXT NOT NULL,
       plan_name TEXT NOT NULL,
       billing_interval TEXT NOT NULL DEFAULT 'monthly',
@@ -249,6 +250,7 @@ export async function applySubscriptionEntitlementsMigration(): Promise<void> {
       revoked_reason TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
+    'ALTER TABLE subscription_entitlements DROP CONSTRAINT IF EXISTS subscription_entitlements_org_id_fkey',
     'CREATE INDEX IF NOT EXISTS idx_sub_entitlements_user ON subscription_entitlements(user_id)',
     'CREATE INDEX IF NOT EXISTS idx_sub_entitlements_org ON subscription_entitlements(org_id)',
     'CREATE INDEX IF NOT EXISTS idx_sub_entitlements_status_exp ON subscription_entitlements(status, expires_at)',
@@ -270,13 +272,17 @@ export async function applySubscriptionEntitlementsMigration(): Promise<void> {
     }
   }
 
-  // Update subscription_plans features in PostgreSQL to remove any $ or fiat references
+  // Update subscription_plans in PostgreSQL to remove any $ or fiat references
   try {
     await query(
       `UPDATE subscription_plans
-       SET features = $1::jsonb
+       SET target_audience = $1,
+           pricing = $2::jsonb,
+           features = $3::jsonb
        WHERE id = 'pro'`,
       [
+        '5 USDT/month · Can scan 5 websites per entitlement',
+        JSON.stringify({ USDT: { monthly: 5, annual: 50 } }),
         JSON.stringify([
           '5 Monitored Websites per Entitlement',
           'Full Access after 3-Day Trial',
@@ -285,6 +291,16 @@ export async function applySubscriptionEntitlementsMigration(): Promise<void> {
           'SSL, DNS, Security Headers & Incident Alerts',
           '5 USDT/month or 50 USDT/year (Save 2 Months)',
         ]),
+      ]
+    );
+    await query(
+      `UPDATE subscription_plans
+       SET target_audience = $1,
+           pricing = $2::jsonb
+       WHERE id = 'free'`,
+      [
+        'Free for 3 days · Can scan 1 website',
+        JSON.stringify({ USDT: { monthly: 0, annual: 0 } }),
       ]
     );
   } catch {
@@ -331,6 +347,7 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
     await applyReferralSchemaMigration();
     await applySupportTicketingSchemaMigration();
     await applySubscriptionEntitlementsMigration();
+  await ensureSecuritySchema();
     return {
       success: true,
       source: jsonPath,
@@ -839,6 +856,7 @@ export async function runMigration(options: { force?: boolean } = {}): Promise<M
   await applyReferralSchemaMigration();
   await applySupportTicketingSchemaMigration();
   await applySubscriptionEntitlementsMigration();
+  await ensureSecuritySchema();
 
   return {
     success: true,

@@ -6,12 +6,21 @@ import { handleApiRoute } from './server/api.ts';
 import { monitorEngine } from './server/monitor.ts';
 import { runMigration } from './server/db/migrate.ts';
 import { db } from './server/db.ts';
+import {
+  validateProductionEnvironment,
+  applyPageSecurityHeaders,
+  pruneSecurityData,
+} from './server/security.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function startServer() {
+  // 0. Validate production environment and secrets before starting listeners
+  validateProductionEnvironment();
+
   const app = express();
+  app.disable('x-powered-by');
   const PORT = Number(process.env.PORT) || 3000;
   const isProd = process.env.NODE_ENV === 'production';
 
@@ -28,8 +37,34 @@ async function startServer() {
     }
   }
 
-  // Start background monitoring worker
+  // Start background monitoring worker and periodic security table pruning
   monitorEngine.start(25000);
+  const pruneTimer = setInterval(() => {
+    pruneSecurityData().catch(() => {});
+  }, 60 * 60 * 1000);
+  if (typeof pruneTimer.unref === 'function') pruneTimer.unref();
+
+  // Apply baseline security headers and block sensitive dotfile / backup paths
+  app.use((req, res, next) => {
+    const reqPath = (req.path || req.url || '').toLowerCase();
+    if (
+      reqPath.startsWith('/.') ||
+      reqPath.includes('/.env') ||
+      reqPath.includes('/.git') ||
+      reqPath.endsWith('.sql') ||
+      reqPath.endsWith('.dump') ||
+      reqPath.endsWith('.bak') ||
+      reqPath.startsWith('/data/') ||
+      reqPath.startsWith('/server/')
+    ) {
+      res.status(404).end('Not found');
+      return;
+    }
+    if (!reqPath.startsWith('/api/')) {
+      applyPageSecurityHeaders(req, res);
+    }
+    next();
+  });
 
   // Health checks for Cloud Run container lifecycle
   app.get(['/healthz', '/api/healthz'], (_req, res) => {
@@ -43,8 +78,10 @@ async function startServer() {
         const handled = await handleApiRoute(req, res);
         if (!handled) next();
       } catch (err) {
-        console.error('[API Server Error]', err);
-        next(err);
+        console.error('[API Server Error]');
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'An unexpected error occurred.' });
+        }
       }
     } else {
       next();
@@ -60,9 +97,9 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    // In production mode, serve built static assets from dist
+    // In production mode, serve built static assets from dist with dotfiles denied
     const distPath = path.resolve(__dirname, 'dist');
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, { dotfiles: 'deny', index: false }));
     app.get('*', (_req, res) => {
       res.sendFile(path.resolve(distPath, 'index.html'));
     });
@@ -74,6 +111,6 @@ async function startServer() {
 }
 
 startServer().catch((err) => {
-  console.error('[PulseVanguard] Failed to start server:', err);
+  console.error('[PulseVanguard] Failed to start server:', err?.message || err);
   process.exit(1);
 });

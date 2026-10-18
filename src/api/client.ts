@@ -25,26 +25,75 @@ import type {
   OrganizationEntitlementSummary,
 } from '../types.ts';
 
-const TOKEN_KEY = 'pv_auth_token';
+const LEGACY_TOKEN_KEY = 'pv_auth_token';
+
+// Purge any legacy bearer token that may have been persisted in browser storage by older versions.
+try {
+  if (typeof window !== 'undefined') {
+    window.localStorage?.removeItem(LEGACY_TOKEN_KEY);
+    window.sessionStorage?.removeItem(LEGACY_TOKEN_KEY);
+  }
+} catch {}
+
+let inMemoryToken: string | null = null;
+let inMemoryCsrfToken: string | null = null;
+
+function readCookie(name: string): string | null {
+  if (typeof document === 'undefined' || !document.cookie) return null;
+  const parts = document.cookie.split(';');
+  for (const part of parts) {
+    const [rawKey, ...rest] = part.trim().split('=');
+    if (rawKey === name) {
+      try {
+        return decodeURIComponent(rest.join('='));
+      } catch {
+        return rest.join('=');
+      }
+    }
+  }
+  return null;
+}
 
 export const apiClient = {
   getToken(): string | null {
-    return localStorage.getItem(TOKEN_KEY);
+    return inMemoryToken;
   },
 
-  setToken(token: string) {
-    localStorage.setItem(TOKEN_KEY, token);
+  setToken(token: string | undefined | null) {
+    inMemoryToken = token || null;
+    // Never write session tokens to localStorage or sessionStorage.
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage?.removeItem(LEGACY_TOKEN_KEY);
+        window.sessionStorage?.removeItem(LEGACY_TOKEN_KEY);
+      }
+    } catch {}
   },
 
   clearToken() {
-    localStorage.removeItem(TOKEN_KEY);
+    inMemoryToken = null;
+    inMemoryCsrfToken = null;
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage?.removeItem(LEGACY_TOKEN_KEY);
+        window.sessionStorage?.removeItem(LEGACY_TOKEN_KEY);
+      }
+    } catch {}
   },
 
   async request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const token = this.getToken();
+    const method = (options.method || 'GET').toUpperCase();
     const headers = new Headers(options.headers || {});
+    headers.set('X-PV-Client', 'web');
     if (token && !headers.has('Authorization')) {
       headers.set('Authorization', `Bearer ${token}`);
+    }
+    if (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE') {
+      const csrf = readCookie('pv_csrf') || inMemoryCsrfToken;
+      if (csrf && !headers.has('X-CSRF-Token')) {
+        headers.set('X-CSRF-Token', csrf);
+      }
     }
     if (!headers.has('Content-Type') && options.body && typeof options.body === 'string') {
       headers.set('Content-Type', 'application/json');
@@ -52,11 +101,18 @@ export const apiClient = {
 
     const res = await fetch(path, {
       ...options,
+      credentials: 'same-origin',
       headers,
     });
 
     const data = await res.json().catch(() => ({}));
+    if (data && typeof data.csrfToken === 'string') {
+      inMemoryCsrfToken = data.csrfToken;
+    }
     if (!res.ok) {
+      if (res.status === 401) {
+        this.clearToken();
+      }
       const err = new Error(data.message || data.error || `HTTP error ${res.status}`);
       (err as any).status = res.status;
       (err as any).code = data.error;
@@ -92,12 +148,13 @@ export const apiClient = {
   },
 
   // Auth
-  async login(email: string, password: string): Promise<{ token: string; user: User; organization: Organization }> {
-    const res = await this.request<{ token: string; user: User; organization: Organization }>('/api/auth/login', {
+  async login(email: string, password: string): Promise<{ token?: string; csrfToken?: string; user: User; organization: Organization }> {
+    const res = await this.request<{ token?: string; csrfToken?: string; user: User; organization: Organization }>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
-    this.setToken(res.token);
+    if (res.token) this.setToken(res.token);
+    if (res.csrfToken) inMemoryCsrfToken = res.csrfToken;
     return res;
   },
 
@@ -107,13 +164,22 @@ export const apiClient = {
     password: string,
     orgName?: string,
     referralCode?: string
-  ): Promise<{ token: string; user: User; organization: Organization }> {
-    const res = await this.request<{ token: string; user: User; organization: Organization }>('/api/auth/register', {
+  ): Promise<{ token?: string; csrfToken?: string; user: User; organization: Organization }> {
+    const res = await this.request<{ token?: string; csrfToken?: string; user: User; organization: Organization }>('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({ name, email, password, orgName, referralCode }),
     });
-    this.setToken(res.token);
+    if (res.token) this.setToken(res.token);
+    if (res.csrfToken) inMemoryCsrfToken = res.csrfToken;
     return res;
+  },
+
+  async logout(): Promise<{ success: boolean }> {
+    try {
+      return await this.request<{ success: boolean }>('/api/auth/logout', { method: 'POST' });
+    } finally {
+      this.clearToken();
+    }
   },
 
   async getMe(): Promise<{ user: User; organization: Organization; accountStatus?: AccountStatus }> {
@@ -124,10 +190,24 @@ export const apiClient = {
     return this.request<AccountStatus>('/api/account/status');
   },
 
-  async resetPassword(email: string): Promise<{ message: string }> {
-    return this.request<{ message: string }>('/api/auth/reset-password', {
+  async resetPassword(email: string): Promise<{ message: string; resetToken?: string }> {
+    return this.request<{ message: string; resetToken?: string }>('/api/auth/reset-password', {
       method: 'POST',
       body: JSON.stringify({ email }),
+    });
+  },
+
+  async confirmPasswordReset(token: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+    return this.request<{ success: boolean; message: string }>('/api/auth/reset-password/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ token, newPassword }),
+    });
+  },
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+    return this.request<{ success: boolean; message: string }>('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
     });
   },
 

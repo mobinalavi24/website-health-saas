@@ -103,7 +103,7 @@ async function ensureEntitlementsTable(): Promise<void> {
       CREATE TABLE IF NOT EXISTS subscription_entitlements (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
-        org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        org_id TEXT NOT NULL,
         plan_id TEXT NOT NULL,
         plan_name TEXT NOT NULL,
         billing_interval TEXT NOT NULL DEFAULT 'monthly',
@@ -118,6 +118,9 @@ async function ensureEntitlementsTable(): Promise<void> {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
+    await query(
+      `ALTER TABLE subscription_entitlements DROP CONSTRAINT IF EXISTS subscription_entitlements_org_id_fkey`
+    ).catch(() => {});
     schemaEnsured = true;
   } catch {
     // Handled if table already exists
@@ -169,6 +172,20 @@ export async function grantEntitlementForOrderInTransaction(
     };
   }
 
+  // Resolve effective org_id in case a legacy order references an old org_id
+  let effectiveOrgId = orderRow.org_id;
+  const orgCheck = await client.query('SELECT id FROM organizations WHERE id = $1 LIMIT 1', [
+    effectiveOrgId,
+  ]);
+  if (orgCheck.rows.length === 0 && orderRow.user_id) {
+    const userCheck = await client.query('SELECT org_id FROM users WHERE id = $1 LIMIT 1', [
+      orderRow.user_id,
+    ]);
+    if (userCheck.rows[0]?.org_id) {
+      effectiveOrgId = String(userCheck.rows[0].org_id);
+    }
+  }
+
   const billingInterval: 'monthly' | 'annual' =
     orderRow.billing_interval === 'annual' || Number(orderRow.amount || 0) >= 40
       ? 'annual'
@@ -200,7 +217,7 @@ export async function grantEntitlementForOrderInTransaction(
     [
       entitlementId,
       orderRow.user_id,
-      orderRow.org_id,
+      effectiveOrgId,
       orderRow.plan_id || 'pro',
       orderRow.plan_name || (billingInterval === 'annual' ? 'Pro Plan (Annual)' : 'Pro Plan (Monthly)'),
       billingInterval,
@@ -259,16 +276,12 @@ export async function backfillSubscriptionEntitlements(): Promise<{
     }
 
     // 2. Backfill any organization currently marked as 'pro' that has 0 entitlements in subscription_entitlements
-    const proOrgsRes = await client.query(
-      `SELECT o.*
-       FROM organizations o
-       WHERE o.plan_id = 'pro'
-         AND NOT EXISTS (
-           SELECT 1 FROM subscription_entitlements se WHERE se.org_id = o.id
-         )`
-    );
+    const proOrgsRes = await client.query(`SELECT * FROM organizations WHERE plan_id = 'pro'`);
+    const existingEntOrgsRes = await client.query(`SELECT DISTINCT org_id FROM subscription_entitlements`);
+    const orgsWithEntitlements = new Set(existingEntOrgsRes.rows.map((r: any) => String(r.org_id)));
 
     for (const orgRow of proOrgsRes.rows) {
+      if (orgsWithEntitlements.has(String(orgRow.id))) continue;
       const legacyOrderId = `legacy_org_${orgRow.id}`;
       const billingInterval: 'monthly' | 'annual' =
         orgRow.billing_interval === 'annual' ? 'annual' : 'monthly';

@@ -2,6 +2,7 @@ import { db, type Website, type MetricPoint, type Incident, type AlertNotificati
 import { performWebsiteScan } from './scanner.ts';
 import { performPageSpeedAnalysis } from './pagespeed.ts';
 import { getAccountTrialStatus } from './trial.ts';
+import { safeFetch } from './ssrf.ts';
 
 interface WorkerStats {
   running: boolean;
@@ -105,18 +106,16 @@ export class ContinuousMonitoringEngine {
     let errorMessage: string | undefined;
 
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 6000);
-
-      const resp = await fetch(website.url, {
+      const resp = await safeFetch(website.url, {
         method: 'GET',
         headers: {
           'User-Agent': 'PulseVanguard-Monitor/1.0 (+https://pulsevanguard.com/bot; continuous health check)',
         },
-        signal: controller.signal,
-        redirect: 'follow',
+        timeoutMs: 6000,
+        maxBytes: 64 * 1024,
+        maxRedirects: 5,
       });
-      clearTimeout(timeout);
+      await resp.text();
 
       responseTimeMs = Date.now() - checkStart;
       httpStatus = resp.status;
@@ -126,11 +125,13 @@ export class ContinuousMonitoringEngine {
       } else {
         // Confirmation retry to avoid false alarms
         await new Promise((r) => setTimeout(r, 1500));
-        const retryResp = await fetch(website.url, {
+        const retryResp = await safeFetch(website.url, {
           method: 'GET',
           headers: { 'User-Agent': 'PulseVanguard-Monitor/1.0 (retry)' },
-          signal: AbortSignal.timeout(4000),
+          timeoutMs: 4000,
+          maxBytes: 16 * 1024,
         }).catch(() => null);
+        if (retryResp) await retryResp.text();
 
         if (retryResp && retryResp.status >= 200 && retryResp.status < 400) {
           currentStatus = 'DEGRADED';
@@ -145,7 +146,7 @@ export class ContinuousMonitoringEngine {
       // Confirmation retry
       try {
         await new Promise((r) => setTimeout(r, 1000));
-        const retry = await fetch(website.url, { method: 'HEAD', signal: AbortSignal.timeout(3000) });
+        const retry = await safeFetch(website.url, { method: 'HEAD', timeoutMs: 3000 });
         if (retry.status < 400) {
           currentStatus = 'DEGRADED';
           httpStatus = retry.status;
@@ -155,7 +156,7 @@ export class ContinuousMonitoringEngine {
         }
       } catch {
         currentStatus = 'OFFLINE';
-        errorMessage = e.name === 'AbortError' ? 'Connection timeout (6000ms)' : (e.message || 'Network error');
+        errorMessage = /timed out/i.test(e?.message || '') ? 'Connection timeout (6000ms)' : (e.message || 'Network error');
       }
     }
 

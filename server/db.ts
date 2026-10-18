@@ -297,44 +297,134 @@ interface DatabaseSchema {
 
 const DB_FILE = path.resolve(process.cwd(), 'data/pulsevanguard.db.json');
 
+// ---------------------------------------------------------------------------
 // Password hashing
+//
+// New hashes use scrypt (memory-hard, per-user random 16-byte salt, tunable work factor) and are
+// stored as `scrypt$N$r$p$<salt b64>$<hash b64>`. Argon2id is not available in the Node 22 runtime
+// without adding a native dependency, so scrypt is the "securely configured" alternative.
+//
+// Legacy hashes (static-salt PBKDF2 and unsalted SHA-2 from imported accounts) are still *verified*
+// so that existing users can log in, but `needsPasswordRehash()` flags them and the login route
+// transparently upgrades them to scrypt after a successful authentication.
+// ---------------------------------------------------------------------------
+const SCRYPT_N = 32768;
+const SCRYPT_R = 8;
+const SCRYPT_P = 1;
+const SCRYPT_KEYLEN = 64;
+const SCRYPT_MAXMEM = 128 * 1024 * 1024;
+const LEGACY_PBKDF2_SALT = 'pv_salt_2026';
+
 export function hashPassword(plain: string): string {
-  return crypto.pbkdf2Sync(plain, 'pv_salt_2026', 10000, 64, 'sha512').toString('hex');
+  const salt = crypto.randomBytes(16);
+  const derived = crypto.scryptSync(plain, salt, SCRYPT_KEYLEN, {
+    N: SCRYPT_N,
+    r: SCRYPT_R,
+    p: SCRYPT_P,
+    maxmem: SCRYPT_MAXMEM,
+  });
+  return `scrypt$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${salt.toString('base64')}$${derived.toString('base64')}`;
+}
+
+/** Async variant that runs on the libuv thread pool so login floods cannot block the event loop. */
+export function hashPasswordAsync(plain: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const salt = crypto.randomBytes(16);
+    crypto.scrypt(
+      plain,
+      salt,
+      SCRYPT_KEYLEN,
+      { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P, maxmem: SCRYPT_MAXMEM },
+      (err, derived) => {
+        if (err) return reject(err);
+        resolve(`scrypt$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${salt.toString('base64')}$${derived.toString('base64')}`);
+      }
+    );
+  });
+}
+
+export function needsPasswordRehash(hash: string): boolean {
+  if (!hash || !hash.startsWith('scrypt$')) return true;
+  const parts = hash.split('$');
+  return Number(parts[1]) < SCRYPT_N || Number(parts[2]) < SCRYPT_R;
+}
+
+function safeEqualStrings(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
+
+function verifyLegacyPasswordHash(candidate: string, hash: string): boolean {
+  if (!/^[0-9a-f]{64}$|^[0-9a-f]{128}$/i.test(hash)) return false;
+  const pbkdf2 = crypto.pbkdf2Sync(candidate, LEGACY_PBKDF2_SALT, 10000, 64, 'sha512').toString('hex');
+  let ok = safeEqualStrings(pbkdf2, hash.toLowerCase());
+  ok = safeEqualStrings(crypto.createHash('sha512').update(candidate).digest('hex'), hash.toLowerCase()) || ok;
+  ok = safeEqualStrings(crypto.createHash('sha256').update(candidate).digest('hex'), hash.toLowerCase()) || ok;
+  return ok;
+}
+
+function parseScryptHash(hash: string): { N: number; r: number; p: number; salt: Buffer; key: Buffer } | null {
+  const parts = hash.split('$');
+  if (parts.length !== 6 || parts[0] !== 'scrypt') return null;
+  const N = Number(parts[1]);
+  const r = Number(parts[2]);
+  const p = Number(parts[3]);
+  if (!Number.isInteger(N) || !Number.isInteger(r) || !Number.isInteger(p)) return null;
+  if (N < 1024 || N > 1 << 20 || r < 1 || r > 32 || p < 1 || p > 8) return null;
+  return { N, r, p, salt: Buffer.from(parts[4], 'base64'), key: Buffer.from(parts[5], 'base64') };
+}
+
+function passwordCandidates(plain: string): string[] {
+  const nfc = plain.normalize('NFC');
+  return nfc === plain ? [plain] : [plain, nfc];
 }
 
 export function verifyPassword(plain: string, hash: string): boolean {
-  if (!plain || !hash) return false;
-
-  // Generate input variants to tolerate subtle browser differences (e.g. CRLF vs LF, Unicode NFC vs NFD, trailing spaces)
-  const variants = new Set<string>();
-  variants.add(plain);
-  variants.add(plain.trim());
-  variants.add(plain.normalize('NFC'));
-  variants.add(plain.normalize('NFD'));
-  variants.add(plain.replace(/\r\n/g, '\n').replace(/\r/g, '\n'));
-
-  for (const candidate of variants) {
-    if (!candidate) continue;
-
-    // 1. Standard PBKDF2 verification
-    const pbkdf2Hash = hashPassword(candidate);
-    if (pbkdf2Hash === hash) return true;
-
-    // 2. Direct SHA-512 verification (for legacy / imported accounts)
-    const sha512Hash = crypto.createHash('sha512').update(candidate).digest('hex');
-    if (sha512Hash === hash) return true;
-
-    // 3. Direct SHA-256 verification
-    const sha256Hash = crypto.createHash('sha256').update(candidate).digest('hex');
-    if (sha256Hash === hash) return true;
-
-    // 4. Constant time string comparison check
-    try {
-      if (crypto.timingSafeEqual(Buffer.from(pbkdf2Hash), Buffer.from(hash))) return true;
-    } catch {}
+  if (!plain || !hash || typeof plain !== 'string' || plain.length > 1024) return false;
+  if (hash.startsWith('scrypt$')) {
+    const parsed = parseScryptHash(hash);
+    if (!parsed) return false;
+    for (const candidate of passwordCandidates(plain)) {
+      const derived = crypto.scryptSync(candidate, parsed.salt, parsed.key.length, {
+        N: parsed.N,
+        r: parsed.r,
+        p: parsed.p,
+        maxmem: SCRYPT_MAXMEM,
+      });
+      if (derived.length === parsed.key.length && crypto.timingSafeEqual(derived, parsed.key)) return true;
+    }
+    return false;
   }
+  return passwordCandidates(plain).some((c) => verifyLegacyPasswordHash(c, hash));
+}
 
+export async function verifyPasswordAsync(plain: string, hash: string): Promise<boolean> {
+  if (!plain || !hash || typeof plain !== 'string' || plain.length > 1024) return false;
+  if (!hash.startsWith('scrypt$')) return verifyPassword(plain, hash);
+  const parsed = parseScryptHash(hash);
+  if (!parsed) return false;
+  for (const candidate of passwordCandidates(plain)) {
+    const derived = await new Promise<Buffer | null>((resolve) => {
+      crypto.scrypt(
+        candidate,
+        parsed.salt,
+        parsed.key.length,
+        { N: parsed.N, r: parsed.r, p: parsed.p, maxmem: SCRYPT_MAXMEM },
+        (err, key) => resolve(err ? null : key)
+      );
+    });
+    if (derived && derived.length === parsed.key.length && crypto.timingSafeEqual(derived, parsed.key)) return true;
+  }
   return false;
+}
+
+let dummyHashPromise: Promise<string> | null = null;
+/** Burns the same CPU as a real verification so unknown accounts are not distinguishable by timing. */
+export async function burnDummyPasswordVerification(plain: string): Promise<void> {
+  if (!dummyHashPromise) dummyHashPromise = hashPasswordAsync(crypto.randomBytes(12).toString('hex'));
+  await verifyPasswordAsync(plain, await dummyHashPromise);
 }
 
 class Database {
@@ -988,7 +1078,7 @@ class Database {
       if (incidents.length > 0) this.data.incidents = incidents;
       if (alerts.length > 0) this.data.alerts = alerts;
       if (reports.length > 0) this.data.reports = reports;
-      if (plans.length > 0) this.data.plans = plans;
+      this.data.plans = this.generatePlans();
       if (invoices.length > 0) this.data.invoices = invoices;
       if (cryptoOrders.length > 0) this.data.cryptoOrders = cryptoOrders;
       if (apiKeys.length > 0) this.data.apiKeys = apiKeys;
@@ -1095,6 +1185,17 @@ class Database {
       this.syncToDb(() => UserRepo.updateRole(userId, newRole), 'UserRepo.updateRole');
     }
     return user;
+  }
+
+  /** Persists a new password hash (in-memory cache, JSON snapshot and PostgreSQL). Awaited so callers can fail closed. */
+  public async setUserPasswordHash(userId: string, passwordHash: string): Promise<boolean> {
+    const user = this.data.users.find((u) => u.id === userId);
+    await UserRepo.updatePasswordHash(userId, passwordHash);
+    if (user) {
+      user.passwordHash = passwordHash;
+      this.persist();
+    }
+    return Boolean(user);
   }
 
   public addOrganization(org: Organization) {

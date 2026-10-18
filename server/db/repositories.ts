@@ -83,6 +83,11 @@ export const UserRepo = {
     return (res.rowCount || 0) > 0;
   },
 
+  async updatePasswordHash(userId: string, passwordHash: string): Promise<boolean> {
+    const res = await query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, userId]);
+    return (res.rowCount || 0) > 0;
+  },
+
   async deleteByEmail(email: string): Promise<boolean> {
     const res = await query('DELETE FROM users WHERE email = $1', [email.trim().toLowerCase()]);
     return (res.rowCount || 0) > 0;
