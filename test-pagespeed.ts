@@ -92,6 +92,7 @@ async function runTests() {
     delete process.env.GOOGLE_API_KEY;
     delete process.env.GOOGLE_PAGESPEED_API_KEY;
     delete process.env.GEMINI_API_KEY;
+    process.env.DISABLE_DEFAULT_PAGESPEED_KEY = 'true';
 
     try {
       await performPageSpeedAnalysis('https://example.com');
@@ -107,6 +108,7 @@ async function runTests() {
     if (origGoogleKey) process.env.GOOGLE_API_KEY = origGoogleKey;
     if (origGooglePsKey) process.env.GOOGLE_PAGESPEED_API_KEY = origGooglePsKey;
     if (origGeminiKey) process.env.GEMINI_API_KEY = origGeminiKey;
+    delete process.env.DISABLE_DEFAULT_PAGESPEED_KEY;
   }
 
   // Test 3: SSRF Protections

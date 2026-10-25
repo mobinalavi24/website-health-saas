@@ -691,6 +691,22 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           });
         }
 
+        // Sync PageSpeed result to monitored websites so stale errors in lastScanResult.pageSpeed are overwritten
+        for (const site of db.getWebsites()) {
+          if (
+            site.lastScanResult &&
+            (site.domain.toLowerCase() === pageSpeedResult.domain.toLowerCase() ||
+              site.url.toLowerCase() === pageSpeedResult.url.toLowerCase())
+          ) {
+            db.updateWebsite(site.id, {
+              lastScanResult: {
+                ...site.lastScanResult,
+                pageSpeed: pageSpeedResult,
+              },
+            });
+          }
+        }
+
         sendJson(res, 200, pageSpeedResult);
       } catch (err: any) {
         if (err instanceof SsrfBlockedError || /blocked|private|reserved|protected|disallowed/i.test(String(err?.message))) {

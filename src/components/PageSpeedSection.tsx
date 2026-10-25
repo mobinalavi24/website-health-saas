@@ -37,24 +37,24 @@ export const PageSpeedSection: React.FC<PageSpeedSectionProps> = ({
   onDataUpdated,
 }) => {
   const [device, setDevice] = useState<'mobile' | 'desktop'>('mobile');
-  const [data, setData] = useState<CombinedPageSpeedResult | null>(initialData || null);
+  const hasInitialDeviceData = Boolean(initialData && (initialData.mobile || initialData.desktop));
+  const [data, setData] = useState<CombinedPageSpeedResult | null>(hasInitialDeviceData ? initialData! : null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(initialData?.error || null);
+  const [error, setError] = useState<string | null>(null);
   const [expandedOpportunity, setExpandedOpportunity] = useState<string | null>(null);
 
-  // Sync state if parent props change
+  // Sync state if parent props change with valid device data
   React.useEffect(() => {
-    if (initialData) {
+    if (initialData && (initialData.mobile || initialData.desktop)) {
       setData(initialData);
-      if (initialData.error && !initialData.mobile && !initialData.desktop) {
-        setError(initialData.error);
-      }
+      setError(null);
     }
   }, [initialData]);
 
-  // If no initial data provided, auto-trigger first-time analysis smoothly
+  // If no valid initial data (or previous scan stored in DB had mobile:null & desktop:null), auto-trigger live analysis smoothly
   React.useEffect(() => {
-    if (!initialData && url && !data && !loading && !error) {
+    const valid = Boolean(initialData && (initialData.mobile || initialData.desktop));
+    if (!valid && url && !loading) {
       handleRunAnalysis(false);
     }
   }, [url]);
