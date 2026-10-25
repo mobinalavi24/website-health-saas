@@ -39,6 +39,15 @@ async function startServer() {
 
   // Start background monitoring worker and periodic security table pruning
   monitorEngine.start(25000);
+
+  // Check PageSpeed configuration status safely without printing secrets
+  const { getPageSpeedApiKey } = await import('./server/pagespeed.ts');
+  const psKeyStatus = getPageSpeedApiKey();
+  if (psKeyStatus.key) {
+    console.log('[PulseVanguard] Google PageSpeed Insights API key active and ready.');
+  } else {
+    console.warn(`[PulseVanguard PageSpeed Notice]: ${psKeyStatus.diagnosticError}`);
+  }
   const pruneTimer = setInterval(() => {
     pruneSecurityData().catch(() => {});
   }, 60 * 60 * 1000);

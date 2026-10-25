@@ -133,17 +133,20 @@ function extractOpportunities(audits: Record<string, any>): PageSpeedOpportunity
 
 /**
  * Retrieves Google PageSpeed API key from server environment variables.
- * Checks PAGESPEED_API_KEY, GOOGLE_PAGESPEED_API_KEY, GOOGLE_API_KEY, and GEMINI_API_KEY.
+ * Priority:
+ * 1. PAGESPEED_API_KEY (Primary official environment variable)
+ * 2. GOOGLE_API_KEY (Standard Google Cloud compatible fallback)
+ * 3. Extended compatibility fallbacks: GOOGLE_PAGESPEED_API_KEY or GEMINI_API_KEY
  * Filters out placeholder values from .env.example.
  */
 export function getPageSpeedApiKey(): { key?: string; diagnosticError?: string } {
   const candidate =
-    process.env.PAGESPEED_API_KEY ||
-    process.env.GOOGLE_PAGESPEED_API_KEY ||
-    process.env.GOOGLE_API_KEY ||
-    process.env.GEMINI_API_KEY;
+    process.env.PAGESPEED_API_KEY?.trim() ||
+    process.env.GOOGLE_API_KEY?.trim() ||
+    process.env.GOOGLE_PAGESPEED_API_KEY?.trim() ||
+    process.env.GEMINI_API_KEY?.trim();
 
-  if (!candidate || !candidate.trim()) {
+  if (!candidate) {
     return {
       diagnosticError:
         'Google PageSpeed Insights API key is not configured. Please set the PAGESPEED_API_KEY or GOOGLE_API_KEY environment variable in your production server configuration.',
@@ -151,7 +154,12 @@ export function getPageSpeedApiKey(): { key?: string; diagnosticError?: string }
   }
 
   const clean = candidate.trim();
-  if (clean === 'MY_GEMINI_API_KEY' || clean.startsWith('MY_')) {
+  if (
+    clean === 'MY_GEMINI_API_KEY' ||
+    clean.startsWith('MY_') ||
+    clean === 'YOUR_API_KEY' ||
+    clean === 'YOUR_PAGESPEED_API_KEY'
+  ) {
     return {
       diagnosticError:
         'Google PageSpeed Insights API key contains a placeholder value. Please set a valid PAGESPEED_API_KEY or GOOGLE_API_KEY in your production server configuration.',
@@ -199,7 +207,9 @@ async function runSingleStrategyAnalysis(
           `Google PageSpeed analysis timed out after 45 seconds for ${strategy} strategy. The target website took too long to load.`
         );
       }
-      throw new Error(`Google PageSpeed network error: ${fetchErr.message || 'Unable to connect to Google API'}`);
+      // Ensure key is never leaked in fetch error messages
+      const safeMessage = (fetchErr.message || 'Unable to connect to Google API').replace(/([?&]key=)[^&]+/gi, '$1[REDACTED]');
+      throw new Error(`Google PageSpeed network error: ${safeMessage}`);
     }
 
     if (!response.ok) {

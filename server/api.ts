@@ -327,9 +327,13 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 
 /** Maps scan failures to messages that are safe to show publicly (no internals). */
 function publicScanError(err: any, fallback: string): string {
-  const msg = String(err?.message || '');
-  if (/blocked|private|reserved|protected|Only http|valid website URL|Invalid URL|credentials|port|scheme|disallowed/i.test(msg)) {
-    return msg.slice(0, 200);
+  const msg = String(err?.message || '').replace(/([?&]key=)[^&]+/gi, '$1[REDACTED]');
+  if (
+    /blocked|private|reserved|protected|Only http|valid website URL|Invalid URL|credentials|port|scheme|disallowed|PageSpeed|API key|rate limit|quota|timed out|Unable to analyze/i.test(
+      msg
+    )
+  ) {
+    return msg.slice(0, 260);
   }
   return fallback;
 }
