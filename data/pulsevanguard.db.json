@@ -2406,7 +2406,7 @@
           },
           "desktop": null,
           "cached": false,
-          "error": "Desktop: This operation was aborted"
+          "error": null
         }
       }
     },
