@@ -314,6 +314,19 @@ export const ScanReportView: React.FC<ScanReportViewProps> = ({
                 </button>
                 <button
                   type="button"
+                  onClick={() => onNavigateTab('whois')}
+                  className="p-3 rounded-lg bg-slate-900 border border-slate-800 hover:border-[#E6A05A]/50 hover:bg-slate-800/80 text-left transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                    <span className="group-hover:text-[#E6A05A] transition-colors font-medium">WHOIS</span>
+                    <Globe className="h-3.5 w-3.5 text-[#E6A05A]" />
+                  </div>
+                  <div className="text-sm font-bold font-mono text-white truncate">
+                    {report.whois?.registrar || 'Domain Registry'}
+                  </div>
+                </button>
+                <button
+                  type="button"
                   onClick={() => onNavigateTab('spfdmarc')}
                   className="p-3 rounded-lg bg-slate-900 border border-slate-800 hover:border-amber-500/50 hover:bg-slate-800/80 text-left transition-all group cursor-pointer"
                 >
