@@ -339,11 +339,11 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 function publicScanError(err: any, fallback: string): string {
   const msg = String(err?.message || '').replace(/([?&]key=)[^&]+/gi, '$1[REDACTED]');
   if (
-    /blocked|private|reserved|protected|Only http|valid website URL|Invalid URL|credentials|port|scheme|disallowed|PageSpeed|WHOIS|domain|not registered|API key|rate limit|quota|timed out|Unable to analyze/i.test(
+    /blocked|private|reserved|protected|Only http|valid website URL|Invalid URL|credentials|port|scheme|disallowed|PageSpeed|Lighthouse|NO_FCP|DNS_FAILURE|WHOIS|RDAP|Registry|domain|not registered|API key|rate limit|quota|timed out|Unable to analyze/i.test(
       msg
     )
   ) {
-    return msg.slice(0, 260);
+    return msg.slice(0, 320);
   }
   return fallback;
 }
@@ -525,10 +525,17 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
       const body = await readJsonBody(req);
       let target = typeof body.url === 'string' ? body.url.trim() : '';
+      if (body?.websiteId && !session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
       if (session && body?.websiteId) {
         const site = db.findWebsiteById(String(body.websiteId));
         const access = await verifyWebsiteAccessAndEntitlement(site, session.user, session.org);
         if (!access.allowed) {
+          if (access.isIdor) {
+            void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'scan_website', websiteId: body.websiteId } });
+          }
           sendJson(res, access.status || 403, access.body);
           return true;
         }
@@ -541,11 +548,18 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
       if (session && !isExemptSuperAdmin(session.user, session.org)) {
         await reconcileOrganizationWebsiteAllocations(session.org.id).catch(() => {});
-        const normalizedTarget = normalizeInputUrl(target).toLowerCase();
+        let normalizedTargetUrl = target.toLowerCase();
+        let normalizedTargetDomain = '';
+        try {
+          const norm = normalizeInputUrl(target);
+          normalizedTargetUrl = norm.url.toLowerCase();
+          normalizedTargetDomain = norm.domain.toLowerCase();
+        } catch {}
         const matchingSite = db.getWebsites().find(
           (w) =>
             w.orgId === session.org.id &&
-            (w.url.toLowerCase() === normalizedTarget ||
+            (w.url.toLowerCase() === normalizedTargetUrl ||
+              (normalizedTargetDomain && w.domain.toLowerCase() === normalizedTargetDomain) ||
               target.toLowerCase().includes(w.domain.toLowerCase()))
         );
         if (matchingSite) {
@@ -684,14 +698,24 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         }
       }
 
+      if (websiteId && !session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+
+      let authorizedSite: Website | undefined;
       if (session && websiteId) {
         const site = db.findWebsiteById(websiteId);
         const access = await verifyWebsiteAccessAndEntitlement(site, session.user, session.org);
         if (!access.allowed) {
+          if (access.isIdor) {
+            void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'website_pagespeed', websiteId } });
+          }
           sendJson(res, access.status || 403, access.body);
           return true;
         }
-        if (!target && access.site) target = access.site.url;
+        authorizedSite = access.site;
+        if (!target && authorizedSite) target = authorizedSite.url;
       }
 
       if (!target || target.length > 2048) {
@@ -701,11 +725,18 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
       if (session && !isExemptSuperAdmin(session.user, session.org)) {
         await reconcileOrganizationWebsiteAllocations(session.org.id).catch(() => {});
-        const normalizedTarget = normalizeInputUrl(target).toLowerCase();
+        let normalizedTargetUrl = target.toLowerCase();
+        let normalizedTargetDomain = '';
+        try {
+          const norm = normalizeInputUrl(target);
+          normalizedTargetUrl = norm.url.toLowerCase();
+          normalizedTargetDomain = norm.domain.toLowerCase();
+        } catch {}
         const matchingSite = db.getWebsites().find(
           (w) =>
             w.orgId === session.org.id &&
-            (w.url.toLowerCase() === normalizedTarget ||
+            (w.url.toLowerCase() === normalizedTargetUrl ||
+              (normalizedTargetDomain && w.domain.toLowerCase() === normalizedTargetDomain) ||
               target.toLowerCase().includes(w.domain.toLowerCase()))
         );
         if (matchingSite) {
@@ -714,9 +745,11 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
             sendJson(res, access.status || 403, access.body);
             return true;
           }
+          if (!authorizedSite) authorizedSite = access.site;
         }
       }
 
+      const startTimeMs = Date.now();
       try {
         const pageSpeedResult = await performPageSpeedAnalysis(target, {
           forceRefresh,
@@ -726,6 +759,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         if (pageSpeedResult.mobile) {
           db.addPageSpeedRecord({
             id: `ps_mob_${Date.now()}`,
+            websiteId: authorizedSite?.id,
             url: pageSpeedResult.url,
             domain: pageSpeedResult.domain,
             device: 'mobile',
@@ -746,6 +780,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         if (pageSpeedResult.desktop) {
           db.addPageSpeedRecord({
             id: `ps_desk_${Date.now()}`,
+            websiteId: authorizedSite?.id,
             url: pageSpeedResult.url,
             domain: pageSpeedResult.domain,
             device: 'desktop',
@@ -764,24 +799,54 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           });
         }
 
-        // Sync PageSpeed result to monitored websites so stale errors in lastScanResult.pageSpeed are overwritten
+        // Sync PageSpeed result to monitored websites while preserving any previously valid device strategy data
+        let finalReturnedResult: CombinedPageSpeedResult = pageSpeedResult;
         for (const site of db.getWebsites()) {
-          if (
-            site.lastScanResult &&
-            (site.domain.toLowerCase() === pageSpeedResult.domain.toLowerCase() ||
-              site.url.toLowerCase() === pageSpeedResult.url.toLowerCase())
-          ) {
+          const isTargetSite =
+            (authorizedSite && site.id === authorizedSite.id) ||
+            site.domain.toLowerCase() === pageSpeedResult.domain.toLowerCase() ||
+            site.url.toLowerCase() === pageSpeedResult.url.toLowerCase();
+
+          if (!isTargetSite) continue;
+
+          const prevPs = site.lastScanResult?.pageSpeed;
+          const mergedPs: CombinedPageSpeedResult = {
+            ...pageSpeedResult,
+            mobile: pageSpeedResult.mobile || prevPs?.mobile || null,
+            desktop: pageSpeedResult.desktop || prevPs?.desktop || null,
+          };
+
+          if (authorizedSite && site.id === authorizedSite.id) {
+            finalReturnedResult = mergedPs;
+          }
+
+          if (site.lastScanResult) {
             db.updateWebsite(site.id, {
               lastScanResult: {
                 ...site.lastScanResult,
-                pageSpeed: pageSpeedResult,
+                pageSpeed: mergedPs,
               },
             });
+          } else if (authorizedSite && site.id === authorizedSite.id) {
+            // Initialize lastScanResult if website had not run a Full Health Audit yet
+            try {
+              const baseScan = await performWebsiteScan(site.url);
+              baseScan.pageSpeed = mergedPs;
+              db.updateWebsite(site.id, {
+                lastScanResult: baseScan,
+              });
+            } catch {
+              // Keep pageSpeedResult even if full scan initialization is skipped
+            }
           }
         }
 
-        sendJson(res, 200, pageSpeedResult);
+        sendJson(res, 200, finalReturnedResult);
       } catch (err: any) {
+        const durationMs = Date.now() - startTimeMs;
+        console.warn(
+          `[PageSpeed Error] websiteId=${authorizedSite?.id || websiteId || 'none'} strategy=${requestedStrategy} duration=${durationMs}ms code=${err?.code || 'PAGESPEED_ERROR'} status=${err?.upstreamStatus || 422}: ${sanitizeForLog(err?.message || 'PageSpeed failed', 200)}`
+        );
         if (err instanceof SsrfBlockedError || /blocked|private|reserved|protected|disallowed/i.test(String(err?.message))) {
           void logSecurityEvent({
             type: 'ssrf_blocked',
@@ -791,7 +856,14 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
             details: { endpoint: path, target: sanitizeForLog(target, 160), reason: sanitizeForLog(err?.message, 160) },
           });
         }
-        sendJson(res, 422, { error: publicScanError(err, 'PageSpeed analysis failed.') });
+        const safeErrMessage = publicScanError(err, 'PageSpeed analysis failed.');
+        sendJson(res, 422, {
+          success: false,
+          error: safeErrMessage,
+          code: err?.code || 'PAGESPEED_ERROR',
+          message: safeErrMessage,
+          retryable: Boolean(err?.retryable),
+        });
       }
       return true;
     }
@@ -1426,11 +1498,14 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       } else if (validatedParamDomain) {
         site = db
           .getWebsites()
-          .find(
-            (w) =>
-              (w.orgId === session.org.id || isExemptSuperAdmin(session.user, session.org)) &&
-              validateAndNormalizeWhoisDomain(w.domain) === validatedParamDomain
-          );
+          .find((w) => {
+            if (w.orgId !== session.org.id && !isExemptSuperAdmin(session.user, session.org)) return false;
+            try {
+              return validateAndNormalizeWhoisDomain(w.domain) === validatedParamDomain;
+            } catch {
+              return false;
+            }
+          });
       }
 
       if (!site) {
@@ -1457,16 +1532,34 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         }
         targetDomain = validatedParamDomain || siteDomainNormalized;
       } catch (domErr: any) {
-        sendJson(res, 400, { error: domErr?.message || 'Invalid domain name.' });
+        sendJson(res, 400, {
+          success: false,
+          error: domErr?.message || 'Invalid domain name.',
+          code: 'WHOIS_INVALID_DOMAIN',
+          message: domErr?.message || 'Invalid domain name.',
+          retryable: false,
+        });
         return true;
       }
 
+      const whoisStartMs = Date.now();
       try {
         const whoisResult = await performWhoisLookup(targetDomain, { forceRefresh });
         db.updateWebsite(activeSite.id, { lastWhoisResult: whoisResult });
         sendJson(res, 200, whoisResult);
       } catch (err: any) {
-        sendJson(res, 422, { error: publicScanError(err, 'WHOIS lookup failed for the requested domain.') });
+        const durationMs = Date.now() - whoisStartMs;
+        const safeErr = publicScanError(err, 'WHOIS lookup failed for the requested domain.');
+        console.warn(
+          `[WHOIS Error] websiteId=${activeSite.id} domain=${targetDomain} duration=${durationMs}ms code=${err?.code || 'WHOIS_ERROR'}: ${sanitizeForLog(err?.message || safeErr, 200)}`
+        );
+        sendJson(res, 422, {
+          success: false,
+          error: safeErr,
+          code: err?.code || 'WHOIS_ERROR',
+          message: safeErr,
+          retryable: Boolean(err?.retryable),
+        });
       }
       return true;
     }

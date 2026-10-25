@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Gauge,
   Smartphone,
@@ -7,31 +7,29 @@ import {
   CheckCircle2,
   AlertTriangle,
   XCircle,
-  HelpCircle,
   RefreshCw,
-  Clock,
   Sparkles,
   ChevronDown,
   ChevronUp,
   FileCode,
-  ExternalLink,
 } from 'lucide-react';
 import type {
   CombinedPageSpeedResult,
   PageSpeedDeviceData,
   CoreWebVitalMetric,
-  PageSpeedOpportunity,
   PageSpeedMetricStatus,
 } from '../types.ts';
 import { apiClient } from '../api/client.ts';
 
 interface PageSpeedSectionProps {
+  websiteId?: string;
   url: string;
   initialData?: CombinedPageSpeedResult | null;
   onDataUpdated?: (newData: CombinedPageSpeedResult) => void;
 }
 
 export const PageSpeedSection: React.FC<PageSpeedSectionProps> = ({
+  websiteId,
   url,
   initialData,
   onDataUpdated,
@@ -40,47 +38,75 @@ export const PageSpeedSection: React.FC<PageSpeedSectionProps> = ({
   const hasInitialDeviceData = Boolean(initialData && (initialData.mobile || initialData.desktop));
   const [data, setData] = useState<CombinedPageSpeedResult | null>(hasInitialDeviceData ? initialData! : null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    initialData && !initialData.mobile && !initialData.desktop && initialData.error
+      ? initialData.error
+      : null
+  );
   const [expandedOpportunity, setExpandedOpportunity] = useState<string | null>(null);
+  const inFlightRef = useRef(false);
 
   // Sync state if parent props change with valid device data
   React.useEffect(() => {
     if (initialData && (initialData.mobile || initialData.desktop)) {
-      setData(initialData);
-      setError(null);
+      setData((prev) => ({
+        ...initialData,
+        mobile: initialData.mobile ?? prev?.mobile ?? null,
+        desktop: initialData.desktop ?? prev?.desktop ?? null,
+      }));
+      if (!initialData.error) {
+        setError(null);
+      }
     }
   }, [initialData]);
 
   // If no valid initial data (or previous scan stored in DB had mobile:null & desktop:null), auto-trigger live analysis smoothly
   React.useEffect(() => {
     const valid = Boolean(initialData && (initialData.mobile || initialData.desktop));
-    if (!valid && url && !loading) {
-      handleRunAnalysis(false);
+    if (!valid && url && !inFlightRef.current) {
+      handleRunAnalysis(false, 'both');
     }
   }, [url]);
 
   const currentDeviceData: PageSpeedDeviceData | null =
     device === 'mobile' ? data?.mobile || null : data?.desktop || null;
 
-  const handleRunAnalysis = async (forceRefresh = false) => {
-    if (!url) return;
+  const handleRunAnalysis = async (
+    forceRefresh = false,
+    strategy: 'mobile' | 'desktop' | 'both' = 'both'
+  ) => {
+    if (!url || inFlightRef.current) return;
+    inFlightRef.current = true;
     setLoading(true);
     setError(null);
 
     try {
-      const result = await apiClient.getPageSpeedAnalysis(url, forceRefresh);
-      setData(result);
-      if (result.error && !result.mobile && !result.desktop) {
+      const result = await apiClient.getPageSpeedAnalysis(url, forceRefresh, {
+        websiteId,
+        strategy,
+      });
+
+      const merged: CombinedPageSpeedResult = {
+        ...result,
+        mobile: result.mobile ?? data?.mobile ?? null,
+        desktop: result.desktop ?? data?.desktop ?? null,
+      };
+
+      setData(merged);
+
+      if (result.error) {
         setError(result.error);
       } else {
         setError(null);
       }
+
       if (onDataUpdated) {
-        onDataUpdated(result);
+        onDataUpdated(merged);
       }
     } catch (err: any) {
       setError(err.message || 'PageSpeed analysis is temporarily unavailable.');
     } finally {
+      inFlightRef.current = false;
       setLoading(false);
     }
   };
@@ -221,7 +247,7 @@ export const PageSpeedSection: React.FC<PageSpeedSectionProps> = ({
           </div>
 
           <button
-            onClick={() => handleRunAnalysis(true)}
+            onClick={() => handleRunAnalysis(true, 'both')}
             disabled={loading}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-xs font-medium text-slate-200 hover:bg-slate-700 hover:text-white transition-colors disabled:opacity-50"
             title="Force re-run analysis from Google"
@@ -242,20 +268,27 @@ export const PageSpeedSection: React.FC<PageSpeedSectionProps> = ({
               <p className="text-[11px] text-blue-300/80">Executing mobile and desktop Lighthouse profiling via Google Cloud nodes.</p>
             </div>
           </div>
-          <span className="text-[11px] font-mono text-slate-400 hidden sm:inline">Takes ~10-20 seconds</span>
+          <span className="text-[11px] font-mono text-slate-400 hidden sm:inline">Takes ~10-30 seconds</span>
         </div>
       )}
 
-      {/* Error state */}
-      {error && !loading && !currentDeviceData && (
-        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-between text-xs text-rose-300">
+      {/* Error state (shown both when no data exists and when Re-Analyze fails while preserving previous data) */}
+      {error && !loading && (
+        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-between gap-4 text-xs text-rose-300">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400" />
-            <span>{error}</span>
+            <div>
+              <span>{error}</span>
+              {currentDeviceData && (
+                <p className="text-[11px] text-rose-300/75 mt-0.5">
+                  Showing your most recent successful PageSpeed report below.
+                </p>
+              )}
+            </div>
           </div>
           <button
-            onClick={() => handleRunAnalysis(true)}
-            className="underline font-semibold hover:text-white ml-4"
+            onClick={() => handleRunAnalysis(true, device)}
+            className="underline font-semibold hover:text-white shrink-0"
           >
             Retry Analysis
           </button>
@@ -273,7 +306,7 @@ export const PageSpeedSection: React.FC<PageSpeedSectionProps> = ({
             {data.error || `Lighthouse was unable to complete the ${device} audit for this website.`}
           </p>
           <button
-            onClick={() => handleRunAnalysis(true)}
+            onClick={() => handleRunAnalysis(true, device)}
             className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white border border-slate-700 transition-colors"
           >
             <RefreshCw className="h-3.5 w-3.5" />
@@ -291,7 +324,7 @@ export const PageSpeedSection: React.FC<PageSpeedSectionProps> = ({
             Benchmark Core Web Vitals (LCP, INP, CLS, FCP, TTFB) and Lighthouse performance scores for this domain.
           </p>
           <button
-            onClick={() => handleRunAnalysis(false)}
+            onClick={() => handleRunAnalysis(false, 'both')}
             className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#E6A05A] text-[#0B1120] text-xs font-semibold hover:bg-[#cf863c] transition-colors"
           >
             <Zap className="h-3.5 w-3.5" />
@@ -303,7 +336,7 @@ export const PageSpeedSection: React.FC<PageSpeedSectionProps> = ({
       {/* Analyzed Device Content */}
       {currentDeviceData && (
         <div className="space-y-6">
-          {data?.error && (
+          {data?.error && !error && (
             <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center gap-2 text-xs text-amber-300">
               <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
               <span>Notice: {data.error}</span>
@@ -427,7 +460,6 @@ export const PageSpeedSection: React.FC<PageSpeedSectionProps> = ({
               <div className="space-y-2">
                 {currentDeviceData.opportunities.map((opp) => {
                   const isExpanded = expandedOpportunity === opp.id;
-                  const hasSavings = opp.estimatedSavingsMs || opp.estimatedSavingsBytes || opp.displayValue;
 
                   return (
                     <div

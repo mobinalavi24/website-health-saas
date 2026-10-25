@@ -4,6 +4,7 @@ import tls from 'node:tls';
 import { URL } from 'node:url';
 import type { CombinedPageSpeedResult } from './pagespeedTypes.ts';
 import type { AdvancedSeoResult, SeoIssue } from './seoTypes.ts';
+import type { WhoisLookupResult } from './whois.ts';
 import { runAdvancedSeoAnalysis } from './advancedSeo.ts';
 import {
   guardedLookup,
@@ -23,6 +24,7 @@ export interface ScanResult {
   overallScore: number;
   grade: 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
   pageSpeed?: CombinedPageSpeedResult | null;
+  whois?: WhoisLookupResult | null;
   advancedSeo?: AdvancedSeoResult;
   summary: {
     passed: number;

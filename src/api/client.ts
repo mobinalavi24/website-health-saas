@@ -144,10 +144,19 @@ export const apiClient = {
     });
   },
 
-  async getPageSpeedAnalysis(url: string, forceRefresh = false): Promise<CombinedPageSpeedResult> {
+  async getPageSpeedAnalysis(
+    url: string,
+    forceRefresh = false,
+    options?: { websiteId?: string; strategy?: 'mobile' | 'desktop' | 'both' }
+  ): Promise<CombinedPageSpeedResult> {
     return this.request<CombinedPageSpeedResult>('/api/scanner/pagespeed', {
       method: 'POST',
-      body: JSON.stringify({ url, forceRefresh }),
+      body: JSON.stringify({
+        url,
+        forceRefresh,
+        ...(options?.websiteId ? { websiteId: options.websiteId } : {}),
+        ...(options?.strategy ? { strategy: options.strategy } : {}),
+      }),
     });
   },
 

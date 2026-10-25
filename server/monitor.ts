@@ -1,6 +1,7 @@
 import { db, type Website, type MetricPoint, type Incident, type AlertNotification } from './db.ts';
 import { performWebsiteScan } from './scanner.ts';
 import { performPageSpeedAnalysis } from './pagespeed.ts';
+import { performWhoisLookup } from './whois.ts';
 import { getAccountTrialStatus } from './trial.ts';
 import {
   cleanupOverdueExpiredWebsites,
@@ -317,11 +318,16 @@ export class ContinuousMonitoringEngine {
     }
 
     const result = await performWebsiteScan(website.url);
+    const existingPs = website.lastScanResult?.pageSpeed;
 
-    // Also run PageSpeed safely without failing audit
+    // Also run PageSpeed safely without failing audit, preserving any previous valid strategy data on partial/transient failure
     try {
       const psResult = await performPageSpeedAnalysis(website.url);
-      result.pageSpeed = psResult;
+      result.pageSpeed = {
+        ...psResult,
+        mobile: psResult.mobile ?? existingPs?.mobile ?? null,
+        desktop: psResult.desktop ?? existingPs?.desktop ?? null,
+      };
       if (psResult.mobile) {
         db.addPageSpeedRecord({
           id: `ps_mob_${Date.now()}`,
@@ -369,15 +375,28 @@ export class ContinuousMonitoringEngine {
       result.pageSpeed = {
         url: result.url,
         domain: result.domain,
-        scannedAt: new Date().toISOString(),
-        mobile: null,
-        desktop: null,
+        scannedAt: existingPs?.scannedAt || new Date().toISOString(),
+        mobile: existingPs?.mobile ?? null,
+        desktop: existingPs?.desktop ?? null,
         error: e.message || 'PageSpeed analysis unavailable.',
       };
     }
 
+    let updatedWhois = website.lastWhoisResult;
+    try {
+      const whoisRes = await performWhoisLookup(website.domain || result.domain, false);
+      result.whois = whoisRes;
+      updatedWhois = whoisRes;
+    } catch (whoisErr: any) {
+      console.warn('[WHOIS FullAudit Notice]', whoisErr?.message || whoisErr);
+      if (existingPs && website.lastWhoisResult) {
+        result.whois = website.lastWhoisResult;
+      }
+    }
+
     db.updateWebsite(websiteId, {
       lastScanResult: result,
+      ...(updatedWhois ? { lastWhoisResult: updatedWhois } : {}),
       healthScore: result.overallScore,
       lastResponseTimeMs: result.uptime.responseTimeMs,
       status: result.uptime.status,

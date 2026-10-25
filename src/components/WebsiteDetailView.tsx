@@ -646,6 +646,7 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
       {/* TAB: GOOGLE PAGESPEED INSIGHTS */}
       {activeTab === 'pagespeed' && (
         <PageSpeedSection
+          websiteId={website.id}
           url={website.url}
           initialData={website.lastScanResult?.pageSpeed}
           onDataUpdated={(updated) => {

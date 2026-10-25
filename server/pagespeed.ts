@@ -1,4 +1,5 @@
-import { URL } from 'node:url';
+import dns from 'node:dns';
+import { domainToASCII, URL } from 'node:url';
 import { normalizeInputUrl, validateTargetSecurity } from './scanner.ts';
 import type {
   PageSpeedDeviceData,
@@ -8,17 +9,24 @@ import type {
   PageSpeedMetricStatus,
 } from './pagespeedTypes.ts';
 
-// In-memory LRU/TTL cache for PageSpeed results (cache TTL: 15 minutes to respect Google quotas)
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {}
+
+// In-memory LRU/TTL cache for PageSpeed results (cache TTL: 15 minutes)
 interface CacheEntry {
   data: CombinedPageSpeedResult;
   timestamp: number;
 }
 const pageSpeedCache = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const CACHE_TTL_MS = Number(process.env.PAGESPEED_CACHE_TTL_MS) || 15 * 60 * 1000; // 15 minutes
 
-// Rate-limiting tracking (max 10 analyses per minute globally for PageSpeed)
+// Deduplicate simultaneous in-flight requests for the same URL + strategy
+const inFlightStrategyRequests = new Map<string, Promise<PageSpeedDeviceData>>();
+
+// Rate-limiting tracking (max 60 analyses per minute globally for PageSpeed)
 const recentAnalyses: number[] = [];
-const RATE_LIMIT_MAX = 10;
+const RATE_LIMIT_MAX = Number(process.env.PAGESPEED_RATE_LIMIT_PER_MIN) || 60;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 
 function checkRateLimit(): boolean {
@@ -31,6 +39,20 @@ function checkRateLimit(): boolean {
   }
   recentAnalyses.push(now);
   return true;
+}
+
+export class PageSpeedServiceError extends Error {
+  code: string;
+  retryable: boolean;
+  upstreamStatus?: number;
+
+  constructor(message: string, code = 'PAGESPEED_ERROR', retryable = false, upstreamStatus?: number) {
+    super(message);
+    this.name = 'PageSpeedServiceError';
+    this.code = code;
+    this.retryable = retryable;
+    this.upstreamStatus = upstreamStatus;
+  }
 }
 
 // Convert 0.0 - 1.0 Lighthouse category score to 0 - 100
@@ -102,7 +124,6 @@ function extractOpportunities(audits: Record<string, any>): PageSpeedOpportunity
     const audit = audits[id];
     if (!audit) continue;
 
-    // Only include if there is potential improvement (score < 0.9 or savings present)
     const score = typeof audit.score === 'number' ? audit.score : 1;
     const details = audit.details || {};
     const overallSavingsMs = details.overallSavingsMs || null;
@@ -121,7 +142,6 @@ function extractOpportunities(audits: Record<string, any>): PageSpeedOpportunity
     }
   }
 
-  // Sort by potential savings descending
   list.sort((a, b) => {
     const savingsA = (a.estimatedSavingsMs || 0) + (a.estimatedSavingsBytes ? a.estimatedSavingsBytes / 1000 : 0);
     const savingsB = (b.estimatedSavingsMs || 0) + (b.estimatedSavingsBytes ? b.estimatedSavingsBytes / 1000 : 0);
@@ -131,14 +151,6 @@ function extractOpportunities(audits: Record<string, any>): PageSpeedOpportunity
   return list;
 }
 
-/**
- * Retrieves Google PageSpeed API key from server environment variables.
- * Priority:
- * 1. PAGESPEED_API_KEY (Primary official environment variable)
- * 2. GOOGLE_API_KEY (Standard Google Cloud compatible fallback)
- * 3. Extended compatibility fallbacks: GOOGLE_PAGESPEED_API_KEY or GEMINI_API_KEY
- * Filters out placeholder values from .env.example.
- */
 function isPlaceholderKey(val: string | undefined): boolean {
   if (!val) return true;
   const clean = val.trim();
@@ -189,11 +201,115 @@ export function getPageSpeedApiKey(): { key?: string; diagnosticError?: string }
   return { key: DEFAULT_SERVER_PS_KEY };
 }
 
-// Call Google PageSpeed API for a single strategy ('mobile' or 'desktop')
-async function runSingleStrategyAnalysis(
+function classifyGoogleApiError(status: number, errText: string, strategy: 'mobile' | 'desktop'): PageSpeedServiceError {
+  let rawMsg = '';
+  try {
+    const json = JSON.parse(errText);
+    rawMsg = String(json?.error?.message || '').trim();
+  } catch {}
+  const lowerMsg = rawMsg.toLowerCase();
+
+  if (status === 429 || lowerMsg.includes('quota') || lowerMsg.includes('ratelimit') || lowerMsg.includes('rate limit')) {
+    return new PageSpeedServiceError(
+      'Google PageSpeed Insights rate limit or daily quota was reached. Please retry in a few moments.',
+      'PAGESPEED_QUOTA_EXCEEDED',
+      false,
+      status
+    );
+  }
+
+  if (status === 401 || status === 403) {
+    if (lowerMsg.includes('api key not valid') || lowerMsg.includes('invalid key') || lowerMsg.includes('key is invalid')) {
+      return new PageSpeedServiceError(
+        'Invalid Google PageSpeed API key. Please check your PAGESPEED_API_KEY or GOOGLE_API_KEY environment variable.',
+        'PAGESPEED_INVALID_KEY',
+        false,
+        status
+      );
+    }
+    if (lowerMsg.includes('disabled') || lowerMsg.includes('has not been used')) {
+      return new PageSpeedServiceError(
+        'Google PageSpeed Insights API is not enabled in your Google Cloud project. Please enable it in Google Cloud Console.',
+        'PAGESPEED_API_DISABLED',
+        false,
+        status
+      );
+    }
+    return new PageSpeedServiceError(
+      'Google PageSpeed API service authentication error. Please verify your server API key configuration.',
+      'PAGESPEED_AUTH_ERROR',
+      false,
+      status
+    );
+  }
+
+  if (status === 400) {
+    if (lowerMsg.includes('dns_failure') || lowerMsg.includes('err_name_not_resolved')) {
+      return new PageSpeedServiceError(
+        'Google Lighthouse could not resolve this domain (DNS_FAILURE). Please verify that the domain is registered and publicly resolvable.',
+        'PAGESPEED_DNS_FAILURE',
+        false,
+        status
+      );
+    }
+    if (lowerMsg.includes('no_fcp')) {
+      return new PageSpeedServiceError(
+        `Google Lighthouse loaded the page (${strategy}), but no visible content was painted within the time limit (NO_FCP). This happens when a page renders a blank screen, blocks automated Chrome probes, or requires client interaction before rendering.`,
+        'PAGESPEED_NO_FCP',
+        true, // Transient for slow-rendering SPAs on cold start; allow 1 retry
+        status
+      );
+    }
+    if (lowerMsg.includes('errored_document_request')) {
+      const codeMatch = rawMsg.match(/Status code:\s*(\d+)/i);
+      const targetCode = codeMatch ? codeMatch[1] : '4xx/5xx';
+      return new PageSpeedServiceError(
+        `The target website returned HTTP ${targetCode} when Google Lighthouse requested the page. Ensure the site does not block Google PageSpeed bots or return an error status.`,
+        'PAGESPEED_TARGET_HTTP_ERROR',
+        false,
+        status
+      );
+    }
+    if (lowerMsg.includes('failed_document_request') || lowerMsg.includes('err_timed_out') || lowerMsg.includes('err_connection_')) {
+      return new PageSpeedServiceError(
+        'Google Lighthouse was unable to load the target website because the connection timed out or was refused from Google Cloud nodes.',
+        'PAGESPEED_TARGET_UNREACHABLE',
+        true, // Allow 1 retry in case of momentary origin hiccup
+        status
+      );
+    }
+    if (lowerMsg.includes('invalid url') || lowerMsg.includes('could not be retrieved')) {
+      return new PageSpeedServiceError(
+        'Unable to analyze the specified URL with Google PageSpeed. Please check that the website is publicly accessible and responding.',
+        'PAGESPEED_INVALID_TARGET',
+        false,
+        status
+      );
+    }
+  }
+
+  if (status >= 500) {
+    return new PageSpeedServiceError(
+      'Google PageSpeed Insights API experienced a temporary upstream server error. Please retry in a few moments.',
+      'PAGESPEED_UPSTREAM_ERROR',
+      true,
+      status
+    );
+  }
+
+  const sanitizedMsg = rawMsg
+    ? rawMsg.replace(/for consumer '[^']+'/g, '').replace(/([?&]key=)[^&\s]+/gi, '$1[REDACTED]').trim()
+    : 'Google PageSpeed Insights API is temporarily unavailable.';
+
+  return new PageSpeedServiceError(sanitizedMsg, 'PAGESPEED_ERROR', status >= 500, status);
+}
+
+// Call Google PageSpeed API for a single strategy ('mobile' or 'desktop') with configurable timeout
+async function runSingleStrategyAttempt(
   url: string,
   strategy: 'mobile' | 'desktop',
-  apiKey?: string
+  apiKey?: string,
+  timeoutMs = Number(process.env.PAGESPEED_TIMEOUT_MS) || 60000
 ): Promise<PageSpeedDeviceData> {
   const apiUrl = new URL('https://pagespeedonline.googleapis.com/pagespeedonline/v5/runPagespeed');
   apiUrl.searchParams.set('url', url);
@@ -208,7 +324,7 @@ async function runSingleStrategyAnalysis(
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s timeout for deep lighthouse audit
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     let response: Response;
@@ -216,56 +332,49 @@ async function runSingleStrategyAnalysis(
       response = await fetch(apiUrl.toString(), {
         method: 'GET',
         headers: {
-          'Accept': 'application/json',
+          Accept: 'application/json',
           'User-Agent': 'PulseVanguard-Monitor/1.0 (+https://pulsevanguard.com; pagespeed-audit)',
         },
         signal: controller.signal,
       });
     } catch (fetchErr: any) {
       if (fetchErr.name === 'AbortError') {
-        throw new Error(
-          `Google PageSpeed analysis timed out after 45 seconds for ${strategy} strategy. The target website took too long to load.`
+        throw new PageSpeedServiceError(
+          `Google PageSpeed analysis timed out after ${Math.round(timeoutMs / 1000)} seconds for ${strategy} strategy. The target website took too long to finish loading in Lighthouse.`,
+          'PAGESPEED_TIMEOUT',
+          true
         );
       }
-      // Ensure key is never leaked in fetch error messages
-      const safeMessage = (fetchErr.message || 'Unable to connect to Google API').replace(/([?&]key=)[^&]+/gi, '$1[REDACTED]');
-      throw new Error(`Google PageSpeed network error: ${safeMessage}`);
+      const safeMessage = (fetchErr.message || 'Unable to connect to Google API').replace(
+        /([?&]key=)[^&]+/gi,
+        '$1[REDACTED]'
+      );
+      throw new PageSpeedServiceError(
+        `Google PageSpeed network error: ${safeMessage}`,
+        'PAGESPEED_NETWORK_ERROR',
+        true
+      );
     }
 
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
-      let parsedErr = 'Google PageSpeed Insights API is temporarily unavailable.';
-      try {
-        const json = JSON.parse(errText);
-        const rawMsg = json.error?.message || '';
-        const lowerMsg = rawMsg.toLowerCase();
-
-        if (response.status === 429 || lowerMsg.includes('quota') || lowerMsg.includes('ratelimit')) {
-          parsedErr = 'Google PageSpeed Insights rate limit/quota reached. Please retry in a few moments or verify your API key quota.';
-        } else if (response.status === 400 || lowerMsg.includes('invalid url') || lowerMsg.includes('could not be retrieved')) {
-          parsedErr = 'Unable to analyze the specified URL with Google PageSpeed. Please check that the website is publicly accessible and responding.';
-        } else if (response.status === 403 || response.status === 401) {
-          if (lowerMsg.includes('api key not valid') || lowerMsg.includes('invalid key') || lowerMsg.includes('key is invalid')) {
-            parsedErr = 'Invalid Google PageSpeed API key. Please check your PAGESPEED_API_KEY or GOOGLE_API_KEY environment variable.';
-          } else if (lowerMsg.includes('disabled') || lowerMsg.includes('has not been used')) {
-            parsedErr = 'Google PageSpeed Insights API is not enabled in your Google Cloud project. Please enable it in Google Cloud Console.';
-          } else if (lowerMsg.includes('quota') || lowerMsg.includes('limit')) {
-            parsedErr = 'Google PageSpeed Insights API quota exceeded. Please check quota limits in Google Cloud Console.';
-          } else {
-            parsedErr = 'Google PageSpeed API service authentication error. Please verify your server API key configuration.';
-          }
-        } else if (response.status >= 500) {
-          parsedErr = 'Google PageSpeed Insights API is temporarily experiencing server issues. Please retry in a few moments.';
-        } else if (rawMsg) {
-          // Strip out internal GCP project numbers or identifiers
-          parsedErr = rawMsg.replace(/for consumer '[^']+'/g, '').trim();
-        }
-      } catch {}
-      throw new Error(parsedErr);
+      throw classifyGoogleApiError(response.status, errText, strategy);
     }
 
     const data: any = await response.json();
     const lighthouseResult = data.lighthouseResult || {};
+    if (lighthouseResult.runtimeError?.code && lighthouseResult.runtimeError?.message) {
+      throw classifyGoogleApiError(
+        400,
+        JSON.stringify({
+          error: {
+            message: `Lighthouse returned error: ${lighthouseResult.runtimeError.code}. ${lighthouseResult.runtimeError.message}`,
+          },
+        }),
+        strategy
+      );
+    }
+
     const categories = lighthouseResult.categories || {};
     const audits = lighthouseResult.audits || {};
     const loadingExperience = data.loadingExperience?.metrics || {};
@@ -279,7 +388,6 @@ async function runSingleStrategyAnalysis(
     };
 
     // 2. Core Web Vitals
-    // LCP
     let lcp: CoreWebVitalMetric | null = null;
     if (audits['largest-contentful-paint']?.numericValue !== undefined) {
       const rawSec = Number((audits['largest-contentful-paint'].numericValue / 1000).toFixed(2));
@@ -299,7 +407,6 @@ async function runSingleStrategyAnalysis(
       };
     }
 
-    // INP (Interaction to Next Paint - modern Core Web Vital replacing FID)
     let inp: CoreWebVitalMetric | null = null;
     if (loadingExperience['INTERACTION_TO_NEXT_PAINT']?.percentile !== undefined) {
       const ms = Math.round(loadingExperience['INTERACTION_TO_NEXT_PAINT'].percentile);
@@ -318,7 +425,6 @@ async function runSingleStrategyAnalysis(
         status: classifyInp(ms),
       };
     } else if (audits['max-potential-fid']?.numericValue !== undefined) {
-      // Diagnostic proxy when field INP is unavailable
       const ms = Math.round(audits['max-potential-fid'].numericValue);
       inp = {
         value: ms,
@@ -327,7 +433,6 @@ async function runSingleStrategyAnalysis(
       };
     }
 
-    // CLS
     let cls: CoreWebVitalMetric | null = null;
     if (audits['cumulative-layout-shift']?.numericValue !== undefined) {
       const val = Number(audits['cumulative-layout-shift'].numericValue.toFixed(3));
@@ -346,7 +451,6 @@ async function runSingleStrategyAnalysis(
       };
     }
 
-    // FCP
     let fcp: CoreWebVitalMetric | null = null;
     if (audits['first-contentful-paint']?.numericValue !== undefined) {
       const rawSec = Number((audits['first-contentful-paint'].numericValue / 1000).toFixed(2));
@@ -357,7 +461,6 @@ async function runSingleStrategyAnalysis(
       };
     }
 
-    // TTFB
     let ttfb: CoreWebVitalMetric | null = null;
     if (audits['server-response-time']?.numericValue !== undefined) {
       const rawSec = Number((audits['server-response-time'].numericValue / 1000).toFixed(2));
@@ -368,7 +471,6 @@ async function runSingleStrategyAnalysis(
       };
     }
 
-    // Speed Index
     let speedIndex: CoreWebVitalMetric | null = null;
     if (audits['speed-index']?.numericValue !== undefined) {
       const rawSec = Number((audits['speed-index'].numericValue / 1000).toFixed(2));
@@ -379,12 +481,15 @@ async function runSingleStrategyAnalysis(
       };
     }
 
-    // 3. Opportunities & Diagnostics
     const opportunities = extractOpportunities(audits);
 
     const diagnostics = {
-      totalBlockingTimeMs: audits['total-blocking-time']?.numericValue ? Math.round(audits['total-blocking-time'].numericValue) : null,
-      maxPotentialFidMs: audits['max-potential-fid']?.numericValue ? Math.round(audits['max-potential-fid'].numericValue) : null,
+      totalBlockingTimeMs: audits['total-blocking-time']?.numericValue
+        ? Math.round(audits['total-blocking-time'].numericValue)
+        : null,
+      maxPotentialFidMs: audits['max-potential-fid']?.numericValue
+        ? Math.round(audits['max-potential-fid'].numericValue)
+        : null,
       domSize: audits['dom-size']?.numericValue ? Math.round(audits['dom-size'].numericValue) : null,
     };
 
@@ -410,49 +515,88 @@ async function runSingleStrategyAnalysis(
 }
 
 /**
- * Execute real Google PageSpeed Insights analysis for both Mobile and Desktop.
+ * Deduplicated single-strategy execution with 1 bounded retry for transient upstream/network errors.
+ */
+async function runSingleStrategyAnalysis(
+  url: string,
+  strategy: 'mobile' | 'desktop',
+  apiKey?: string
+): Promise<PageSpeedDeviceData> {
+  const inflightKey = `${url.toLowerCase()}::${strategy}`;
+  const existing = inFlightStrategyRequests.get(inflightKey);
+  if (existing) {
+    return await existing;
+  }
+
+  const task = (async (): Promise<PageSpeedDeviceData> => {
+    try {
+      return await runSingleStrategyAttempt(url, strategy, apiKey);
+    } catch (err: any) {
+      const isRetryable =
+        err instanceof PageSpeedServiceError &&
+        err.retryable &&
+        err.code !== 'PAGESPEED_TIMEOUT';
+      if (!isRetryable) {
+        throw err;
+      }
+      // Bounded single retry with 1.5s backoff for transient upstream 5xx / network reset / cold NO_FCP
+      await new Promise((r) => setTimeout(r, 1500));
+      return await runSingleStrategyAttempt(url, strategy, apiKey);
+    }
+  })();
+
+  inFlightStrategyRequests.set(inflightKey, task);
+  try {
+    return await task;
+  } finally {
+    inFlightStrategyRequests.delete(inflightKey);
+  }
+}
+
+/**
+ * Execute real Google PageSpeed Insights analysis for Mobile, Desktop, or Both.
  * - Enforces SSRF protection (localhost, loopbacks, RFC1918, link-local, cloud metadata)
- * - Validates protocol (HTTP/HTTPS only)
- * - Applies caching (15 min) and rate limiting
- * - Runs Mobile and Desktop in parallel with independent fallback handling
+ * - Normalizes internationalized domain names (IDNs) to ASCII Punycode
+ * - Applies caching (15 min), in-flight deduplication, and bounded retry
+ * - Preserves existing cached strategy data when refreshing a single strategy or when one strategy succeeds
  */
 export async function performPageSpeedAnalysis(
   rawUrl: string,
-  options: { forceRefresh?: boolean; strategy?: 'mobile' | 'desktop' | 'both' } = {}
+  optionsOrForceRefresh: boolean | { forceRefresh?: boolean; strategy?: 'mobile' | 'desktop' | 'both' } = {},
+  strategyArg?: 'mobile' | 'desktop' | 'both'
 ): Promise<CombinedPageSpeedResult> {
+  const options: { forceRefresh?: boolean; strategy?: 'mobile' | 'desktop' | 'both' } =
+    typeof optionsOrForceRefresh === 'boolean'
+      ? { forceRefresh: optionsOrForceRefresh, strategy: strategyArg }
+      : optionsOrForceRefresh;
   const trimmed = rawUrl.trim();
   if (trimmed.includes('://') && !trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
     throw new Error('Invalid URL protocol. Only HTTP and HTTPS are permitted for scanning.');
   }
 
-  const { url, domain } = normalizeInputUrl(trimmed);
-
-  // Validate scheme: Only http or https
-  const parsed = new URL(url);
+  const { url: rawNormalizedUrl, domain: rawDomain } = normalizeInputUrl(trimmed);
+  const asciiDomain = domainToASCII(rawDomain) || rawDomain;
+  const parsed = new URL(rawNormalizedUrl);
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error('Invalid URL protocol. Only HTTP and HTTPS are permitted for scanning.');
   }
-
-  // SSRF Validation: Block localhost, 127.0.0.1, private IPs, cloud metadata
-  await validateTargetSecurity(domain);
-
-  // Validate API key configuration with clear diagnostic error
-  const keyConfig = getPageSpeedApiKey();
-  if (keyConfig.diagnosticError) {
-    console.error(`[PageSpeed Diagnostic]: ${keyConfig.diagnosticError}`);
-    throw new Error(keyConfig.diagnosticError);
-  }
-  const apiKey = keyConfig.key;
+  parsed.hostname = asciiDomain;
+  const url = parsed.toString();
+  const domain = asciiDomain.toLowerCase();
 
   const targetStrategy = options.strategy || 'both';
   const shouldRunMobile = targetStrategy === 'both' || targetStrategy === 'mobile';
   const shouldRunDesktop = targetStrategy === 'both' || targetStrategy === 'desktop';
 
-  // Cache Check (when both are requested)
+  // Cache Check
   const cacheKey = url.toLowerCase();
   const cached = pageSpeedCache.get(cacheKey);
   if (!options.forceRefresh && cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-    if (targetStrategy === 'both' || (targetStrategy === 'mobile' && cached.data.mobile) || (targetStrategy === 'desktop' && cached.data.desktop)) {
+    if (
+      (targetStrategy === 'both' && cached.data.mobile && cached.data.desktop) ||
+      (targetStrategy === 'mobile' && cached.data.mobile) ||
+      (targetStrategy === 'desktop' && cached.data.desktop)
+    ) {
       return {
         ...cached.data,
         cached: true,
@@ -460,62 +604,122 @@ export async function performPageSpeedAnalysis(
     }
   }
 
-  // Rate Limiting Check
-  if (!checkRateLimit()) {
-    if (cached) {
-      return {
-        ...cached.data,
-        cached: true,
-      };
+  // Deduplicate simultaneous full/strategy requests for the same URL before DNS/SSRF/upstream calls
+  const combinedInFlightKey = `${cacheKey}::${targetStrategy}`;
+  const existingCombined = (pageSpeedCache as any).__inflightCombined?.get(combinedInFlightKey);
+  if (existingCombined) {
+    return await existingCombined;
+  }
+  if (!(pageSpeedCache as any).__inflightCombined) {
+    (pageSpeedCache as any).__inflightCombined = new Map<string, Promise<CombinedPageSpeedResult>>();
+  }
+
+  const combinedPromise = (async (): Promise<CombinedPageSpeedResult> => {
+    // SSRF Validation: Block localhost, 127.0.0.1, private IPs, cloud metadata
+    await validateTargetSecurity(domain);
+
+    // Validate API key configuration with clear diagnostic error
+    const keyConfig = getPageSpeedApiKey();
+    if (keyConfig.diagnosticError) {
+      console.error(`[PageSpeed Diagnostic]: ${keyConfig.diagnosticError}`);
+      throw new PageSpeedServiceError(keyConfig.diagnosticError, 'PAGESPEED_KEY_MISSING', false);
     }
-    throw new Error('Google PageSpeed analysis rate limit reached. Please wait a minute before requesting another analysis.');
+    const apiKey = keyConfig.key;
+
+    // Rate Limiting Check
+    if (!checkRateLimit()) {
+      if (cached && !options.forceRefresh) {
+        return {
+          ...cached.data,
+          cached: true,
+        };
+      }
+      throw new PageSpeedServiceError(
+        'Google PageSpeed analysis rate limit reached. Please wait a moment before requesting another analysis.',
+        'PAGESPEED_RATE_LIMITED',
+        true
+      );
+    }
+
+    const [mobileSettled, desktopSettled] = await Promise.allSettled([
+      shouldRunMobile ? runSingleStrategyAnalysis(url, 'mobile', apiKey) : Promise.resolve(null),
+      shouldRunDesktop ? runSingleStrategyAnalysis(url, 'desktop', apiKey) : Promise.resolve(null),
+    ]);
+
+    const freshMobile = mobileSettled.status === 'fulfilled' ? mobileSettled.value : null;
+    const freshDesktop = desktopSettled.status === 'fulfilled' ? desktopSettled.value : null;
+
+    // Preserve previously cached valid data for the unrequested (or transiently failed) strategy so historical data is never wiped out
+    const mobileData = freshMobile || cached?.data.mobile || null;
+    const desktopData = desktopSettled.status === 'fulfilled' && freshDesktop ? freshDesktop : cached?.data.desktop || null;
+
+    const errors: string[] = [];
+    const rawErrors: string[] = [];
+    let primaryErrorObj: PageSpeedServiceError | Error | null = null;
+
+    if (shouldRunMobile && mobileSettled.status === 'rejected') {
+      const reason = mobileSettled.reason;
+      primaryErrorObj = primaryErrorObj || reason;
+      const raw = reason?.message || 'Unknown error';
+      errors.push(`Mobile: ${raw}`);
+      rawErrors.push(raw);
+    }
+    if (shouldRunDesktop && desktopSettled.status === 'rejected') {
+      const reason = desktopSettled.reason;
+      primaryErrorObj = primaryErrorObj || reason;
+      const raw = reason?.message || 'Unknown error';
+      errors.push(`Desktop: ${raw}`);
+      rawErrors.push(raw);
+    }
+
+    // If the requested strategy (or both) failed completely without producing any fresh result:
+    if (
+      (targetStrategy === 'mobile' && !freshMobile) ||
+      (targetStrategy === 'desktop' && !freshDesktop) ||
+      (targetStrategy === 'both' && !freshMobile && !freshDesktop)
+    ) {
+      const uniqueRaw = Array.from(new Set(rawErrors));
+      const fullError = uniqueRaw.length === 1 ? uniqueRaw[0] : errors.join('; ');
+      if (primaryErrorObj instanceof PageSpeedServiceError) {
+        throw new PageSpeedServiceError(
+          fullError || primaryErrorObj.message,
+          primaryErrorObj.code,
+          primaryErrorObj.retryable,
+          primaryErrorObj.upstreamStatus
+        );
+      }
+      throw new Error(fullError || 'Google PageSpeed Insights analysis failed.');
+    }
+
+    const combinedResult: CombinedPageSpeedResult = {
+      url,
+      domain,
+      scannedAt: new Date().toISOString(),
+      mobile: mobileData,
+      desktop: desktopData,
+      cached: false,
+      error: errors.length > 0 ? errors.join(' | ') : null,
+    };
+
+    if (mobileData || desktopData) {
+      pageSpeedCache.set(cacheKey, {
+        data: combinedResult,
+        timestamp: Date.now(),
+      });
+    }
+
+    return combinedResult;
+  })();
+
+  (pageSpeedCache as any).__inflightCombined.set(combinedInFlightKey, combinedPromise);
+  try {
+    return await combinedPromise;
+  } finally {
+    (pageSpeedCache as any).__inflightCombined.delete(combinedInFlightKey);
   }
+}
 
-  // Execute requested strategies
-  const [mobileSettled, desktopSettled] = await Promise.allSettled([
-    shouldRunMobile ? runSingleStrategyAnalysis(url, 'mobile', apiKey) : Promise.resolve(null),
-    shouldRunDesktop ? runSingleStrategyAnalysis(url, 'desktop', apiKey) : Promise.resolve(null),
-  ]);
-
-  const mobileData = mobileSettled.status === 'fulfilled' ? mobileSettled.value : null;
-  const desktopData = desktopSettled.status === 'fulfilled' ? desktopSettled.value : null;
-
-  const errors: string[] = [];
-  const rawErrors: string[] = [];
-  if (shouldRunMobile && mobileSettled.status === 'rejected') {
-    const raw = mobileSettled.reason?.message || 'Unknown error';
-    errors.push(`Mobile: ${raw}`);
-    rawErrors.push(raw);
-  }
-  if (shouldRunDesktop && desktopSettled.status === 'rejected') {
-    const raw = desktopSettled.reason?.message || 'Unknown error';
-    errors.push(`Desktop: ${raw}`);
-    rawErrors.push(raw);
-  }
-
-  if (!mobileData && !desktopData) {
-    const uniqueRaw = Array.from(new Set(rawErrors));
-    const fullError = uniqueRaw.length === 1 ? uniqueRaw[0] : errors.join('; ');
-    throw new Error(fullError || 'Google PageSpeed Insights analysis failed.');
-  }
-
-  const combinedResult: CombinedPageSpeedResult = {
-    url,
-    domain,
-    scannedAt: new Date().toISOString(),
-    mobile: mobileData,
-    desktop: desktopData,
-    cached: false,
-    error: errors.length > 0 ? errors.join(' | ') : null,
-  };
-
-  // Cache valid result
-  if (mobileData || desktopData) {
-    pageSpeedCache.set(cacheKey, {
-      data: combinedResult,
-      timestamp: Date.now(),
-    });
-  }
-
-  return combinedResult;
+export function clearPageSpeedCache(): void {
+  pageSpeedCache.clear();
+  inFlightStrategyRequests.clear();
 }
