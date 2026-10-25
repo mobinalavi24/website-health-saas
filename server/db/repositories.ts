@@ -696,6 +696,8 @@ function mapOrgRow(row: any): Organization {
 }
 
 function mapWebsiteRow(row: any): Website {
+  const accessStatus = row.access_status || 'active';
+  const scheduledDelIso = row.scheduled_deletion_at ? new Date(row.scheduled_deletion_at).toISOString() : null;
   return {
     id: row.id,
     orgId: row.org_id,
@@ -717,6 +719,14 @@ function mapWebsiteRow(row: any): Website {
     enabledChecks: typeof row.enabled_checks === 'string' ? JSON.parse(row.enabled_checks) : row.enabled_checks || {},
     notificationSettings: typeof row.notification_settings === 'string' ? JSON.parse(row.notification_settings) : row.notification_settings || {},
     lastScanResult: row.last_scan_result ? (typeof row.last_scan_result === 'string' ? JSON.parse(row.last_scan_result) : row.last_scan_result) : undefined,
+    lastWhoisResult: row.last_whois_result ? (typeof row.last_whois_result === 'string' ? JSON.parse(row.last_whois_result) : row.last_whois_result) : undefined,
+    entitlementId: row.entitlement_id || null,
+    subscriptionExpiresAt: row.subscription_expires_at ? new Date(row.subscription_expires_at).toISOString() : null,
+    expiredAt: row.expired_at ? new Date(row.expired_at).toISOString() : null,
+    scheduledDeletionAt: scheduledDelIso,
+    accessStatus,
+    isSubscriptionExpired: accessStatus === 'expired_grace_period',
+    deletionRemainingMs: scheduledDelIso ? Math.max(0, new Date(scheduledDelIso).getTime() - Date.now()) : null,
     createdAt: new Date(row.created_at).toISOString(),
   };
 }

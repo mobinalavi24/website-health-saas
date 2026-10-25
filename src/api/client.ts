@@ -1,4 +1,5 @@
 import type {
+  WhoisLookupResult,
   User,
   Organization,
   Website,
@@ -133,6 +134,13 @@ export const apiClient = {
     return this.request<ScanResult>('/api/scanner/run', {
       method: 'POST',
       body: JSON.stringify({ url }),
+    });
+  },
+
+  async getWebsiteWhois(siteId: string, forceRefresh = false): Promise<WhoisLookupResult> {
+    return this.request<WhoisLookupResult>(`/api/websites/${encodeURIComponent(siteId)}/whois`, {
+      method: forceRefresh ? 'POST' : 'GET',
+      ...(forceRefresh ? { body: JSON.stringify({ forceRefresh: true }) } : {}),
     });
   },
 

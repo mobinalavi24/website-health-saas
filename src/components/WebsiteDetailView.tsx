@@ -35,6 +35,7 @@ import type { Website, MetricPoint, Incident, ScanResult, Organization } from '.
 import { ScanReportView } from './ScanReportView.tsx';
 import { PageSpeedSection } from './PageSpeedSection.tsx';
 import { AdvancedSeoSection } from './AdvancedSeoSection.tsx';
+import { WhoisSection } from './WhoisSection.tsx';
 
 interface WebsiteDetailViewProps {
   website: Website;
@@ -63,6 +64,7 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
     | 'ssl'
     | 'dns'
     | 'spfdmarc'
+    | 'whois'
     | 'security'
     | 'seo'
     | 'incidents'
@@ -82,10 +84,23 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
   const [incidentFilter, setIncidentFilter] = useState<'all' | 'open' | 'resolved'>('all');
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
 
-  // Check if organization Free Trial is expired
-  const isFreePlan = organization?.planId === 'free';
+  // Check if organization Free Trial or Website Subscription is expired
+  const isUnlimitedSuperAdmin = Boolean(organization?.entitlementSummary?.isUnlimited);
+  const isFreePlan = !isUnlimitedSuperAdmin && organization?.planId === 'free';
   const trialEndsMs = organization?.trialEndsAt ? new Date(organization.trialEndsAt).getTime() : 0;
   const isTrialExpired = isFreePlan && trialEndsMs > 0 && Date.now() >= trialEndsMs;
+  const isWebsiteSubscriptionExpired = !isUnlimitedSuperAdmin && (
+    Boolean(website.isSubscriptionExpired) ||
+    website.accessStatus === 'expired_grace_period' ||
+    isTrialExpired
+  );
+  const [nowTick, setNowTick] = useState(Date.now());
+
+  useEffect(() => {
+    if (!isWebsiteSubscriptionExpired) return;
+    const t = setInterval(() => setNowTick(Date.now()), 10000);
+    return () => clearInterval(t);
+  }, [isWebsiteSubscriptionExpired]);
 
   // Settings form state
   const [intervalMinutes, setIntervalMinutes] = useState(website.intervalMinutes);
@@ -96,8 +111,10 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
   const [savingSettings, setSavingSettings] = useState(false);
 
   useEffect(() => {
-    loadMetricsAndIncidents();
-  }, [website.id]);
+    if (!isWebsiteSubscriptionExpired) {
+      loadMetricsAndIncidents();
+    }
+  }, [website.id, isWebsiteSubscriptionExpired]);
 
   const loadMetricsAndIncidents = async () => {
     setLoadingMetrics(true);
@@ -216,6 +233,86 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
 
   // Response time graph calculations
   const maxLatency = Math.max(...metrics.map((m) => m.responseTimeMs), 300);
+
+  if (isWebsiteSubscriptionExpired) {
+    const expIso = website.expiredAt || website.subscriptionExpiresAt;
+    const delIso = website.scheduledDeletionAt;
+    const remMs = delIso ? Math.max(0, new Date(delIso).getTime() - nowTick) : 0;
+    const remDays = Math.floor(remMs / (24 * 60 * 60 * 1000));
+    const remHours = Math.floor((remMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+    const remMins = Math.floor((remMs % (60 * 60 * 1000)) / (60 * 1000));
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-300 hover:text-white bg-slate-900 border border-slate-800 rounded-lg transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            <span>Back to Monitored Websites</span>
+          </button>
+        </div>
+
+        <div className="rounded-xl border border-rose-800/80 bg-rose-950/30 p-8 max-w-2xl mx-auto space-y-6 text-center">
+          <div className="h-12 w-12 rounded-full bg-rose-500/15 border border-rose-500/30 flex items-center justify-center mx-auto">
+            <Lock className="h-6 w-6 text-rose-400" />
+          </div>
+          <div className="space-y-2">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30">
+              Access Restricted · Grace Period Active
+            </span>
+            <h2 className="text-xl font-bold text-white">
+              Subscription expired — This website will be deleted in 2 days. Renew your subscription to retain access.
+            </h2>
+            <p className="text-xs text-slate-300 max-w-lg mx-auto">
+              Monitoring dashboard, live scans, WHOIS, PageSpeed, SSL, DNS, History, and Settings for{' '}
+              <span className="font-mono font-semibold text-white">{website.name} ({website.domain})</span>{' '}
+              are locked until the subscription covering this website is renewed.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-left text-xs">
+            <div className="p-3.5 rounded-lg bg-slate-950/80 border border-rose-900/60 space-y-1">
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 block">Subscription Expired</span>
+              <span className="font-mono font-semibold text-rose-300 block">
+                {expIso ? new Date(expIso).toLocaleString() : 'Expired'}
+              </span>
+            </div>
+            <div className="p-3.5 rounded-lg bg-slate-950/80 border border-rose-900/60 space-y-1">
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 block">Scheduled Deletion Date</span>
+              <span className="font-mono font-semibold text-white block">
+                {delIso ? new Date(delIso).toLocaleString() : '2 days from expiration'}
+              </span>
+            </div>
+            <div className="p-3.5 rounded-lg bg-slate-950/80 border border-rose-900/60 space-y-1">
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 block">Deletion Countdown</span>
+              <span className="font-mono font-bold text-[#E6A05A] block">
+                {delIso ? `${remDays}d ${remHours}h ${remMins}m left` : 'Grace Period'}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+            {onNavigate && (
+              <button
+                onClick={() => onNavigate('billing')}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-lg bg-[#E6A05A] hover:bg-[#cf863c] text-[#0B1120] font-bold text-xs transition-colors cursor-pointer"
+              >
+                Renew Subscription (5 USDT/mo)
+              </button>
+            )}
+            <button
+              onClick={onBack}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-semibold text-xs transition-colors cursor-pointer"
+            >
+              Return to My Sites
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -409,6 +506,14 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
           SPF/DMARC
         </button>
         <button
+          onClick={() => setActiveTab('whois')}
+          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+            activeTab === 'whois' ? 'bg-slate-800 text-white shadow-sm font-semibold' : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          WHOIS
+        </button>
+        <button
           onClick={() => setActiveTab('security')}
           className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
             activeTab === 'security' ? 'bg-slate-800 text-white shadow-sm font-semibold' : 'text-slate-400 hover:text-white'
@@ -521,6 +626,21 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
             </div>
           )}
         </div>
+      )}
+
+      {/* TAB: WHOIS */}
+      {activeTab === 'whois' && (
+        <WhoisSection
+          websiteId={website.id}
+          domain={website.domain}
+          initialData={website.lastWhoisResult || null}
+          onDataUpdated={(whois) => {
+            onUpdate({
+              ...website,
+              lastWhoisResult: whois,
+            });
+          }}
+        />
       )}
 
       {/* TAB: GOOGLE PAGESPEED INSIGHTS */}

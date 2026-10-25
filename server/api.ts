@@ -86,7 +86,17 @@ import {
 import {
   getOrganizationEntitlementSummary,
   backfillSubscriptionEntitlements,
+  isExemptSuperAdmin,
+  reconcileOrganizationWebsiteAllocations,
+  cleanupOverdueExpiredWebsites,
+  allocateEntitlementForNewWebsite,
+  verifyWebsiteAccessAndEntitlement,
+  sanitizeWebsiteForList,
 } from './entitlements.ts';
+import {
+  performWhoisLookup,
+  validateAndNormalizeWhoisDomain,
+} from './whois.ts';
 
 function getPublicOrigin(req: IncomingMessage): string {
   const configured = process.env.PUBLIC_APP_URL || process.env.APP_URL || process.env.VITE_APP_URL;
@@ -329,7 +339,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 function publicScanError(err: any, fallback: string): string {
   const msg = String(err?.message || '').replace(/([?&]key=)[^&]+/gi, '$1[REDACTED]');
   if (
-    /blocked|private|reserved|protected|Only http|valid website URL|Invalid URL|credentials|port|scheme|disallowed|PageSpeed|API key|rate limit|quota|timed out|Unable to analyze/i.test(
+    /blocked|private|reserved|protected|Only http|valid website URL|Invalid URL|credentials|port|scheme|disallowed|PageSpeed|WHOIS|domain|not registered|API key|rate limit|quota|timed out|Unable to analyze/i.test(
       msg
     )
   ) {
@@ -505,7 +515,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         return true;
       }
 
-      if (session && session.org.planId === 'free' && session.user.role !== 'super_admin') {
+      if (session && session.org.planId === 'free' && !isExemptSuperAdmin(session.user, session.org)) {
         const trial = getAccountTrialStatus(session.org);
         if (trial.isExpired) {
           sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
@@ -514,15 +524,47 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       }
 
       const body = await readJsonBody(req);
-      const target = typeof body.url === 'string' ? body.url.trim() : '';
+      let target = typeof body.url === 'string' ? body.url.trim() : '';
+      if (session && body?.websiteId) {
+        const site = db.findWebsiteById(String(body.websiteId));
+        const access = await verifyWebsiteAccessAndEntitlement(site, session.user, session.org);
+        if (!access.allowed) {
+          sendJson(res, access.status || 403, access.body);
+          return true;
+        }
+        if (!target && access.site) target = access.site.url;
+      }
       if (!target || target.length > 2048) {
         sendJson(res, 400, { error: 'Please provide a valid website URL.' });
         return true;
       }
 
+      if (session && !isExemptSuperAdmin(session.user, session.org)) {
+        await reconcileOrganizationWebsiteAllocations(session.org.id).catch(() => {});
+        const normalizedTarget = normalizeInputUrl(target).toLowerCase();
+        const matchingSite = db.getWebsites().find(
+          (w) =>
+            w.orgId === session.org.id &&
+            (w.url.toLowerCase() === normalizedTarget ||
+              target.toLowerCase().includes(w.domain.toLowerCase()))
+        );
+        if (matchingSite) {
+          const access = await verifyWebsiteAccessAndEntitlement(matchingSite, session.user, session.org);
+          if (!access.allowed) {
+            sendJson(res, access.status || 403, access.body);
+            return true;
+          }
+        }
+      }
+
       activeScansByIp.set(ipHash, inFlight + 1);
       try {
         const scanResult = await performWebsiteScan(target);
+        try {
+          scanResult.whois = await performWhoisLookup(scanResult.domain);
+        } catch {
+          // Non-fatal if WHOIS lookup fails during quick scan
+        }
 
         try {
           const pageSpeedData = await performPageSpeedAnalysis(target);
@@ -620,18 +662,21 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       }
 
       let target = '';
+      let websiteId = '';
       let forceRefresh = false;
       let requestedStrategy: 'mobile' | 'desktop' | 'both' = 'both';
 
       if (method === 'POST') {
         const body = await readJsonBody(req);
         target = typeof body?.url === 'string' ? body.url.trim() : '';
+        websiteId = typeof body?.websiteId === 'string' ? body.websiteId.trim() : '';
         forceRefresh = Boolean(body?.forceRefresh);
         if (body?.strategy === 'mobile' || body?.strategy === 'desktop') {
           requestedStrategy = body.strategy;
         }
       } else {
         target = (parsedUrl.searchParams.get('url') || '').trim();
+        websiteId = (parsedUrl.searchParams.get('websiteId') || '').trim();
         forceRefresh = parsedUrl.searchParams.get('forceRefresh') === 'true';
         const strat = parsedUrl.searchParams.get('strategy');
         if (strat === 'mobile' || strat === 'desktop') {
@@ -639,9 +684,37 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         }
       }
 
+      if (session && websiteId) {
+        const site = db.findWebsiteById(websiteId);
+        const access = await verifyWebsiteAccessAndEntitlement(site, session.user, session.org);
+        if (!access.allowed) {
+          sendJson(res, access.status || 403, access.body);
+          return true;
+        }
+        if (!target && access.site) target = access.site.url;
+      }
+
       if (!target || target.length > 2048) {
         sendJson(res, 400, { error: 'Please provide a valid website URL.' });
         return true;
+      }
+
+      if (session && !isExemptSuperAdmin(session.user, session.org)) {
+        await reconcileOrganizationWebsiteAllocations(session.org.id).catch(() => {});
+        const normalizedTarget = normalizeInputUrl(target).toLowerCase();
+        const matchingSite = db.getWebsites().find(
+          (w) =>
+            w.orgId === session.org.id &&
+            (w.url.toLowerCase() === normalizedTarget ||
+              target.toLowerCase().includes(w.domain.toLowerCase()))
+        );
+        if (matchingSite) {
+          const access = await verifyWebsiteAccessAndEntitlement(matchingSite, session.user, session.org);
+          if (!access.allowed) {
+            sendJson(res, access.status || 403, access.body);
+            return true;
+          }
+        }
       }
 
       try {
@@ -951,6 +1024,8 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       }
 
       await backfillSubscriptionEntitlements().catch(() => {});
+      await cleanupOverdueExpiredWebsites().catch(() => {});
+      await reconcileOrganizationWebsiteAllocations(user.orgId).catch(() => {});
       const entitlementSummary = await getOrganizationEntitlementSummary(user.orgId);
       const org = db.findOrgById(user.orgId);
       const issued = await issueSession(req, res, user, !isWebClient(req));
@@ -996,7 +1071,10 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         } catch {}
       }
       await backfillSubscriptionEntitlements().catch(() => {});
+      await cleanupOverdueExpiredWebsites().catch(() => {});
+      await reconcileOrganizationWebsiteAllocations(session.org.id).catch(() => {});
       const entitlementSummary = await getOrganizationEntitlementSummary(session.org.id);
+      const isUnlimitedAdmin = isExemptSuperAdmin(session.user);
       const trialStatus = getAccountTrialStatus(session.org);
       sendJson(res, 200, {
         user: {
@@ -1017,12 +1095,13 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           entitlementSummary,
         },
         accountStatus: {
-          plan: session.org.planId,
+          plan: isUnlimitedAdmin ? 'pro' : session.org.planId,
+          isUnlimited: isUnlimitedAdmin,
           trial: {
             startedAt: trialStatus.trialStartedAt || session.org.createdAt,
             endsAt: trialStatus.trialEndsAt || session.org.createdAt,
-            expired: trialStatus.isExpired,
-            remainingMs: trialStatus.remainingMs,
+            expired: isUnlimitedAdmin ? false : trialStatus.isExpired,
+            remainingMs: isUnlimitedAdmin ? 0 : trialStatus.remainingMs,
           },
           entitlements: entitlementSummary,
         },
@@ -1037,15 +1116,19 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         return true;
       }
       await backfillSubscriptionEntitlements().catch(() => {});
+      await cleanupOverdueExpiredWebsites().catch(() => {});
+      await reconcileOrganizationWebsiteAllocations(session.org.id).catch(() => {});
       const entitlementSummary = await getOrganizationEntitlementSummary(session.org.id);
+      const isUnlimitedAdmin = isExemptSuperAdmin(session.user);
       const trialStatus = getAccountTrialStatus(session.org);
       sendJson(res, 200, {
-        plan: session.org.planId,
+        plan: isUnlimitedAdmin ? 'pro' : session.org.planId,
+        isUnlimited: isUnlimitedAdmin,
         trial: {
           startedAt: trialStatus.trialStartedAt || session.org.createdAt,
           endsAt: trialStatus.trialEndsAt || session.org.createdAt,
-          expired: trialStatus.isExpired,
-          remainingMs: trialStatus.remainingMs,
+          expired: isUnlimitedAdmin ? false : trialStatus.isExpired,
+          remainingMs: isUnlimitedAdmin ? 0 : trialStatus.remainingMs,
         },
         entitlements: entitlementSummary,
       });
@@ -1131,16 +1214,21 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       return true;
     }
 
-    // 4. WEBSITES RESOURCE
+    // 4. WEBSITES RESOURCE & WHOIS
     if (path === '/api/websites' && method === 'GET') {
       const session = await resolveSession(req);
       if (!session) {
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
-      const websites = session.user.role === 'super_admin'
+      await cleanupOverdueExpiredWebsites().catch(() => {});
+      await reconcileOrganizationWebsiteAllocations(session.org.id).catch(() => {});
+
+      const rawWebsites = isExemptSuperAdmin(session.user, session.org)
         ? db.getWebsites()
         : db.getWebsites().filter((w) => w.orgId === session.org.id);
+
+      const websites = rawWebsites.map((w) => sanitizeWebsiteForList(w, session.user, session.org));
       sendJson(res, 200, websites);
       return true;
     }
@@ -1179,13 +1267,16 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       const { url, domain } = normalized;
 
       await backfillSubscriptionEntitlements().catch(() => {});
-      const entitlementSummary = await getOrganizationEntitlementSummary(session.org.id);
+      await cleanupOverdueExpiredWebsites().catch(() => {});
+      const allocation = await allocateEntitlementForNewWebsite(session.org.id, session.user);
+      const entitlementSummary = allocation.summary;
 
-      if (session.user.role !== 'super_admin') {
+      if (!allocation.allowed) {
         if (entitlementSummary.totalActiveCapacity <= 0) {
           if (entitlementSummary.allPaidEntitlementsExpired) {
             sendJson(res, 403, {
               error: 'SUBSCRIPTION_EXPIRED',
+              code: 'SUBSCRIPTION_EXPIRED',
               message: 'Your subscription entitlements have expired. Purchase a Pro Plan entitlement (5 USDT/month) to monitor websites.',
             });
             return true;
@@ -1194,21 +1285,21 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           return true;
         }
 
-        if (entitlementSummary.usedWebsiteSlots >= entitlementSummary.totalActiveCapacity) {
-          const activeLabel =
-            entitlementSummary.activeEntitlementCount > 0
-              ? `${entitlementSummary.activeEntitlementCount} active Pro entitlement${entitlementSummary.activeEntitlementCount === 1 ? '' : 's'}`
-              : 'Free Trial';
-          sendJson(res, 403, {
-            error: `Your active capacity limit is ${entitlementSummary.totalActiveCapacity} website${entitlementSummary.totalActiveCapacity === 1 ? '' : 's'} (${entitlementSummary.usedWebsiteSlots}/${entitlementSummary.totalActiveCapacity} slots used across ${activeLabel}). Purchase an additional Pro Plan entitlement (+5 website slots) to monitor more websites.`,
-          });
-          return true;
-        }
+        const activeLabel =
+          entitlementSummary.activeEntitlementCount > 0
+            ? `${entitlementSummary.activeEntitlementCount} active Pro entitlement${entitlementSummary.activeEntitlementCount === 1 ? '' : 's'}`
+            : 'Free Trial';
+        sendJson(res, 403, {
+          error: `Your active capacity limit is ${entitlementSummary.totalActiveCapacity} website${entitlementSummary.totalActiveCapacity === 1 ? '' : 's'} (${entitlementSummary.usedWebsiteSlots}/${entitlementSummary.totalActiveCapacity} slots used across ${activeLabel}). Purchase an additional Pro Plan entitlement (+5 website slots) to monitor more websites.`,
+        });
+        return true;
       }
 
       const plan = db.getPlans().find((p) => p.id === session.org.planId) || db.getPlans()[0];
 
-      const minInterval = Math.max(plan.limits.minIntervalMinutes, 1);
+      const minInterval = isExemptSuperAdmin(session.user, session.org)
+        ? 1
+        : Math.max(plan.limits.minIntervalMinutes, 1);
       const requestedInterval = Number(body.intervalMinutes);
       const intervalMinutes = Number.isFinite(requestedInterval)
         ? Math.min(1440, Math.max(minInterval, Math.floor(requestedInterval)))
@@ -1272,6 +1363,13 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
             latencyThresholdMs: Math.min(30000, Math.max(100, Number(body.notificationSettings.latencyThresholdMs) || 1200)),
           } : {}),
         },
+        entitlementId: allocation.entitlementId || null,
+        subscriptionExpiresAt: allocation.subscriptionExpiresAt || null,
+        expiredAt: null,
+        scheduledDeletionAt: null,
+        accessStatus: 'active',
+        isSubscriptionExpired: false,
+        deletionRemainingMs: null,
         createdAt: new Date().toISOString(),
       };
 
@@ -1279,6 +1377,97 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       monitorEngine.checkWebsite(newSite).catch(() => {});
 
       sendJson(res, 201, newSite);
+      return true;
+    }
+
+    // Protected WHOIS endpoint (both /api/websites/:id/whois and /api/whois)
+    if (
+      (path.match(/^\/api\/websites\/[^/]+\/whois$/) || path === '/api/whois') &&
+      (method === 'GET' || method === 'POST')
+    ) {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+
+      const whoisLimit = rateLimit(`whois:ip:${ipHash}`, 30, 60 * 60_000);
+      if (!whoisLimit.allowed) {
+        void logSecurityEvent({ type: 'rate_limited', outcome: 'blocked', userId: session.user.id, req, details: { scope: 'whois' } });
+        res.setHeader('Retry-After', String(whoisLimit.retryAfterSec));
+        sendJson(res, 429, { error: 'WHOIS rate limit reached. Please wait before trying again.' });
+        return true;
+      }
+
+      let body: any = {};
+      if (method === 'POST') {
+        body = await readJsonBody(req);
+      }
+
+      const siteIdFromPath = path.startsWith('/api/websites/') ? path.split('/')[3] : '';
+      const siteId = siteIdFromPath || (typeof body?.websiteId === 'string' ? body.websiteId.trim() : '') || (parsedUrl.searchParams.get('websiteId') || '').trim();
+      const rawDomainParam = (typeof body?.domain === 'string' ? body.domain.trim() : '') || (parsedUrl.searchParams.get('domain') || '').trim();
+      const forceRefresh = Boolean(body?.forceRefresh) || parsedUrl.searchParams.get('forceRefresh') === 'true';
+
+      // If caller passed a raw domain parameter, validate it strictly first (reject URLs, paths, IPs, malformed input)
+      let validatedParamDomain = '';
+      if (rawDomainParam) {
+        try {
+          validatedParamDomain = validateAndNormalizeWhoisDomain(rawDomainParam);
+        } catch (domErr: any) {
+          sendJson(res, 400, { error: domErr?.message || 'Invalid domain name for WHOIS lookup.' });
+          return true;
+        }
+      }
+
+      let site: Website | undefined;
+      if (siteId) {
+        site = db.findWebsiteById(siteId);
+      } else if (validatedParamDomain) {
+        site = db
+          .getWebsites()
+          .find(
+            (w) =>
+              (w.orgId === session.org.id || isExemptSuperAdmin(session.user, session.org)) &&
+              validateAndNormalizeWhoisDomain(w.domain) === validatedParamDomain
+          );
+      }
+
+      if (!site) {
+        sendJson(res, 404, { error: 'Website not found' });
+        return true;
+      }
+
+      const access = await verifyWebsiteAccessAndEntitlement(site, session.user, session.org);
+      if (!access.allowed) {
+        if (access.isIdor) {
+          void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'website_whois', siteId: site.id } });
+        }
+        sendJson(res, access.status || 403, access.body);
+        return true;
+      }
+
+      const activeSite = access.site!;
+      let targetDomain: string;
+      try {
+        const siteDomainNormalized = validateAndNormalizeWhoisDomain(activeSite.domain);
+        if (validatedParamDomain && validatedParamDomain !== siteDomainNormalized && !isExemptSuperAdmin(session.user, session.org)) {
+          sendJson(res, 403, { error: 'Requested domain does not match the authorized website domain.' });
+          return true;
+        }
+        targetDomain = validatedParamDomain || siteDomainNormalized;
+      } catch (domErr: any) {
+        sendJson(res, 400, { error: domErr?.message || 'Invalid domain name.' });
+        return true;
+      }
+
+      try {
+        const whoisResult = await performWhoisLookup(targetDomain, { forceRefresh });
+        db.updateWebsite(activeSite.id, { lastWhoisResult: whoisResult });
+        sendJson(res, 200, whoisResult);
+      } catch (err: any) {
+        sendJson(res, 422, { error: publicScanError(err, 'WHOIS lookup failed for the requested domain.') });
+      }
       return true;
     }
 
@@ -1291,11 +1480,12 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       const parts = path.split('/');
       const siteId = parts[3];
       const site = db.findWebsiteById(siteId);
-      if (!site || (site.orgId !== session.org.id && session.user.role !== 'super_admin')) {
-        if (site) {
+      const access = await verifyWebsiteAccessAndEntitlement(site, session.user, session.org);
+      if (!access.allowed) {
+        if (access.isIdor) {
           void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'website', siteId } });
         }
-        sendJson(res, 404, { error: 'Website not found' });
+        sendJson(res, access.status || 403, access.body);
         return true;
       }
 
@@ -1305,7 +1495,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         return true;
       }
 
-      sendJson(res, 200, site);
+      sendJson(res, 200, access.site);
       return true;
     }
 
@@ -1315,27 +1505,26 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
-      const entitlementSummary = await getOrganizationEntitlementSummary(session.org.id);
-      if (session.user.role !== 'super_admin' && entitlementSummary.totalActiveCapacity <= 0) {
-        sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
-        return true;
-      }
       const siteId = path.split('/')[3];
       const site = db.findWebsiteById(siteId);
-      if (!site || (site.orgId !== session.org.id && session.user.role !== 'super_admin')) {
-        if (site) {
+      const access = await verifyWebsiteAccessAndEntitlement(site, session.user, session.org);
+      if (!access.allowed) {
+        if (access.isIdor) {
           void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'website_patch', siteId } });
         }
-        sendJson(res, 404, { error: 'Website not found' });
+        sendJson(res, access.status || 403, access.body);
         return true;
       }
+      const activeSite = access.site!;
 
       const body = await readJsonBody(req);
-      // Whitelist mutable fields so callers cannot overwrite id, orgId, verification, etc.
       const safeUpdates: Partial<Website> = {};
       if (typeof body.name === 'string' && body.name.trim()) safeUpdates.name = cleanString(body.name, 120);
       if (typeof body.groupName === 'string') safeUpdates.groupName = cleanString(body.groupName, 80);
       if (typeof body.clientId === 'string') safeUpdates.clientId = cleanString(body.clientId, 64);
+      if (typeof body.status === 'string' && (body.status === 'ONLINE' || body.status === 'PAUSED')) {
+        safeUpdates.status = body.status;
+      }
       if (Array.isArray(body.tags)) {
         safeUpdates.tags = body.tags.filter((t: unknown) => typeof t === 'string').map((t: string) => cleanString(t, 40)).slice(0, 12);
       }
@@ -1344,28 +1533,28 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       }
       if (isPlainObject(body.enabledChecks)) {
         safeUpdates.enabledChecks = {
-          ...site.enabledChecks,
-          uptime: Boolean(body.enabledChecks.uptime ?? site.enabledChecks.uptime),
-          ssl: Boolean(body.enabledChecks.ssl ?? site.enabledChecks.ssl),
-          dns: Boolean(body.enabledChecks.dns ?? site.enabledChecks.dns),
-          seo: Boolean(body.enabledChecks.seo ?? site.enabledChecks.seo),
-          security: Boolean(body.enabledChecks.security ?? site.enabledChecks.security),
-          brokenLinks: Boolean(body.enabledChecks.brokenLinks ?? site.enabledChecks.brokenLinks),
+          ...activeSite.enabledChecks,
+          uptime: Boolean(body.enabledChecks.uptime ?? activeSite.enabledChecks.uptime),
+          ssl: Boolean(body.enabledChecks.ssl ?? activeSite.enabledChecks.ssl),
+          dns: Boolean(body.enabledChecks.dns ?? activeSite.enabledChecks.dns),
+          seo: Boolean(body.enabledChecks.seo ?? activeSite.enabledChecks.seo),
+          security: Boolean(body.enabledChecks.security ?? activeSite.enabledChecks.security),
+          brokenLinks: Boolean(body.enabledChecks.brokenLinks ?? activeSite.enabledChecks.brokenLinks),
         };
       }
       if (isPlainObject(body.notificationSettings)) {
         safeUpdates.notificationSettings = {
-          ...site.notificationSettings,
-          email: Boolean(body.notificationSettings.email ?? site.notificationSettings.email),
+          ...activeSite.notificationSettings,
+          email: Boolean(body.notificationSettings.email ?? activeSite.notificationSettings.email),
           alertEmail: EMAIL_RE.test(String(body.notificationSettings.alertEmail || ''))
             ? String(body.notificationSettings.alertEmail).trim()
-            : site.notificationSettings.alertEmail,
-          alertOnDown: Boolean(body.notificationSettings.alertOnDown ?? site.notificationSettings.alertOnDown),
-          alertOnRecovery: Boolean(body.notificationSettings.alertOnRecovery ?? site.notificationSettings.alertOnRecovery),
-          alertOnSslExpiry: Boolean(body.notificationSettings.alertOnSslExpiry ?? site.notificationSettings.alertOnSslExpiry),
+            : activeSite.notificationSettings.alertEmail,
+          alertOnDown: Boolean(body.notificationSettings.alertOnDown ?? activeSite.notificationSettings.alertOnDown),
+          alertOnRecovery: Boolean(body.notificationSettings.alertOnRecovery ?? activeSite.notificationSettings.alertOnRecovery),
+          alertOnSslExpiry: Boolean(body.notificationSettings.alertOnSslExpiry ?? activeSite.notificationSettings.alertOnSslExpiry),
           latencyThresholdMs: Math.min(
             30000,
-            Math.max(100, Number(body.notificationSettings.latencyThresholdMs) || site.notificationSettings.latencyThresholdMs)
+            Math.max(100, Number(body.notificationSettings.latencyThresholdMs) || activeSite.notificationSettings.latencyThresholdMs)
           ),
         };
       }
@@ -1413,21 +1602,17 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
-      const entitlementSummary = await getOrganizationEntitlementSummary(session.org.id);
-      if (session.user.role !== 'super_admin' && entitlementSummary.totalActiveCapacity <= 0) {
-        sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
-        return true;
-      }
       const siteId = path.split('/')[3];
       const site = db.findWebsiteById(siteId);
-      if (!site || (site.orgId !== session.org.id && session.user.role !== 'super_admin')) {
-        if (site) {
+      const access = await verifyWebsiteAccessAndEntitlement(site, session.user, session.org);
+      if (!access.allowed) {
+        if (access.isIdor) {
           void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'website_check', siteId } });
         }
-        sendJson(res, 404, { error: 'Website not found' });
+        sendJson(res, access.status || 403, access.body);
         return true;
       }
-      const updated = await monitorEngine.checkWebsite(site);
+      const updated = await monitorEngine.checkWebsite(access.site!);
       sendJson(res, 200, updated);
       return true;
     }
@@ -1439,24 +1624,24 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
-      const entitlementSummary = await getOrganizationEntitlementSummary(session.org.id);
-      if (session.user.role !== 'super_admin' && entitlementSummary.totalActiveCapacity <= 0) {
-        sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
-        return true;
-      }
       const siteId = path.split('/')[3];
       const site = db.findWebsiteById(siteId);
-      if (!site || (site.orgId !== session.org.id && session.user.role !== 'super_admin')) {
-        if (site) {
+      const access = await verifyWebsiteAccessAndEntitlement(site, session.user, session.org);
+      if (!access.allowed) {
+        if (access.isIdor) {
           void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'website_audit', siteId } });
         }
-        sendJson(res, 404, { error: 'Website not found' });
+        sendJson(res, access.status || 403, access.body);
         return true;
       }
       try {
         const fullResult = await monitorEngine.runFullAudit(siteId);
         sendJson(res, 200, fullResult);
       } catch (err: any) {
+        if (err?.code === 'SUBSCRIPTION_EXPIRED') {
+          sendJson(res, 403, { error: 'SUBSCRIPTION_EXPIRED', code: 'SUBSCRIPTION_EXPIRED', message: err.message });
+          return true;
+        }
         sendJson(res, 422, { error: publicScanError(err, 'Audit failed for the requested website.') });
       }
       return true;
@@ -1469,29 +1654,26 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
-      const entitlementSummary = await getOrganizationEntitlementSummary(session.org.id);
-      if (session.user.role !== 'super_admin' && entitlementSummary.totalActiveCapacity <= 0) {
-        sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
-        return true;
-      }
       const siteId = path.split('/')[3];
       const site = db.findWebsiteById(siteId);
-      if (!site || (site.orgId !== session.org.id && session.user.role !== 'super_admin')) {
-        if (site) {
+      const access = await verifyWebsiteAccessAndEntitlement(site, session.user, session.org);
+      if (!access.allowed) {
+        if (access.isIdor) {
           void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'website_verify', siteId } });
         }
-        sendJson(res, 404, { error: 'Website not found' });
+        sendJson(res, access.status || 403, access.body);
         return true;
       }
+      const activeSite = access.site!;
 
       let verified = false;
       let checkDetail = '';
       try {
-        await validateTargetSecurity(site.domain);
-        const txts = await dns.resolveTxt(site.domain).catch(() => []);
+        await validateTargetSecurity(activeSite.domain);
+        const txts = await dns.resolveTxt(activeSite.domain).catch(() => []);
         const flattened = txts.map((r) => r.join(''));
         for (const t of flattened) {
-          if (t.includes(site.verification.token) || t.includes('pulsevanguard-verify')) {
+          if (t.includes(activeSite.verification.token) || t.includes('pulsevanguard-verify')) {
             verified = true;
             checkDetail = `Found matching TXT record: ${t.slice(0, 120)}`;
             break;
@@ -1501,12 +1683,11 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         checkDetail = 'DNS TXT record check did not find the verification token.';
       }
 
-      // Fallback to HTML meta tag verification via SSRF-guarded safeFetch
       if (!verified) {
         try {
-          const resp = await safeFetch(site.url, { method: 'GET', timeoutMs: 4000, maxBytes: 256 * 1024 });
+          const resp = await safeFetch(activeSite.url, { method: 'GET', timeoutMs: 4000, maxBytes: 256 * 1024 });
           const text = await resp.text();
-          if (text.includes(site.verification.token)) {
+          if (text.includes(activeSite.verification.token)) {
             verified = true;
             checkDetail = 'Found matching HTML meta verification tag.';
           }
@@ -1518,7 +1699,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       if (verified) {
         db.updateWebsite(siteId, {
           verification: {
-            ...site.verification,
+            ...activeSite.verification,
             verified: true,
             verifiedAt: new Date().toISOString(),
           },
@@ -1527,7 +1708,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       } else {
         sendJson(res, 400, {
           verified: false,
-          error: `Could not verify domain ownership. Please ensure your DNS TXT record contains "${site.verification.token}" or add <meta name="pulsevanguard-verify" content="${site.verification.token}"> to your site head. (${checkDetail || 'No record found'})`,
+          error: `Could not verify domain ownership. Please ensure your DNS TXT record contains "${activeSite.verification.token}" or add <meta name="pulsevanguard-verify" content="${activeSite.verification.token}"> to your site head. (${checkDetail || 'No record found'})`,
         });
       }
       return true;
@@ -1540,9 +1721,16 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
-      const incidents = session.user.role === 'super_admin'
+      await reconcileOrganizationWebsiteAllocations(session.org.id).catch(() => {});
+      const expiredSiteIds = new Set(
+        db
+          .getWebsites()
+          .filter((w) => w.orgId === session.org.id && (w.accessStatus === 'expired_grace_period' || w.isSubscriptionExpired))
+          .map((w) => w.id)
+      );
+      const incidents = isExemptSuperAdmin(session.user, session.org)
         ? db.getIncidents()
-        : db.getIncidents().filter((i) => i.orgId === session.org.id);
+        : db.getIncidents().filter((i) => i.orgId === session.org.id && !expiredSiteIds.has(i.websiteId));
       sendJson(res, 200, incidents);
       return true;
     }
@@ -1553,7 +1741,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
-      const alerts = session.user.role === 'super_admin'
+      const alerts = isExemptSuperAdmin(session.user, session.org)
         ? db.getAlerts()
         : db.getAlerts().filter((a) => a.orgId === session.org.id);
       sendJson(res, 200, alerts);
@@ -1587,9 +1775,16 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
-      const reports = session.user.role === 'super_admin'
+      await reconcileOrganizationWebsiteAllocations(session.org.id).catch(() => {});
+      const expiredSiteIds = new Set(
+        db
+          .getWebsites()
+          .filter((w) => w.orgId === session.org.id && (w.accessStatus === 'expired_grace_period' || w.isSubscriptionExpired))
+          .map((w) => w.id)
+      );
+      const reports = isExemptSuperAdmin(session.user, session.org)
         ? db.getReports()
-        : db.getReports().filter((r) => r.orgId === session.org.id);
+        : db.getReports().filter((r) => r.orgId === session.org.id && !expiredSiteIds.has(r.websiteId));
       sendJson(res, 200, reports);
       return true;
     }
@@ -1600,41 +1795,36 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
-      if (session.org.planId === 'free' && session.user.role !== 'super_admin') {
-        const trial = getAccountTrialStatus(session.org);
-        if (trial.isExpired) {
-          sendJson(res, 403, TRIAL_EXPIRED_RESPONSE);
-          return true;
-        }
-      }
       const body = await readJsonBody(req);
       const site = db.findWebsiteById(body.websiteId);
-      if (!site || (site.orgId !== session.org.id && session.user.role !== 'super_admin')) {
-        if (site) {
+      const access = await verifyWebsiteAccessAndEntitlement(site, session.user, session.org);
+      if (!access.allowed) {
+        if (access.isIdor) {
           void logSecurityEvent({ type: 'idor_blocked', outcome: 'blocked', userId: session.user.id, req, details: { resource: 'report_generate', websiteId: body.websiteId } });
         }
-        sendJson(res, 404, { error: 'Website not found' });
+        sendJson(res, access.status || 403, access.body);
         return true;
       }
+      const activeSite = access.site!;
 
       const report: ReportItem = {
         id: `rep_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
         orgId: session.org.id,
-        websiteId: site.id,
-        websiteName: site.name,
-        title: cleanString(body.title, 160) || `${site.name} Performance & Health Report`,
+        websiteId: activeSite.id,
+        websiteName: activeSite.name,
+        title: cleanString(body.title, 160) || `${activeSite.name} Performance & Health Report`,
         type: body.type === 'seo' || body.type === 'security' || body.type === 'executive' ? body.type : 'health',
         shareToken: `pv_rep_${crypto.randomBytes(16).toString('hex')}`,
         isPublic: true,
         generatedAt: new Date().toISOString(),
         data: {
-          website: { name: site.name, url: site.url, domain: site.domain },
-          healthScore: site.healthScore,
-          uptime24h: site.uptime24h,
-          uptime7d: site.uptime7d,
-          uptime30d: site.uptime30d,
-          responseTimeMs: site.lastResponseTimeMs,
-          scanData: site.lastScanResult || null,
+          website: { name: activeSite.name, url: activeSite.url, domain: activeSite.domain },
+          healthScore: activeSite.healthScore,
+          uptime24h: activeSite.uptime24h,
+          uptime7d: activeSite.uptime7d,
+          uptime30d: activeSite.uptime30d,
+          responseTimeMs: activeSite.lastResponseTimeMs,
+          scanData: activeSite.lastScanResult || null,
           whiteLabel: session.org.whiteLabel,
         },
       };
@@ -2948,11 +3138,19 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       }
 
       if (path === '/api/v1/websites' && method === 'GET') {
+        await cleanupOverdueExpiredWebsites().catch(() => {});
+        if (targetOrgId) {
+          await reconcileOrganizationWebsiteAllocations(targetOrgId).catch(() => {});
+        }
         const scopedSites = isSuperAdminCaller
           ? db.getWebsites()
           : db.getWebsites().filter((w) => w.orgId === targetOrgId);
+        // Filter out expired websites from API v1 data feed unless super admin
+        const accessibleSites = isSuperAdminCaller
+          ? scopedSites
+          : scopedSites.filter((w) => !w.isSubscriptionExpired && w.accessStatus !== 'expired_grace_period');
         sendJson(res, 200, {
-          data: scopedSites.map((w) => ({
+          data: accessibleSites.map((w) => ({
             id: w.id,
             name: w.name,
             url: w.url,

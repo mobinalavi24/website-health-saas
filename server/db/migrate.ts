@@ -254,6 +254,12 @@ export async function applySubscriptionEntitlementsMigration(): Promise<void> {
     'CREATE INDEX IF NOT EXISTS idx_sub_entitlements_user ON subscription_entitlements(user_id)',
     'CREATE INDEX IF NOT EXISTS idx_sub_entitlements_org ON subscription_entitlements(org_id)',
     'CREATE INDEX IF NOT EXISTS idx_sub_entitlements_status_exp ON subscription_entitlements(status, expires_at)',
+    'ALTER TABLE websites ADD COLUMN IF NOT EXISTS entitlement_id TEXT',
+    'ALTER TABLE websites ADD COLUMN IF NOT EXISTS subscription_expires_at TIMESTAMPTZ',
+    'ALTER TABLE websites ADD COLUMN IF NOT EXISTS expired_at TIMESTAMPTZ',
+    'ALTER TABLE websites ADD COLUMN IF NOT EXISTS scheduled_deletion_at TIMESTAMPTZ',
+    "ALTER TABLE websites ADD COLUMN IF NOT EXISTS access_status TEXT NOT NULL DEFAULT 'active'",
+    'ALTER TABLE websites ADD COLUMN IF NOT EXISTS last_whois_result JSONB',
     // Normalize any fiat currency labels in existing tables to crypto-only USDT
     "UPDATE organizations SET currency = 'USDT' WHERE currency IN ('USD', 'EUR', 'GBP')",
     "UPDATE app_settings SET default_currency = 'USDT' WHERE default_currency IN ('USD', 'EUR', 'GBP')",

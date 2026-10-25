@@ -9,6 +9,8 @@ import type {
 } from '../server/pagespeedTypes.ts';
 
 export type * from '../server/seoTypes.ts';
+import type { WhoisContactInfo, WhoisLookupResult } from '../server/whois.ts';
+export type { WhoisContactInfo, WhoisLookupResult };
 
 export type {
   ScanResult,
@@ -74,6 +76,7 @@ export interface OrganizationEntitlementSummary {
   allPaidEntitlementsExpired: boolean;
   earliestActiveExpiresAt: string | null;
   latestActiveExpiresAt: string | null;
+  isUnlimited?: boolean;
 }
 
 export interface Organization {
@@ -160,6 +163,14 @@ export interface Website {
     latencyThresholdMs: number;
   };
   lastScanResult?: ScanResult;
+  lastWhoisResult?: WhoisLookupResult | null;
+  entitlementId?: string | null;
+  subscriptionExpiresAt?: string | null;
+  expiredAt?: string | null;
+  scheduledDeletionAt?: string | null;
+  accessStatus?: 'active' | 'expired_grace_period' | 'ambiguous_protected';
+  isSubscriptionExpired?: boolean;
+  deletionRemainingMs?: number | null;
   createdAt: string;
 }
 

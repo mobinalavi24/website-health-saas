@@ -2,7 +2,11 @@ import { query, withTransaction } from './db/connection.ts';
 import { db, type CryptoPaymentOrder } from './db.ts';
 import { mapCryptoOrderRow } from './db/repositories.ts';
 import { creditReferralCommissionInTransaction, type ReferralCommission } from './referrals.ts';
-import { grantEntitlementForOrderInTransaction, type SubscriptionEntitlement } from './entitlements.ts';
+import {
+  grantEntitlementForOrderInTransaction,
+  reconcileOrganizationWebsiteAllocations,
+  type SubscriptionEntitlement,
+} from './entitlements.ts';
 
 export interface AdminApprovalResult {
   success: boolean;
@@ -41,7 +45,7 @@ export async function approvePaymentOrder(
     throw new Error('Unauthorized: Admin privilege required to approve payments.');
   }
 
-  return await withTransaction(async (client) => {
+  const txResult = await withTransaction(async (client) => {
     // 1. Lock row for update to prevent concurrent duplicate approvals
     const res = await client.query('SELECT * FROM crypto_orders WHERE id = $1 FOR UPDATE', [orderId]);
     if (res.rows.length === 0) {
@@ -192,6 +196,11 @@ export async function approvePaymentOrder(
       message: `Payment of ${row.amount} USDT approved successfully! Plan ${row.plan_name} entitlement (+${entResult.entitlement?.websiteCapacity || 5} website slots) has been activated for ${row.user_email}.`,
     };
   });
+
+  if (txResult?.order?.orgId) {
+    await reconcileOrganizationWebsiteAllocations(txResult.order.orgId).catch(() => {});
+  }
+  return txResult;
 }
 
 /**
@@ -209,7 +218,7 @@ export async function rejectPaymentOrder(
     throw new Error('Unauthorized: Admin privilege required to reject payments.');
   }
 
-  return await withTransaction(async (client) => {
+  const txResult = await withTransaction(async (client) => {
     const res = await client.query('SELECT * FROM crypto_orders WHERE id = $1 FOR UPDATE', [orderId]);
     if (res.rows.length === 0) {
       throw new Error('Payment order not found.');
@@ -294,6 +303,7 @@ export async function rejectPaymentOrder(
       message: `Payment order ${orderId} has been rejected.`,
     };
   });
+  return txResult;
 }
 
 /**

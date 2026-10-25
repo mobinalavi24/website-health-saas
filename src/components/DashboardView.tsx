@@ -77,16 +77,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return matchesSearch && matchesStatus;
   });
 
-  // Calculate live countdown for Free Trial
-  const isFreePlan = organization?.planId === 'free';
+  // Calculate live countdown for Free Trial & Expired Subscriptions
+  const isUnlimitedSuperAdmin = Boolean(organization?.entitlementSummary?.isUnlimited);
+  const isFreePlan = !isUnlimitedSuperAdmin && organization?.planId === 'free';
   const trialEndsMs = organization?.trialEndsAt ? new Date(organization.trialEndsAt).getTime() : 0;
   const [nowMs, setNowMs] = useState(Date.now());
 
   React.useEffect(() => {
-    if (!isFreePlan) return;
     const interval = setInterval(() => setNowMs(Date.now()), 10000);
     return () => clearInterval(interval);
-  }, [isFreePlan]);
+  }, []);
 
   const isTrialExpired = isFreePlan && trialEndsMs > 0 && nowMs >= trialEndsMs;
   const trialRemainingMs = isFreePlan && trialEndsMs > 0 ? Math.max(0, trialEndsMs - nowMs) : 0;
@@ -235,7 +235,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
           <div className="text-[11px] text-slate-400 font-mono">
-            {organization?.planId === 'pro' || (organization?.entitlementSummary?.activeEntitlements?.length || 0) > 0
+            {isUnlimitedSuperAdmin
+              ? `Unlimited Super Admin Capacity: ${totalCount} sites active`
+              : organization?.planId === 'pro' || (organization?.entitlementSummary?.activeEntitlements?.length || 0) > 0
               ? `Pro Capacity: ${totalCount}/${organization?.entitlementSummary?.totalActiveCapacity ?? organization?.maxWebsites ?? 5} sites used`
               : `Free Trial (24h): ${totalCount}/1 site used`}
           </div>
@@ -355,46 +357,85 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <tbody className="divide-y divide-slate-800/60 font-mono">
                 {filteredWebsites.map((site) => {
                   const isChecking = checkingIds.has(site.id);
+                  const isSiteExpired = !isUnlimitedSuperAdmin && (
+                    Boolean(site.isSubscriptionExpired) ||
+                    site.accessStatus === 'expired_grace_period' ||
+                    isTrialExpired
+                  );
+                  const siteExpiredAtMs = site.expiredAt ? new Date(site.expiredAt).getTime() : 0;
+                  const siteDeleteAtMs = site.scheduledDeletionAt
+                    ? new Date(site.scheduledDeletionAt).getTime()
+                    : siteExpiredAtMs > 0
+                    ? siteExpiredAtMs + 2 * 24 * 60 * 60 * 1000
+                    : 0;
+                  const graceRemMs = siteDeleteAtMs > 0 ? Math.max(0, siteDeleteAtMs - nowMs) : 0;
+                  const graceHours = Math.floor(graceRemMs / (1000 * 60 * 60));
+                  const graceMins = Math.floor((graceRemMs % (1000 * 60 * 60)) / (1000 * 60));
+
                   return (
                     <tr
                       key={site.id}
                       onClick={() => onSelectWebsite(site.id)}
-                      className="group cursor-pointer hover:bg-slate-800/40 transition-colors"
+                      className={`group cursor-pointer transition-colors ${
+                        isSiteExpired
+                          ? 'bg-rose-950/20 hover:bg-rose-950/35'
+                          : 'hover:bg-slate-800/40'
+                      }`}
                     >
                       {/* Status */}
                       <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`h-2.5 w-2.5 rounded-full ${
-                              site.status === 'ONLINE'
-                                ? 'bg-emerald-400 animate-pulse'
-                                : site.status === 'DEGRADED'
-                                ? 'bg-amber-400'
-                                : site.status === 'PAUSED'
-                                ? 'bg-slate-500'
-                                : 'bg-rose-500 animate-ping'
-                            }`}
-                          />
-                          <span
-                            className={`text-xs font-sans font-semibold ${
-                              site.status === 'ONLINE'
-                                ? 'text-emerald-400'
-                                : site.status === 'DEGRADED'
-                                ? 'text-amber-400'
-                                : site.status === 'PAUSED'
-                                ? 'text-slate-400'
-                                : 'text-rose-400'
-                            }`}
-                          >
-                            {site.status}
-                          </span>
-                        </div>
+                        {isSiteExpired ? (
+                          <div className="flex items-center gap-2">
+                            <span className="h-2.5 w-2.5 rounded-full bg-rose-500 animate-pulse" />
+                            <span className="text-xs font-sans font-bold text-rose-400">
+                              EXPIRED
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`h-2.5 w-2.5 rounded-full ${
+                                site.status === 'ONLINE'
+                                  ? 'bg-emerald-400 animate-pulse'
+                                  : site.status === 'DEGRADED'
+                                  ? 'bg-amber-400'
+                                  : site.status === 'PAUSED'
+                                  ? 'bg-slate-500'
+                                  : 'bg-rose-500 animate-ping'
+                              }`}
+                            />
+                            <span
+                              className={`text-xs font-sans font-semibold ${
+                                site.status === 'ONLINE'
+                                  ? 'text-emerald-400'
+                                  : site.status === 'DEGRADED'
+                                  ? 'text-amber-400'
+                                  : site.status === 'PAUSED'
+                                  ? 'text-slate-400'
+                                  : 'text-rose-400'
+                              }`}
+                            />
+                            <span
+                              className={`text-xs font-sans font-semibold ${
+                                site.status === 'ONLINE'
+                                  ? 'text-emerald-400'
+                                  : site.status === 'DEGRADED'
+                                  ? 'text-amber-400'
+                                  : site.status === 'PAUSED'
+                                  ? 'text-slate-400'
+                                  : 'text-rose-400'
+                              }`}
+                            >
+                              {site.status}
+                            </span>
+                          </div>
+                        )}
                       </td>
 
                       {/* Website Name & Domain */}
                       <td className="py-3.5 px-4 font-sans">
                         <div className="flex flex-col">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-semibold text-white group-hover:text-[#E6A05A] transition-colors">
                               {site.name}
                             </span>
@@ -403,78 +444,122 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 {site.groupName}
                               </span>
                             )}
+                            {isSiteExpired && (
+                              <span className="text-[10px] font-bold text-rose-300 bg-rose-500/20 border border-rose-500/40 px-2 py-0.5 rounded uppercase tracking-wider">
+                                Locked · Grace Period ({graceHours}h {graceMins}m left)
+                              </span>
+                            )}
                           </div>
                           <span className="text-[11px] text-slate-400 font-mono">
                             {site.domain}
                           </span>
+                          {isSiteExpired && (
+                            <div className="mt-1.5 p-2 rounded-lg bg-rose-950/50 border border-rose-800/70 text-[11px] text-rose-200 space-y-1">
+                              <p className="font-bold text-rose-300">
+                                Subscription expired — This website will be deleted in 2 days. Renew your subscription to retain access.
+                              </p>
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] font-mono text-slate-300">
+                                {site.expiredAt && (
+                                  <span>Expired: {new Date(site.expiredAt).toLocaleString()}</span>
+                                )}
+                                {siteDeleteAtMs > 0 && (
+                                  <span className="text-rose-300 font-semibold">
+                                    Scheduled Deletion: {new Date(siteDeleteAtMs).toLocaleString()}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </td>
 
                       {/* Response Time */}
                       <td className="py-3.5 px-4 text-right tabular-nums">
-                        <span
-                          className={`font-semibold ${
-                            site.lastResponseTimeMs < 400
-                              ? 'text-emerald-400'
-                              : site.lastResponseTimeMs < 1200
-                              ? 'text-amber-400'
-                              : 'text-rose-400'
-                          }`}
-                        >
-                          {site.lastResponseTimeMs} ms
-                        </span>
+                        {isSiteExpired ? (
+                          <span className="text-slate-500 text-xs">Locked</span>
+                        ) : (
+                          <span
+                            className={`font-semibold ${
+                              site.lastResponseTimeMs < 400
+                                ? 'text-emerald-400'
+                                : site.lastResponseTimeMs < 1200
+                                ? 'text-amber-400'
+                                : 'text-rose-400'
+                            }`}
+                          >
+                            {site.lastResponseTimeMs} ms
+                          </span>
+                        )}
                       </td>
 
                       {/* 24h Uptime */}
                       <td className="py-3.5 px-4 text-right tabular-nums text-slate-200">
-                        {site.uptime24h.toFixed(2)}%
+                        {isSiteExpired ? (
+                          <span className="text-slate-500 text-xs">—</span>
+                        ) : (
+                          `${site.uptime24h.toFixed(2)}%`
+                        )}
                       </td>
 
                       {/* Health Score */}
                       <td className="py-3.5 px-4 text-center">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[11px] font-semibold tabular-nums ${
-                            site.healthScore >= 90
-                              ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20'
-                              : site.healthScore >= 75
-                              ? 'text-[#E6A05A] bg-[#E6A05A]/10 border border-[#E6A05A]/20'
-                              : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
-                          }`}
-                        >
-                          {site.healthScore} / 100
-                        </span>
+                        {isSiteExpired ? (
+                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/30">
+                            LOCKED
+                          </span>
+                        ) : (
+                          <span
+                            className={`px-2 py-0.5 rounded text-[11px] font-semibold tabular-nums ${
+                              site.healthScore >= 90
+                                ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20'
+                                : site.healthScore >= 75
+                                ? 'text-[#E6A05A] bg-[#E6A05A]/10 border border-[#E6A05A]/20'
+                                : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
+                            }`}
+                          >
+                            {site.healthScore} / 100
+                          </span>
+                        )}
                       </td>
 
                       {/* Last Checked */}
                       <td className="py-3.5 px-4 text-slate-400 text-[11px]">
-                        {site.lastCheckedAt ? new Date(site.lastCheckedAt).toLocaleTimeString() : 'Pending'}
+                        {isSiteExpired
+                          ? 'Subscription Expired'
+                          : site.lastCheckedAt
+                          ? new Date(site.lastCheckedAt).toLocaleTimeString()
+                          : 'Pending'}
                       </td>
 
                       {/* Quick Actions */}
                       <td className="py-3.5 px-4 text-right font-sans" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (isTrialExpired) {
+                          {isSiteExpired ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 onNavigate('billing');
-                              } else {
+                              }}
+                              className="px-2.5 py-1 rounded bg-[#E6A05A] text-[#0B1120] font-bold text-[11px] hover:bg-[#cf863c] transition-colors"
+                            >
+                              Renew Subscription
+                            </button>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 handleRunCheck(site.id, e);
-                              }
-                            }}
-                            disabled={isChecking}
-                            title={isTrialExpired ? 'Free Trial Expired. Upgrade to Pro to run checks.' : 'Run instant HTTP check now'}
-                            className={`p-1.5 rounded transition-colors ${
-                              isTrialExpired
-                                ? 'text-slate-600 hover:text-rose-400'
-                                : 'text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-50'
-                            }`}
-                          >
-                            <RefreshCw className={`h-3.5 w-3.5 ${isChecking ? 'animate-spin text-[#E6A05A]' : ''}`} />
-                          </button>
+                              }}
+                              disabled={isChecking}
+                              title="Run instant HTTP check now"
+                              className="p-1.5 rounded transition-colors text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-50"
+                            >
+                              <RefreshCw className={`h-3.5 w-3.5 ${isChecking ? 'animate-spin text-[#E6A05A]' : ''}`} />
+                            </button>
+                          )}
                           <button
                             onClick={() => onSelectWebsite(site.id)}
-                            title="View deep analysis"
+                            title={isSiteExpired ? 'View expiration & renewal notice' : 'View deep analysis'}
                             className="p-1.5 text-slate-400 hover:text-[#E6A05A] hover:bg-slate-800 rounded transition-colors"
                           >
                             <ChevronRight className="h-4 w-4" />

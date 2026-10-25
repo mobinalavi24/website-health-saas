@@ -2,6 +2,11 @@ import { db, type Website, type MetricPoint, type Incident, type AlertNotificati
 import { performWebsiteScan } from './scanner.ts';
 import { performPageSpeedAnalysis } from './pagespeed.ts';
 import { getAccountTrialStatus } from './trial.ts';
+import {
+  cleanupOverdueExpiredWebsites,
+  isExemptSuperAdmin,
+  reconcileOrganizationWebsiteAllocations,
+} from './entitlements.ts';
 import { safeFetch } from './ssrf.ts';
 
 interface WorkerStats {
@@ -53,17 +58,26 @@ export class ContinuousMonitoringEngine {
     this.stats.lastTickAt = new Date().toISOString();
 
     try {
-      const websites = db.getWebsites().filter((w) => w.status !== 'PAUSED');
       const now = Date.now();
+      // 0. Run deterministic overdue website cleanup and entitlement reconciliation on every tick
+      await cleanupOverdueExpiredWebsites(now).catch((err) => {
+        console.error('[Monitor Engine] Cleanup warning:', err?.message || err);
+      });
 
-      // Find due websites
+      const websites = db.getWebsites().filter((w) => w.status !== 'PAUSED');
+
+      // Find due websites (excluding websites in expired_grace_period unless exempt Super Admin)
       const dueWebsites = websites.filter((site) => {
-        // Enforce Free Trial restriction: if account is Free and trial has expired, skip monitoring
         const org = db.findOrgById(site.orgId);
-        if (org && org.planId === 'free') {
-          const trial = getAccountTrialStatus(org, now);
-          if (trial.isExpired) {
-            return false; // Skip monitoring for expired trial without deleting website data
+        if (!isExemptSuperAdmin(null, org)) {
+          if (site.accessStatus === 'expired_grace_period' || site.isSubscriptionExpired) {
+            return false;
+          }
+          if (org && org.planId === 'free') {
+            const trial = getAccountTrialStatus(org, now);
+            if (trial.isExpired) {
+              return false;
+            }
           }
         }
 
@@ -90,12 +104,18 @@ export class ContinuousMonitoringEngine {
   }
 
   public async checkWebsite(website: Website): Promise<Website> {
-    // Check if free trial has expired for this website's owner organization
     const org = db.findOrgById(website.orgId);
-    if (org && org.planId === 'free') {
-      const trial = getAccountTrialStatus(org);
-      if (trial.isExpired) {
-        return website; // Skip monitoring check without deleting website data
+    if (!isExemptSuperAdmin(null, org)) {
+      await reconcileOrganizationWebsiteAllocations(website.orgId).catch(() => {});
+      const currentSite = db.findWebsiteById(website.id) || website;
+      if (currentSite.accessStatus === 'expired_grace_period' || currentSite.isSubscriptionExpired) {
+        return currentSite;
+      }
+      if (org && org.planId === 'free') {
+        const trial = getAccountTrialStatus(org);
+        if (trial.isExpired) {
+          return currentSite;
+        }
       }
     }
 
@@ -280,10 +300,19 @@ export class ContinuousMonitoringEngine {
     if (!website) throw new Error('Website not found');
 
     const org = db.findOrgById(website.orgId);
-    if (org && org.planId === 'free') {
-      const trial = getAccountTrialStatus(org);
-      if (trial.isExpired) {
-        throw new Error('Your free trial has expired. Upgrade to Pro to continue.');
+    if (!isExemptSuperAdmin(null, org)) {
+      await reconcileOrganizationWebsiteAllocations(website.orgId);
+      const refreshed = db.findWebsiteById(websiteId);
+      if (refreshed && (refreshed.accessStatus === 'expired_grace_period' || refreshed.isSubscriptionExpired)) {
+        const expErr: any = new Error('Subscription expired — This website will be deleted in 2 days. Renew your subscription to retain access.');
+        expErr.code = 'SUBSCRIPTION_EXPIRED';
+        throw expErr;
+      }
+      if (org && org.planId === 'free') {
+        const trial = getAccountTrialStatus(org);
+        if (trial.isExpired) {
+          throw new Error('Your free trial has expired. Upgrade to Pro to continue.');
+        }
       }
     }
 

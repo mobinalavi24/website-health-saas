@@ -62,6 +62,12 @@ CREATE TABLE IF NOT EXISTS websites (
   enabled_checks JSONB NOT NULL DEFAULT '{}'::jsonb,
   notification_settings JSONB NOT NULL DEFAULT '{}'::jsonb,
   last_scan_result JSONB,
+  entitlement_id TEXT,
+  subscription_expires_at TIMESTAMPTZ,
+  expired_at TIMESTAMPTZ,
+  scheduled_deletion_at TIMESTAMPTZ,
+  access_status TEXT NOT NULL DEFAULT 'active',
+  last_whois_result JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

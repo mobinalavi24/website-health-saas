@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import type { ScanResult } from './scanner.ts';
 import type { StoredPageSpeedRecord } from './pagespeedTypes.ts';
+import type { WhoisLookupResult } from './whois.ts';
 import {
   UserRepo,
   OrgRepo,
@@ -102,6 +103,14 @@ export interface Website {
     latencyThresholdMs: number;
   };
   lastScanResult?: ScanResult;
+  lastWhoisResult?: WhoisLookupResult | null;
+  entitlementId?: string | null;
+  subscriptionExpiresAt?: string | null;
+  expiredAt?: string | null;
+  scheduledDeletionAt?: string | null;
+  accessStatus?: 'active' | 'expired_grace_period' | 'ambiguous_protected';
+  isSubscriptionExpired?: boolean;
+  deletionRemainingMs?: number | null;
   createdAt: string;
 }
 
@@ -1242,8 +1251,14 @@ class Database {
     const idx = this.data.websites.findIndex((w) => w.id === id);
     if (idx !== -1) {
       this.data.websites.splice(idx, 1);
-      // clean metrics
+      // Clean website-specific telemetry while preserving user/payment/subscription/audit records
       this.data.metrics = this.data.metrics.filter((m) => m.websiteId !== id);
+      this.data.incidents = this.data.incidents.filter((i) => i.websiteId !== id);
+      this.data.alerts = this.data.alerts.filter((a) => a.websiteId !== id);
+      this.data.reports = this.data.reports.filter((r) => r.websiteId !== id);
+      if (this.data.pageSpeedRecords) {
+        this.data.pageSpeedRecords = this.data.pageSpeedRecords.filter((p) => p.websiteId !== id);
+      }
       this.persist();
       this.syncToDb(() => WebsiteRepo.delete(id), 'WebsiteRepo.delete');
       return true;
