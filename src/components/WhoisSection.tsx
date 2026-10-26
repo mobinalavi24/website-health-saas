@@ -490,21 +490,6 @@ export const WhoisSection: React.FC<WhoisSectionProps> = ({
               )}
             </div>
           )}
-
-          {/* Privacy / Registry Notices Footer */}
-          <div className="p-3.5 rounded-lg bg-slate-950/70 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-400">
-            <div className="flex items-center gap-2">
-              <Lock className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-              <span>
-                {data.privacyRedacted
-                  ? 'Contact records are partially or fully redacted by the domain registry in accordance with ICANN / GDPR data protection policies.'
-                  : 'WHOIS data retrieved directly from official domain registry records.'}
-              </span>
-            </div>
-            <span className="font-mono text-slate-500 shrink-0">
-              Source: {data.provider} · Checked {formatDate(data.checkedAt)}
-            </span>
-          </div>
         </div>
       )}
     </div>
