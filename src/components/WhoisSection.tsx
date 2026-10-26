@@ -35,6 +35,8 @@ export const WhoisSection: React.FC<WhoisSectionProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copiedNs, setCopiedNs] = useState(false);
+  const [copiedRaw, setCopiedRaw] = useState(false);
+  const [showRawWhois, setShowRawWhois] = useState(true);
 
   useEffect(() => {
     if (initialData) {
@@ -122,9 +124,17 @@ export const WhoisSection: React.FC<WhoisSectionProps> = ({
             <div className="flex items-center justify-between gap-2">
               <span className="text-slate-400">Country / State</span>
               <span className="font-mono text-slate-200 text-right">
-                {[contact.city, contact.state, contact.country].filter(Boolean).join(', ') || 'Not available'}
+                {[contact.city, contact.state, contact.country, contact.postalCode].filter(Boolean).join(', ') || 'Not available'}
               </span>
             </div>
+            {contact.street && (
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-slate-400 shrink-0">Address</span>
+                <span className="font-mono text-slate-200 text-right break-words">
+                  {contact.street}
+                </span>
+              </div>
+            )}
             <div className="flex items-center justify-between gap-2">
               <span className="text-slate-400">Email</span>
               <span className="font-mono text-slate-200 text-right break-all">
@@ -256,6 +266,12 @@ export const WhoisSection: React.FC<WhoisSectionProps> = ({
                   {data.dnssec || 'Not available'}
                 </span>
               </div>
+              {data.whoisServer && (
+                <div className="flex items-center gap-2 text-[11px] text-slate-400 truncate" title={data.whoisServer}>
+                  <span>WHOIS Server:</span>
+                  <span className="font-mono text-slate-300 truncate">{data.whoisServer}</span>
+                </div>
+              )}
             </div>
 
             {/* Registrar */}
@@ -336,7 +352,12 @@ export const WhoisSection: React.FC<WhoisSectionProps> = ({
               </div>
               {data.abuseContactEmail && (
                 <div className="text-[11px] text-slate-400 pt-1 truncate" title={data.abuseContactEmail}>
-                  Abuse: <span className="font-mono text-slate-300">{data.abuseContactEmail}</span>
+                  Abuse Email: <span className="font-mono text-slate-300">{data.abuseContactEmail}</span>
+                </div>
+              )}
+              {data.abuseContactPhone && (
+                <div className="text-[11px] text-slate-400 truncate" title={data.abuseContactPhone}>
+                  Abuse Phone: <span className="font-mono text-slate-300">{data.abuseContactPhone}</span>
                 </div>
               )}
             </div>
@@ -422,6 +443,53 @@ export const WhoisSection: React.FC<WhoisSectionProps> = ({
             {renderContactCard('Administrative Contact', data.adminContact)}
             {renderContactCard('Technical Contact', data.techContact)}
           </div>
+
+          {/* Complete Raw WHOIS Registry / Registrar Output (like whois.com) */}
+          {data.rawText && (
+            <div className="rounded-xl bg-slate-900/70 border border-slate-800 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-900">
+                <button
+                  type="button"
+                  onClick={() => setShowRawWhois((v) => !v)}
+                  className="flex items-center gap-2 text-xs font-semibold text-white uppercase tracking-wider cursor-pointer"
+                >
+                  <Server className="h-4 w-4 text-[#E6A05A]" />
+                  <span>Full Raw WHOIS Record (Registry & Registrar Output)</span>
+                  <span className="text-[10px] font-mono text-slate-400 normal-case">
+                    ({showRawWhois ? 'Hide' : 'Show'})
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!data.rawText) return;
+                    navigator.clipboard.writeText(data.rawText).then(() => {
+                      setCopiedRaw(true);
+                      setTimeout(() => setCopiedRaw(false), 2000);
+                    });
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 transition-colors cursor-pointer"
+                >
+                  {copiedRaw ? (
+                    <>
+                      <Check className="h-3 w-3 text-emerald-400" />
+                      <span className="text-emerald-400">Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3 w-3" />
+                      <span>Copy Raw WHOIS</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              {showRawWhois && (
+                <pre className="p-4 text-[11px] leading-relaxed font-mono text-slate-300 bg-slate-950/90 overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap break-words">
+                  {data.rawText}
+                </pre>
+              )}
+            </div>
+          )}
 
           {/* Privacy / Registry Notices Footer */}
           <div className="p-3.5 rounded-lg bg-slate-950/70 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-400">

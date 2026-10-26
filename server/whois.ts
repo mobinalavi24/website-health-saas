@@ -16,6 +16,8 @@ export interface WhoisContactInfo {
   country: string | null;
   state: string | null;
   city: string | null;
+  street?: string | null;
+  postalCode?: string | null;
   redacted: boolean;
 }
 
@@ -25,6 +27,7 @@ export interface WhoisLookupResult {
   registrar: string | null;
   registrarIanaId: string | null;
   registrarUrl: string | null;
+  whoisServer?: string | null;
   abuseContactEmail: string | null;
   abuseContactPhone: string | null;
   registrationDate: string | null;
@@ -42,6 +45,7 @@ export interface WhoisLookupResult {
   provider: string;
   privacyRedacted: boolean;
   notices: string[];
+  rawText?: string | null;
   providerError: string | null;
   unsupportedTld?: boolean;
 }
@@ -195,13 +199,32 @@ function redactSecret(msg: string, secret?: string): string {
   return out;
 }
 
-function parseIsoDateOrNull(val: unknown): string | null {
-  if (!val || typeof val !== 'string') return null;
+function parseIsoDateOrNull(val: unknown, preferLatest = false): string | null {
+  if (val === null || val === undefined) return null;
+  if (Array.isArray(val)) {
+    if (val.length === 0) return null;
+    const item = preferLatest ? val[val.length - 1] : val[0];
+    return parseIsoDateOrNull(item, preferLatest);
+  }
+  if (typeof val === 'number' && Number.isFinite(val) && val > 0) {
+    // Convert Unix timestamp in seconds (e.g. API-Ninjas) or milliseconds to ISO 8601
+    const ms = val < 1e11 ? val * 1000 : val;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  if (typeof val !== 'string') return null;
   const trimmed = val.trim();
   if (!trimmed) return null;
+  if (/^\d{9,13}$/.test(trimmed)) {
+    const num = Number(trimmed);
+    const ms = num < 1e11 ? num * 1000 : num;
+    const d = new Date(ms);
+    if (!Number.isNaN(d.getTime())) return d.toISOString();
+  }
 
-  // Handle common ccTLD date formats like "14-Feb-2027", "2026.08.12", "2026/08/12"
-  const normalized = trimmed
+  // Handle common ccTLD date formats like "14-Feb-2027", "2026.08.12", "2026/08/12", "before Aug-1996"
+  const cleanedPrefix = trimmed.replace(/^before\s+/i, '');
+  const normalized = cleanedPrefix
     .replace(/^(\d{4})\.(\d{2})\.(\d{2})$/, '$1-$2-$3')
     .replace(/^(\d{4})\/(\d{2})\/(\d{2})$/, '$1-$2-$3');
 
@@ -312,6 +335,10 @@ export function getWhoisConfig(): {
   if (rawProvider === 'whoisjson') {
     return { hasApiKey: true, provider: 'whoisjson', requireApiKey };
   }
+  // Auto-detect 40-char alphanumeric API-Ninjas keys (e.g., I0uwS0ef...)
+  if (/^[A-Za-z0-9]{40}$/.test(rawKey)) {
+    return { hasApiKey: true, provider: 'apininjas', requireApiKey };
+  }
   if (/^[A-F0-9]{32}$/i.test(rawKey)) {
     return { hasApiKey: true, provider: 'ip2whois', requireApiKey };
   }
@@ -405,13 +432,22 @@ async function queryConfiguredApiProvider(
       record.domain_registrar?.iana_id ||
       null;
     const registrarUrl =
+      record.registrar_url ||
       record.registrar?.url ||
       record.domain_registrar?.website_url ||
       null;
+    const whoisServer =
+      record.whois_server ||
+      record.whoisServer ||
+      record.registrar?.whois_server ||
+      null;
+    const rawEmails = record.emails;
+    const firstEmail = Array.isArray(rawEmails) ? rawEmails[0] : typeof rawEmails === 'string' ? rawEmails : null;
     const abuseContactEmail =
       record.contactEmail ||
       record.registrar?.email ||
       record.domain_registrar?.email_address ||
+      firstEmail ||
       null;
     const abuseContactPhone =
       record.registrar?.phone ||
@@ -419,32 +455,35 @@ async function queryConfiguredApiProvider(
       null;
 
     const registrationDate = parseIsoDateOrNull(
-      record.createdDateNormalized ||
-        record.createdDate ||
-        registryData.createdDate ||
-        record.create_date ||
-        record.creation_date
+      record.createdDateNormalized ??
+        record.createdDate ??
+        registryData.createdDate ??
+        record.create_date ??
+        record.creation_date,
+      false
     );
     const updatedDate = parseIsoDateOrNull(
-      record.updatedDateNormalized ||
-        record.updatedDate ||
-        registryData.updatedDate ||
-        record.update_date ||
-        record.updated_date
+      record.updatedDateNormalized ??
+        record.updatedDate ??
+        registryData.updatedDate ??
+        record.update_date ??
+        record.updated_date,
+      true
     );
     const expirationDate = parseIsoDateOrNull(
-      record.expiresDateNormalized ||
-        record.expiresDate ||
-        registryData.expiresDate ||
-        record.expire_date ||
-        record.expiry_date ||
-        record.expiration_date
+      record.expiresDateNormalized ??
+        record.expiresDate ??
+        registryData.expiresDate ??
+        record.expire_date ??
+        record.expiry_date ??
+        record.expiration_date,
+      true
     );
 
     let statusCodes: string[] = [];
     const rawStatus = record.status || registryData.status || record.domain_status;
     if (Array.isArray(rawStatus)) {
-      statusCodes = rawStatus.map((s) => String(s).trim()).filter(Boolean);
+      statusCodes = rawStatus.map((s) => String(s).split(/\s+https?:\/\//i)[0].trim()).filter(Boolean);
     } else if (typeof rawStatus === 'string') {
       statusCodes = rawStatus
         .split(/[\s,]+/)
@@ -465,7 +504,33 @@ async function queryConfiguredApiProvider(
         .filter(Boolean);
     }
 
-    const registrant = mapGenericContact(record.registrant || registryData.registrant || record.registrant_contact);
+    let registrant = mapGenericContact(
+      record.registrant || registryData.registrant || record.registrant_contact
+    );
+    // Support top-level registrant fields returned by API-Ninjas (org, name, country, state, city, address, zipcode)
+    if (!registrant && (record.org || record.name || record.country || record.state || record.city || record.address)) {
+      const orgStr = Array.isArray(record.org) ? record.org[0] : record.org;
+      const nameStr = Array.isArray(record.name) ? record.name[0] : record.name;
+      const countryStr = Array.isArray(record.country) ? record.country[0] : record.country;
+      const stateStr = Array.isArray(record.state) ? record.state[0] : record.state;
+      const cityStr = Array.isArray(record.city) ? record.city[0] : record.city;
+      const addrStr = Array.isArray(record.address) ? record.address.join(', ') : record.address;
+      const zipStr = Array.isArray(record.zipcode) ? record.zipcode[0] : record.zipcode;
+      const redacted = isRedactedText(orgStr) || isRedactedText(nameStr);
+      registrant = {
+        organization: orgStr ? String(orgStr) : null,
+        name: nameStr ? String(nameStr) : null,
+        email: Array.isArray(rawEmails) && rawEmails.length > 1 ? String(rawEmails[1]) : null,
+        phone: null,
+        country: countryStr ? String(countryStr) : null,
+        state: stateStr ? String(stateStr) : null,
+        city: cityStr ? String(cityStr) : null,
+        street: addrStr ? String(addrStr) : null,
+        postalCode: zipStr ? String(zipStr) : null,
+        redacted,
+      };
+    }
+
     const adminContact = mapGenericContact(record.administrativeContact || registryData.administrativeContact || record.admin || record.administrative_contact);
     const techContact = mapGenericContact(record.technicalContact || registryData.technicalContact || record.tech || record.technical_contact);
 
@@ -481,12 +546,15 @@ async function queryConfiguredApiProvider(
         ? String(record.dnssec)
         : null;
 
+    const domainField = Array.isArray(record.domain_name) ? record.domain_name[0] : (record.domainName || record.domain || record.domain_name || domain);
+
     return {
-      domainName: String(record.domainName || record.domain || record.domain_name || domain).toLowerCase(),
+      domainName: String(domainField).toLowerCase(),
       unicodeDomain: domainToUnicode(domain) || domain,
       registrar: registrar ? String(registrar) : null,
       registrarIanaId: registrarIanaId ? String(registrarIanaId) : null,
       registrarUrl: registrarUrl ? String(registrarUrl) : null,
+      whoisServer: whoisServer ? String(whoisServer) : null,
       abuseContactEmail: abuseContactEmail ? String(abuseContactEmail) : null,
       abuseContactPhone: abuseContactPhone ? String(abuseContactPhone) : null,
       registrationDate,
@@ -504,6 +572,7 @@ async function queryConfiguredApiProvider(
       provider: `whois-api (${provider})`,
       privacyRedacted,
       notices: [],
+      rawText: typeof record.rawText === 'string' ? record.rawText : null,
       providerError: null,
     };
   } catch (err: any) {
@@ -683,6 +752,7 @@ export function parseRawWhoisText(rawText: string, domain: string, serverUsed: s
   let registrar: string | null = null;
   let registrarIanaId: string | null = null;
   let registrarUrl: string | null = null;
+  let whoisServer: string | null = serverUsed || null;
   let abuseContactEmail: string | null = null;
   let abuseContactPhone: string | null = null;
   let registrationDateRaw: string | null = null;
@@ -691,12 +761,58 @@ export function parseRawWhoisText(rawText: string, domain: string, serverUsed: s
   const statusCodes: string[] = [];
   const nameServers: string[] = [];
   let dnssec: string | null = null;
-  let registrantOrg: string | null = null;
-  let registrantName: string | null = null;
-  let registrantCountry: string | null = null;
-  let registrantEmail: string | null = null;
   const notices: string[] = [];
   let privacyRedacted = isRedactedText(rawText);
+
+  const regFields = {
+    org: null as string | null,
+    name: null as string | null,
+    email: null as string | null,
+    phone: null as string | null,
+    country: null as string | null,
+    state: null as string | null,
+    city: null as string | null,
+    street: null as string | null,
+    postalCode: null as string | null,
+  };
+  const adminFields = {
+    org: null as string | null,
+    name: null as string | null,
+    email: null as string | null,
+    phone: null as string | null,
+    country: null as string | null,
+    state: null as string | null,
+    city: null as string | null,
+    street: null as string | null,
+    postalCode: null as string | null,
+  };
+  const techFields = {
+    org: null as string | null,
+    name: null as string | null,
+    email: null as string | null,
+    phone: null as string | null,
+    country: null as string | null,
+    state: null as string | null,
+    city: null as string | null,
+    street: null as string | null,
+    postalCode: null as string | null,
+  };
+
+  // Track IRNIC (.ir) / RIPE style nic-hdl references (holder-c, admin-c, tech-c)
+  let holderHandle: string | null = null;
+  let adminHandle: string | null = null;
+  let techHandle: string | null = null;
+  let currentNicHdl: string | null = null;
+  const nicHandleContacts = new Map<
+    string,
+    { person?: string; org?: string; email?: string; address?: string; phone?: string }
+  >();
+
+  const cleanVal = (v: string): string | null => {
+    const t = v.trim();
+    if (!t || /^null$/i.test(t) || /^none$/i.test(t) || /^n\/a$/i.test(t)) return null;
+    return t;
+  };
 
   // Check multi-line indented sections (used by Nominet .uk, JPRS .jp, etc.)
   let currentSection = '';
@@ -745,11 +861,42 @@ export function parseRawWhoisText(rawText: string, domain: string, serverUsed: s
     const val = line.slice(colonIdx + 1).trim();
     if (!val) continue;
 
+    // IRNIC / RPSL nic-hdl block tracking
+    if (key === 'holder-c' && !holderHandle) {
+      holderHandle = val;
+      continue;
+    }
+    if (key === 'admin-c' && !adminHandle) {
+      adminHandle = val;
+      continue;
+    }
+    if (key === 'tech-c' && !techHandle) {
+      techHandle = val;
+      continue;
+    }
+    if (key === 'nic-hdl') {
+      currentNicHdl = val;
+      if (!nicHandleContacts.has(val)) {
+        nicHandleContacts.set(val, {});
+      }
+      continue;
+    }
+    if (currentNicHdl && nicHandleContacts.has(currentNicHdl)) {
+      const entry = nicHandleContacts.get(currentNicHdl)!;
+      if (key === 'person' && !entry.person) entry.person = val;
+      else if (key === 'org' && !entry.org) entry.org = val;
+      else if (key === 'e-mail' && !entry.email) entry.email = val;
+      else if (key === 'address' && !entry.address) entry.address = val;
+      else if ((key === 'phone' || key === 'fax-no') && !entry.phone) entry.phone = val;
+    }
+
     if (
       (key === 'registrar' || key === 'sponsoring registrar' || key === 'registrar name' || key === 'authorized agency') &&
       !registrar
     ) {
       registrar = val;
+    } else if ((key === 'registrar whois server' || key === 'whois server') && val.includes('.')) {
+      whoisServer = val.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').trim().toLowerCase();
     } else if ((key === 'registrar iana id' || key === 'iana id') && !registrarIanaId) {
       registrarIanaId = val;
     } else if ((key === 'registrar url' || key === 'referral url' || key === 'url') && !registrarUrl && /^https?:\/\//i.test(val)) {
@@ -804,24 +951,94 @@ export function parseRawWhoisText(rawText: string, domain: string, serverUsed: s
       }
     } else if (key === 'dnssec' && !dnssec) {
       dnssec = val;
-    } else if ((key === 'registrant organization' || key === 'org' || key === 'organisation' || key === 'holder') && !registrantOrg) {
-      registrantOrg = val;
-    } else if ((key === 'registrant name' || key === 'person' || key === 'descr') && !registrantName) {
-      registrantName = val;
-    } else if ((key === 'registrant country' || key === 'country') && !registrantCountry) {
-      registrantCountry = val;
-    } else if ((key === 'registrant email' || key === 'e-mail') && !registrantEmail) {
-      registrantEmail = val;
+    } else if (
+      (key === 'registrant organization' || key === 'registrant org' || (!currentNicHdl && (key === 'org' || key === 'organisation' || key === 'holder'))) &&
+      !regFields.org
+    ) {
+      regFields.org = cleanVal(val);
+    } else if (
+      (key === 'registrant name' || key === 'registrant' || (!currentNicHdl && (key === 'person' || key === 'descr'))) &&
+      !regFields.name
+    ) {
+      regFields.name = cleanVal(val);
+    } else if ((key === 'registrant country' || (!currentNicHdl && key === 'country')) && !regFields.country) {
+      regFields.country = cleanVal(val);
+    } else if ((key === 'registrant state/province' || key === 'registrant state' || key === 'registrant province') && !regFields.state) {
+      regFields.state = cleanVal(val);
+    } else if (key === 'registrant city' && !regFields.city) {
+      regFields.city = cleanVal(val);
+    } else if ((key === 'registrant street' || key === 'registrant address' || (!currentNicHdl && key === 'address')) && !regFields.street) {
+      regFields.street = cleanVal(val);
+    } else if ((key === 'registrant postal code' || key === 'registrant zip') && !regFields.postalCode) {
+      regFields.postalCode = cleanVal(val);
+    } else if ((key === 'registrant phone' || (!currentNicHdl && key === 'phone')) && !regFields.phone) {
+      regFields.phone = cleanVal(val);
+    } else if ((key === 'registrant email' || (!currentNicHdl && key === 'e-mail')) && !regFields.email) {
+      regFields.email = cleanVal(val);
+    } else if ((key === 'admin organization' || key === 'administrative organization' || key === 'admin org') && !adminFields.org) {
+      adminFields.org = cleanVal(val);
+    } else if ((key === 'admin name' || key === 'administrative name' || key === 'admin contact') && !adminFields.name) {
+      adminFields.name = cleanVal(val);
+    } else if ((key === 'admin country' || key === 'administrative country') && !adminFields.country) {
+      adminFields.country = cleanVal(val);
+    } else if ((key === 'admin state/province' || key === 'admin state') && !adminFields.state) {
+      adminFields.state = cleanVal(val);
+    } else if ((key === 'admin city' || key === 'administrative city') && !adminFields.city) {
+      adminFields.city = cleanVal(val);
+    } else if ((key === 'admin street' || key === 'admin address') && !adminFields.street) {
+      adminFields.street = cleanVal(val);
+    } else if ((key === 'admin postal code' || key === 'admin zip') && !adminFields.postalCode) {
+      adminFields.postalCode = cleanVal(val);
+    } else if ((key === 'admin phone' || key === 'administrative phone') && !adminFields.phone) {
+      adminFields.phone = cleanVal(val);
+    } else if ((key === 'admin email' || key === 'administrative email') && !adminFields.email) {
+      adminFields.email = cleanVal(val);
+    } else if ((key === 'tech organization' || key === 'technical organization' || key === 'tech org') && !techFields.org) {
+      techFields.org = cleanVal(val);
+    } else if ((key === 'tech name' || key === 'technical name' || key === 'tech contact') && !techFields.name) {
+      techFields.name = cleanVal(val);
+    } else if ((key === 'tech country' || key === 'technical country') && !techFields.country) {
+      techFields.country = cleanVal(val);
+    } else if ((key === 'tech state/province' || key === 'tech state') && !techFields.state) {
+      techFields.state = cleanVal(val);
+    } else if ((key === 'tech city' || key === 'technical city') && !techFields.city) {
+      techFields.city = cleanVal(val);
+    } else if ((key === 'tech street' || key === 'tech address') && !techFields.street) {
+      techFields.street = cleanVal(val);
+    } else if ((key === 'tech postal code' || key === 'tech zip') && !techFields.postalCode) {
+      techFields.postalCode = cleanVal(val);
+    } else if ((key === 'tech phone' || key === 'technical phone') && !techFields.phone) {
+      techFields.phone = cleanVal(val);
+    } else if ((key === 'tech email' || key === 'technical email') && !techFields.email) {
+      techFields.email = cleanVal(val);
     } else if (key === 'remarks' || key === 'notice') {
       const holderMatch = val.match(/^\(Domain Holder\)\s*(.+)$/i);
-      if (holderMatch && !registrantOrg) {
-        registrantOrg = holderMatch[1].trim();
+      const addrMatch = val.match(/^\(Domain Holder Address\)\s*(.+)$/i);
+      if (holderMatch && !regFields.org) {
+        regFields.org = holderMatch[1].trim();
+      } else if (addrMatch && !regFields.street) {
+        regFields.street = addrMatch[1].trim();
       } else {
         notices.push(val);
       }
       if (isRedactedText(val)) privacyRedacted = true;
     }
   }
+
+  // Enrich from IRNIC / RPSL nic-hdl blocks if present
+  const applyNicHandle = (handle: string | null, target: typeof regFields) => {
+    if (!handle) return;
+    const h = nicHandleContacts.get(handle);
+    if (!h) return;
+    if (h.org && !target.org) target.org = h.org;
+    if (h.person && !target.name) target.name = h.person;
+    if (h.email && !target.email) target.email = h.email;
+    if (h.phone && !target.phone) target.phone = h.phone;
+    if (h.address && !target.street) target.street = h.address;
+  };
+  applyNicHandle(holderHandle, regFields);
+  applyNicHandle(adminHandle, adminFields);
+  applyNicHandle(techHandle, techFields);
 
   // For IRNIC (.ir), if registrar is not explicitly listed, set to IRNIC (.ir Registry)
   const tld = domain.split('.').pop()?.toLowerCase() || '';
@@ -835,19 +1052,33 @@ export function parseRawWhoisText(rawText: string, domain: string, serverUsed: s
   const updatedDate = parseIsoDateOrNull(updatedDateRaw);
   const expirationDate = parseIsoDateOrNull(expirationDateRaw);
 
-  let registrant: WhoisContactInfo | null = null;
-  if (registrantOrg || registrantName || registrantCountry || registrantEmail || privacyRedacted) {
-    registrant = {
-      organization: registrantOrg,
-      name: registrantName || (privacyRedacted ? 'Redacted for Privacy (Registry Policy)' : null),
-      email: registrantEmail,
-      phone: null,
-      country: registrantCountry,
-      state: null,
-      city: null,
-      redacted: privacyRedacted,
+  const buildParsedContact = (f: typeof regFields, allowPrivacyPlaceholder = false): WhoisContactInfo | null => {
+    const hasAny = Boolean(
+      f.org || f.name || f.email || f.phone || f.country || f.state || f.city || f.street || f.postalCode
+    );
+    const isFieldRedacted =
+      isRedactedText(f.org) ||
+      isRedactedText(f.name) ||
+      isRedactedText(f.email) ||
+      isRedactedText(f.street);
+    if (!hasAny && !allowPrivacyPlaceholder) return null;
+    return {
+      organization: f.org,
+      name: f.name || (allowPrivacyPlaceholder && !hasAny ? 'Redacted for Privacy (Registry Policy)' : null),
+      email: f.email,
+      phone: f.phone,
+      country: f.country,
+      state: f.state,
+      city: f.city,
+      street: f.street,
+      postalCode: f.postalCode,
+      redacted: isFieldRedacted || (allowPrivacyPlaceholder && !hasAny),
     };
-  }
+  };
+
+  const registrant = buildParsedContact(regFields, privacyRedacted);
+  const adminContact = buildParsedContact(adminFields, false);
+  const techContact = buildParsedContact(techFields, false);
 
   return {
     domainName: domain.toLowerCase(),
@@ -855,6 +1086,7 @@ export function parseRawWhoisText(rawText: string, domain: string, serverUsed: s
     registrar,
     registrarIanaId,
     registrarUrl,
+    whoisServer,
     abuseContactEmail,
     abuseContactPhone,
     registrationDate,
@@ -865,21 +1097,23 @@ export function parseRawWhoisText(rawText: string, domain: string, serverUsed: s
     nameServers: Array.from(new Set(nameServers)),
     dnssec,
     registrant,
-    adminContact: null,
-    techContact: null,
+    adminContact,
+    techContact,
     checkedAt: new Date().toISOString(),
     cached: false,
     provider: `whois-port43 (${serverUsed})`,
     privacyRedacted,
     notices: notices.slice(0, 5),
+    rawText: rawText.trim() || null,
     providerError: null,
   };
 }
 
 /**
- * Queries authoritative RFC 3912 TCP Port 43 WHOIS for any gTLD or ccTLD.
+ * Queries authoritative RFC 3912 TCP Port 43 WHOIS for any gTLD or ccTLD,
+ * and follows Registrar WHOIS Server referrals to retrieve full thick WHOIS contact records.
  */
-async function queryPort43Whois(domain: string): Promise<WhoisLookupResult> {
+export async function queryPort43Whois(domain: string): Promise<WhoisLookupResult> {
   const tld = domain.split('.').pop()?.toLowerCase() || '';
   const whoisServer = await resolveWhoisServerForTld(tld);
   if (!whoisServer) {
@@ -903,19 +1137,21 @@ async function queryPort43Whois(domain: string): Promise<WhoisLookupResult> {
   const primaryText = await rawTcpWhoisQuery(whoisServer, queryPayload, 8500);
   const primaryResult = parseRawWhoisText(primaryText, domain, whoisServer);
 
-  // If thin registry response has a Registrar WHOIS Server referral and is missing dates/registrar details, try following referral briefly
-  const referralMatch = primaryText.match(/^\s*Registrar WHOIS Server:\s*(\S+)/im);
-  if (
-    referralMatch &&
-    referralMatch[1] &&
-    (!primaryResult.registrationDate || !primaryResult.expirationDate)
-  ) {
+  // Follow Registrar WHOIS Server referral whenever available to retrieve Thick WHOIS records (Registrant/Admin/Tech contacts, abuse contacts, etc.)
+  const referralMatch = primaryText.match(/^\s*(?:Registrar WHOIS Server|Whois Server):\s*(\S+)/im);
+  if (referralMatch && referralMatch[1]) {
     const refServer = referralMatch[1].replace(/^https?:\/\//i, '').replace(/\/.*$/, '').trim().toLowerCase();
     if (refServer && refServer !== whoisServer && refServer.includes('.')) {
       try {
-        const refText = await rawTcpWhoisQuery(refServer, domain, 5000);
-        const refResult = parseRawWhoisText(refText, domain, refServer);
-        return mergeWhoisResults(primaryResult, refResult);
+        const refText = await rawTcpWhoisQuery(refServer, domain, 6000);
+        if (refText && refText.trim().length > 40) {
+          const refResult = parseRawWhoisText(refText, domain, refServer);
+          const merged = mergeWhoisResults(refResult, primaryResult);
+          merged.whoisServer = refServer;
+          merged.provider = `whois-port43 (${whoisServer} + ${refServer})`;
+          merged.rawText = `${primaryText.trim()}\n\n# --- Registrar WHOIS (${refServer}) ---\n${refText.trim()}`;
+          return merged;
+        }
       } catch {
         // Keep primary registry result if registrar WHOIS server times out
       }
@@ -925,27 +1161,77 @@ async function queryPort43Whois(domain: string): Promise<WhoisLookupResult> {
   return primaryResult;
 }
 
+function pickBetterValue(a: string | null | undefined, b: string | null | undefined): string | null {
+  const aClean = a?.trim() || null;
+  const bClean = b?.trim() || null;
+  if (aClean && !isRedactedText(aClean)) return aClean;
+  if (bClean && !isRedactedText(bClean)) return bClean;
+  return aClean || bClean || null;
+}
+
+function mergeContacts(
+  primary: WhoisContactInfo | null | undefined,
+  secondary: WhoisContactInfo | null | undefined
+): WhoisContactInfo | null {
+  if (!primary && !secondary) return null;
+  if (!primary) return secondary || null;
+  if (!secondary) return primary || null;
+
+  const organization = pickBetterValue(primary.organization, secondary.organization);
+  const name = pickBetterValue(primary.name, secondary.name);
+  const email = pickBetterValue(primary.email, secondary.email);
+  const phone = pickBetterValue(primary.phone, secondary.phone);
+  const country = pickBetterValue(primary.country, secondary.country);
+  const state = pickBetterValue(primary.state, secondary.state);
+  const city = pickBetterValue(primary.city, secondary.city);
+  const street = pickBetterValue(primary.street, secondary.street);
+  const postalCode = pickBetterValue(primary.postalCode, secondary.postalCode);
+
+  const hasNonRedacted =
+    (organization && !isRedactedText(organization)) ||
+    (name && !isRedactedText(name)) ||
+    (email && !isRedactedText(email)) ||
+    Boolean(phone || country || state || city || street);
+
+  return {
+    organization,
+    name,
+    email,
+    phone,
+    country,
+    state,
+    city,
+    street,
+    postalCode,
+    redacted: !hasNonRedacted && Boolean(primary.redacted || secondary.redacted),
+  };
+}
+
 function mergeWhoisResults(primary: WhoisLookupResult, secondary: WhoisLookupResult): WhoisLookupResult {
   const expirationDate = primary.expirationDate || secondary.expirationDate;
+  const mergedStatuses = Array.from(new Set([...(primary.statusCodes || []), ...(secondary.statusCodes || [])]));
+  const mergedNs = Array.from(new Set([...(primary.nameServers || []), ...(secondary.nameServers || [])]));
   return {
     ...primary,
-    registrar: primary.registrar || secondary.registrar,
+    registrar: pickBetterValue(primary.registrar, secondary.registrar),
     registrarIanaId: primary.registrarIanaId || secondary.registrarIanaId,
     registrarUrl: primary.registrarUrl || secondary.registrarUrl,
-    abuseContactEmail: primary.abuseContactEmail || secondary.abuseContactEmail,
-    abuseContactPhone: primary.abuseContactPhone || secondary.abuseContactPhone,
+    whoisServer: primary.whoisServer || secondary.whoisServer || null,
+    abuseContactEmail: pickBetterValue(primary.abuseContactEmail, secondary.abuseContactEmail),
+    abuseContactPhone: pickBetterValue(primary.abuseContactPhone, secondary.abuseContactPhone),
     registrationDate: primary.registrationDate || secondary.registrationDate,
     updatedDate: primary.updatedDate || secondary.updatedDate,
     expirationDate,
     daysUntilExpiration: computeDaysUntilExpiration(expirationDate),
-    statusCodes: primary.statusCodes.length > 0 ? primary.statusCodes : secondary.statusCodes,
-    nameServers: primary.nameServers.length > 0 ? primary.nameServers : secondary.nameServers,
+    statusCodes: mergedStatuses,
+    nameServers: mergedNs,
     dnssec: primary.dnssec || secondary.dnssec,
-    registrant: primary.registrant || secondary.registrant,
-    adminContact: primary.adminContact || secondary.adminContact,
-    techContact: primary.techContact || secondary.techContact,
-    privacyRedacted: primary.privacyRedacted || secondary.privacyRedacted,
+    registrant: mergeContacts(primary.registrant, secondary.registrant),
+    adminContact: mergeContacts(primary.adminContact, secondary.adminContact),
+    techContact: mergeContacts(primary.techContact, secondary.techContact),
+    privacyRedacted: Boolean(primary.privacyRedacted && secondary.privacyRedacted),
     notices: primary.notices.length > 0 ? primary.notices : secondary.notices,
+    rawText: primary.rawText || secondary.rawText || null,
   };
 }
 
@@ -1236,16 +1522,15 @@ async function queryAuthoritativeRdapAndWhois(domain: string): Promise<WhoisLook
   }
 
   if (rdapResult) {
-    // If RDAP succeeded but lacked key fields (e.g., registrar or expirationDate), optionally enrich from Port 43 WHOIS
-    if (!rdapResult.registrar && !rdapResult.expirationDate) {
-      try {
-        const port43 = await queryPort43Whois(domain);
-        return mergeWhoisResults(rdapResult, port43);
-      } catch {
-        return rdapResult;
-      }
+    // Enrich thin RDAP results with Port 43 Registry + Registrar WHOIS (for full Registrant/Admin/Tech contacts, whoisServer, and rawText)
+    try {
+      const port43 = await queryPort43Whois(domain);
+      const merged = mergeWhoisResults(rdapResult, port43);
+      merged.provider = `${rdapResult.provider} + ${port43.provider}`;
+      return merged;
+    } catch {
+      return rdapResult;
     }
-    return rdapResult;
   }
 
   // Fallback to authoritative TCP Port 43 WHOIS (covers .ir, .de, .org when PIR RDAP is unreachable, and 60+ ccTLDs/gTLDs)
@@ -1311,17 +1596,31 @@ export async function performWhoisLookup(
     const apiKey = (process.env.WHOIS_API_KEY || '').trim();
 
     if (config.hasApiKey && config.provider !== 'iana-rdap') {
-      try {
-        result = await queryConfiguredApiProvider(domain, config.provider, apiKey);
-      } catch (apiErr: any) {
+      const [apiSettled, authSettled] = await Promise.allSettled([
+        queryConfiguredApiProvider(domain, config.provider, apiKey),
+        queryAuthoritativeRdapAndWhois(domain),
+      ]);
+
+      if (apiSettled.status === 'fulfilled' && authSettled.status === 'fulfilled') {
+        result = mergeWhoisResults(apiSettled.value, authSettled.value);
+        result.provider = `${apiSettled.value.provider} + ${authSettled.value.provider}`;
+      } else if (apiSettled.status === 'fulfilled') {
+        result = apiSettled.value;
+      } else if (authSettled.status === 'fulfilled') {
         if (config.requireApiKey) {
-          throw apiErr;
+          throw apiSettled.reason;
         }
-        result = await queryAuthoritativeRdapAndWhois(domain);
-        result.providerError = redactSecret(
-          apiErr?.message || 'Configured WHOIS API provider returned an error; fell back to authoritative registry lookup.',
-          apiKey
-        );
+        result = authSettled.value;
+        const errMsg = String(apiSettled.reason?.message || '');
+        // Do not show a warning banner when API-Ninjas free tier simply skips non-.com TLDs and authoritative lookup succeeded
+        if (!/only supports \.com/i.test(errMsg)) {
+          result.providerError = redactSecret(
+            errMsg || 'Configured WHOIS API provider returned an error; fell back to authoritative registry lookup.',
+            apiKey
+          );
+        }
+      } else {
+        throw apiSettled.reason || authSettled.reason;
       }
     } else {
       result = await queryAuthoritativeRdapAndWhois(domain);
