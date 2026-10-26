@@ -151,7 +151,7 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
     }
   };
 
-  const handleRunFullAudit = async () => {
+  const handleRunFullAudit = async (stayOnTab = false) => {
     if (isTrialExpired) {
       setFeedback({ type: 'error', message: 'Your free trial has expired. Upgrade to Pro to continue.' });
       return;
@@ -167,13 +167,27 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
         lastResponseTimeMs: auditResult.uptime.responseTimeMs,
         lastCheckedAt: auditResult.timestamp,
       });
-      setActiveTab('overview');
+      if (!stayOnTab) {
+        setActiveTab('overview');
+      }
       setFeedback({ type: 'success', message: 'Full health audit completed!' });
     } catch (err: any) {
       setFeedback({ type: 'error', message: err.message || 'Audit failed' });
     } finally {
       setAuditing(false);
     }
+  };
+
+  const handleCopyText = (text: string, type: 'spf' | 'dmarc') => {
+    navigator.clipboard.writeText(text).then(() => {
+      if (type === 'spf') {
+        setCopiedSpf(true);
+        setTimeout(() => setCopiedSpf(false), 2000);
+      } else {
+        setCopiedDmarc(true);
+        setTimeout(() => setCopiedDmarc(false), 2000);
+      }
+    });
   };
 
   const handleVerifyDomain = async () => {
@@ -1100,11 +1114,447 @@ export const WebsiteDetailView: React.FC<WebsiteDetailViewProps> = ({
               <Lock className="h-8 w-8 text-slate-600 mx-auto" />
               <p>Run a health audit to inspect live SSL certificate details.</p>
               <button
-                onClick={handleRunFullAudit}
+                onClick={() => handleRunFullAudit(true)}
                 disabled={auditing}
                 className="px-4 py-2 rounded-lg bg-[#E6A05A] text-[#0B1120] font-semibold text-xs hover:bg-[#cf863c] transition-colors"
               >
                 Inspect Live SSL Certificate
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB: DNS & EMAIL */}
+      {activeTab === 'dns' && (
+        <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
+            <div>
+              <div className="flex items-center gap-2">
+                <Globe className="h-5 w-5 text-[#E6A05A]" />
+                <h3 className="text-base font-semibold text-white">DNS Records & Mail Server Routing</h3>
+                {website.lastScanResult?.dns && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    {website.lastScanResult.dns.queryTimeMs}ms Query Time
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Live DNS zone resolution, IPv4/IPv6 address mapping, Mail Exchanger (MX) routing, and name servers for{' '}
+                <span className="font-mono text-slate-200">{website.domain}</span>.
+              </p>
+            </div>
+            <button
+              onClick={() => handleRunFullAudit(true)}
+              disabled={auditing}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 hover:border-[#E6A05A] text-xs font-medium text-slate-200 transition-colors cursor-pointer"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${auditing ? 'animate-spin text-[#E6A05A]' : ''}`} />
+              <span>{auditing ? 'Querying DNS...' : 'Refresh DNS Records'}</span>
+            </button>
+          </div>
+
+          {website.lastScanResult?.dns ? (
+            <div className="space-y-6">
+              {/* Quick Summary Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+                <div className="p-4 rounded-lg bg-slate-900 border border-slate-800 space-y-1">
+                  <span className="text-slate-400 font-medium">A Records (IPv4)</span>
+                  <p className="font-mono text-xl font-bold text-white">
+                    {website.lastScanResult.dns.aRecords?.length || 0}
+                  </p>
+                  <span className="text-[11px] text-slate-500">Primary web servers</span>
+                </div>
+                <div className="p-4 rounded-lg bg-slate-900 border border-slate-800 space-y-1">
+                  <span className="text-slate-400 font-medium">AAAA Records (IPv6)</span>
+                  <p className="font-mono text-xl font-bold text-white">
+                    {website.lastScanResult.dns.aaaaRecords?.length || 0}
+                  </p>
+                  <span className="text-[11px] text-slate-500">
+                    {website.lastScanResult.dns.aaaaRecords?.length ? 'IPv6 Enabled' : 'IPv4 Only'}
+                  </span>
+                </div>
+                <div className="p-4 rounded-lg bg-slate-900 border border-slate-800 space-y-1">
+                  <span className="text-slate-400 font-medium">MX Mail Exchangers</span>
+                  <p className="font-mono text-xl font-bold text-emerald-400">
+                    {website.lastScanResult.dns.mxRecords?.length || 0}
+                  </p>
+                  <span className="text-[11px] text-slate-500">Inbound mail servers</span>
+                </div>
+                <div className="p-4 rounded-lg bg-slate-900 border border-slate-800 space-y-1">
+                  <span className="text-slate-400 font-medium">Name Servers (NS)</span>
+                  <p className="font-mono text-xl font-bold text-white">
+                    {website.lastScanResult.dns.nsRecords?.length || 0}
+                  </p>
+                  <span className="text-[11px] text-slate-500">DNS authority nodes</span>
+                </div>
+              </div>
+
+              {/* Primary Address Records (A / AAAA) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* A Records */}
+                <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-white">
+                      IPv4 Host Addresses (A Records)
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-400">
+                      {website.lastScanResult.dns.aRecords?.length || 0} found
+                    </span>
+                  </div>
+                  {!website.lastScanResult.dns.aRecords?.length ? (
+                    <p className="text-xs text-rose-400 font-mono py-2">No IPv4 address records found.</p>
+                  ) : (
+                    <div className="space-y-1.5 font-mono text-xs">
+                      {website.lastScanResult.dns.aRecords.map((ip, idx) => (
+                        <div
+                          key={`${ip}-${idx}`}
+                          className="flex items-center justify-between p-2 rounded bg-slate-950 border border-slate-800/80"
+                        >
+                          <span className="text-emerald-400 font-semibold">{ip}</span>
+                          <span className="text-[10px] text-slate-500 uppercase">A</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* AAAA Records */}
+                <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-white">
+                      IPv6 Host Addresses (AAAA Records)
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-400">
+                      {website.lastScanResult.dns.aaaaRecords?.length || 0} found
+                    </span>
+                  </div>
+                  {!website.lastScanResult.dns.aaaaRecords?.length ? (
+                    <div className="p-4 rounded bg-slate-950/60 border border-slate-800/60 text-xs text-slate-400">
+                      No IPv6 (AAAA) record detected. Traffic is routed exclusively through IPv4.
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 font-mono text-xs">
+                      {website.lastScanResult.dns.aaaaRecords.map((ip, idx) => (
+                        <div
+                          key={`${ip}-${idx}`}
+                          className="flex items-center justify-between p-2 rounded bg-slate-950 border border-slate-800/80"
+                        >
+                          <span className="text-emerald-400 font-semibold break-all">{ip}</span>
+                          <span className="text-[10px] text-slate-500 uppercase">AAAA</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Mail Exchanger Records (MX) */}
+              <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-4 w-4 text-[#E6A05A]" />
+                    <span className="text-xs font-semibold uppercase tracking-wider text-white">
+                      Mail Exchanger Records (MX)
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-mono text-slate-400">
+                    {website.lastScanResult.dns.mxRecords?.length || 0} servers
+                  </span>
+                </div>
+                {!website.lastScanResult.dns.mxRecords?.length ? (
+                  <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">
+                    No MX records found for this domain. Incoming emails cannot be routed without valid MX configuration.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
+                    {website.lastScanResult.dns.mxRecords.map((mx, idx) => (
+                      <div
+                        key={`${mx.exchange}-${idx}`}
+                        className="p-3 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between gap-2"
+                      >
+                        <span className="text-white truncate" title={mx.exchange}>
+                          {mx.exchange}
+                        </span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#E6A05A]/10 text-[#E6A05A] border border-[#E6A05A]/20 shrink-0">
+                          Priority {mx.priority}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Authoritative Name Servers & TXT Records */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* NS Records */}
+                <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-white">
+                      Authoritative Name Servers (NS)
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-400">
+                      {website.lastScanResult.dns.nsRecords?.length || 0} servers
+                    </span>
+                  </div>
+                  {!website.lastScanResult.dns.nsRecords?.length ? (
+                    <p className="text-xs text-slate-500 font-mono py-2">No NS records returned in response.</p>
+                  ) : (
+                    <div className="space-y-1.5 font-mono text-xs">
+                      {website.lastScanResult.dns.nsRecords.map((ns, idx) => (
+                        <div
+                          key={`${ns}-${idx}`}
+                          className="p-2 rounded bg-slate-950 border border-slate-800/80 text-emerald-400 truncate"
+                        >
+                          {ns}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* TXT Records */}
+                <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-white">
+                      Domain TXT Records ({website.lastScanResult.dns.txtRecords?.length || 0})
+                    </span>
+                  </div>
+                  {!website.lastScanResult.dns.txtRecords?.length ? (
+                    <p className="text-xs text-slate-500 font-mono py-2">No public TXT records detected.</p>
+                  ) : (
+                    <div className="space-y-2 font-mono text-[11px] max-h-48 overflow-y-auto">
+                      {website.lastScanResult.dns.txtRecords.map((txt, idx) => (
+                        <div
+                          key={idx}
+                          className="p-2 rounded bg-slate-950 border border-slate-800 text-slate-300 break-all"
+                        >
+                          {txt}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="py-12 text-center text-xs text-slate-400 space-y-3">
+              <Globe className="h-8 w-8 text-slate-600 mx-auto" />
+              <p>Execute an audit to inspect live DNS A, AAAA, MX, NS, and TXT records.</p>
+              <button
+                onClick={() => handleRunFullAudit(true)}
+                disabled={auditing}
+                className="px-4 py-2 rounded-lg bg-[#E6A05A] text-[#0B1120] font-semibold text-xs hover:bg-[#cf863c] transition-colors cursor-pointer"
+              >
+                {auditing ? 'Scanning DNS...' : 'Scan DNS Records Now'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB: SPF/DMARC */}
+      {activeTab === 'spfdmarc' && (
+        <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
+            <div>
+              <div className="flex items-center gap-2">
+                <Mail className="h-5 w-5 text-[#E6A05A]" />
+                <h3 className="text-base font-semibold text-white">Email Authentication (SPF & DMARC)</h3>
+                {website.lastScanResult?.security && (
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-semibold uppercase tracking-wider ${
+                      website.lastScanResult.security.spfConfigured && website.lastScanResult.security.dmarcConfigured
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                        : website.lastScanResult.security.spfConfigured || website.lastScanResult.security.dmarcConfigured
+                        ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
+                        : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                    }`}
+                  >
+                    {website.lastScanResult.security.spfConfigured && website.lastScanResult.security.dmarcConfigured
+                      ? 'PROTECTED AGAINST SPOOFING'
+                      : website.lastScanResult.security.spfConfigured || website.lastScanResult.security.dmarcConfigured
+                      ? 'PARTIALLY PROTECTED'
+                      : 'SPOOFING VULNERABLE'}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Authentication policies protecting <span className="font-mono text-slate-200">{website.domain}</span> from phishing, email spoofing, and deliverability rejection.
+              </p>
+            </div>
+            <button
+              onClick={() => handleRunFullAudit(true)}
+              disabled={auditing}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 hover:border-[#E6A05A] text-xs font-medium text-slate-200 transition-colors cursor-pointer"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${auditing ? 'animate-spin text-[#E6A05A]' : ''}`} />
+              <span>{auditing ? 'Checking SPF/DMARC...' : 'Refresh SPF/DMARC Check'}</span>
+            </button>
+          </div>
+
+          {website.lastScanResult?.security ? (
+            <div className="space-y-6">
+              {/* SPF & DMARC Cards Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* SPF Card */}
+                <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                    <div className="space-y-0.5">
+                      <span className="font-semibold text-white text-xs block">
+                        Sender Policy Framework (SPF)
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        Authorizes legitimate outgoing email servers
+                      </span>
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono uppercase ${
+                        website.lastScanResult.security.spfConfigured
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                          : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                      }`}
+                    >
+                      {website.lastScanResult.security.spfConfigured ? 'CONFIGURED' : 'MISSING'}
+                    </span>
+                  </div>
+
+                  {website.lastScanResult.security.spfRecord ? (
+                    <div className="space-y-2">
+                      <div className="relative group">
+                        <pre className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono text-emerald-400 break-all whitespace-pre-wrap">
+                          {website.lastScanResult.security.spfRecord}
+                        </pre>
+                        <button
+                          onClick={() => handleCopyText(website.lastScanResult!.security.spfRecord!, 'spf')}
+                          className="absolute top-2 right-2 p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+                          title="Copy SPF Record"
+                        >
+                          {copiedSpf ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        Verified TXT record starting with <code className="text-white">v=spf1</code>. Receiving mail servers use this rule to accept your legitimate messages.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 space-y-2 text-xs text-rose-300">
+                      <div className="flex items-center gap-1.5 font-semibold text-rose-200">
+                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                        <span>No SPF Record Found</span>
+                      </div>
+                      <p className="text-[11px] leading-relaxed">
+                        Spammers can send fraudulent emails using your domain address. Add a TXT record with your authorized mail host to enable SPF protection.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* DMARC Card */}
+                <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                    <div className="space-y-0.5">
+                      <span className="font-semibold text-white text-xs block">
+                        DMARC Enforcement Policy
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        Policy target: <code className="text-slate-300 font-mono">_dmarc.{website.domain}</code>
+                      </span>
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono uppercase ${
+                        website.lastScanResult.security.dmarcConfigured
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                          : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                      }`}
+                    >
+                      {website.lastScanResult.security.dmarcConfigured ? 'CONFIGURED' : 'MISSING'}
+                    </span>
+                  </div>
+
+                  {website.lastScanResult.security.dmarcRecord ? (
+                    <div className="space-y-2">
+                      <div className="relative group">
+                        <pre className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono text-emerald-400 break-all whitespace-pre-wrap">
+                          {website.lastScanResult.security.dmarcRecord}
+                        </pre>
+                        <button
+                          onClick={() => handleCopyText(website.lastScanResult!.security.dmarcRecord!, 'dmarc')}
+                          className="absolute top-2 right-2 p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+                          title="Copy DMARC Record"
+                        >
+                          {copiedDmarc ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        Instructs Gmail, Yahoo, and Outlook on how to handle failed authentication attempts (e.g. reject or quarantine spoofed emails).
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 space-y-2 text-xs text-rose-300">
+                      <div className="flex items-center gap-1.5 font-semibold text-rose-200">
+                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                        <span>No DMARC Record Found</span>
+                      </div>
+                      <p className="text-[11px] leading-relaxed">
+                        Major mail providers require DMARC for optimal inbox delivery. Without DMARC, legitimate emails may land in spam folders.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Actionable Setup Guidance */}
+              {(!website.lastScanResult.security.spfConfigured || !website.lastScanResult.security.dmarcConfigured) && (
+                <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-white flex items-center gap-2">
+                    <Shield className="h-4 w-4 text-[#E6A05A]" />
+                    <span>Recommended DNS Records to Add in your DNS Provider</span>
+                  </h4>
+                  <div className="space-y-3 text-xs">
+                    {!website.lastScanResult.security.spfConfigured && (
+                      <div className="p-3 rounded-lg bg-slate-950 border border-slate-800/80 space-y-1.5">
+                        <div className="flex items-center justify-between text-slate-300 font-medium">
+                          <span>1. Basic SPF TXT Record:</span>
+                          <span className="font-mono text-[10px] text-slate-500">Name: @</span>
+                        </div>
+                        <code className="block p-2 rounded bg-slate-900 font-mono text-[11px] text-amber-300 select-all">
+                          v=spf1 mx ~all
+                        </code>
+                        <span className="text-[11px] text-slate-400 block">
+                          Allows MX servers listed for your domain to send email. (Customize with your mail service include tag if using Google Workspace, Outlook, or Mailgun).
+                        </span>
+                      </div>
+                    )}
+
+                    {!website.lastScanResult.security.dmarcConfigured && (
+                      <div className="p-3 rounded-lg bg-slate-950 border border-slate-800/80 space-y-1.5">
+                        <div className="flex items-center justify-between text-slate-300 font-medium">
+                          <span>2. Standard DMARC TXT Record:</span>
+                          <span className="font-mono text-[10px] text-slate-500">Name: _dmarc</span>
+                        </div>
+                        <code className="block p-2 rounded bg-slate-900 font-mono text-[11px] text-amber-300 select-all">
+                          v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@{website.domain}
+                        </code>
+                        <span className="text-[11px] text-slate-400 block">
+                          Directs receiving providers to quarantine unauthenticated messages and send aggregate daily reports.
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="py-12 text-center text-xs text-slate-400 space-y-3">
+              <Mail className="h-8 w-8 text-slate-600 mx-auto" />
+              <p>Run a health audit to evaluate SPF records and DMARC enforcement policies.</p>
+              <button
+                onClick={() => handleRunFullAudit(true)}
+                disabled={auditing}
+                className="px-4 py-2 rounded-lg bg-[#E6A05A] text-[#0B1120] font-semibold text-xs hover:bg-[#cf863c] transition-colors cursor-pointer"
+              >
+                {auditing ? 'Scanning...' : 'Analyze SPF & DMARC Now'}
               </button>
             </div>
           )}
