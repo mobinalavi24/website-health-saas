@@ -96,7 +96,7 @@ export const CryptoPaymentModal: React.FC<CryptoPaymentModalProps> = ({
     // Initial check after 3 seconds
     const timeout = setTimeout(checkStatus, 3000);
     // Ongoing poll every 5 seconds
-    pollTimerRef.current = setInterval(checkStatus, 5000);
+    pollTimerRef.current = setInterval(checkStatus, 12000);
 
     return () => {
       clearTimeout(timeout);

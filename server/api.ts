@@ -2208,7 +2208,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
         return true;
       }
 
-      const checkLimit = rateLimit(`crypto:check:${session.user.id}`, 30, 5 * 60_000);
+      const checkLimit = rateLimit(`crypto:check:${session.user.id}`, 60, 5 * 60_000);
       if (!checkLimit.allowed) {
         res.setHeader('Retry-After', String(checkLimit.retryAfterSec));
         sendJson(res, 429, { error: 'Too many verification checks. Please wait a moment.' });
@@ -2237,9 +2237,13 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
 
       try {
         const result = await verifyPaymentOrder(orderId, typeof txId === 'string' ? txId : undefined);
+        let entitlementSummary: any = undefined;
         if (result.activated) {
           const freshOrg = db.findOrgById(session.org.id);
           if (freshOrg) session.org = freshOrg;
+          try {
+            entitlementSummary = await getOrganizationEntitlementSummary(session.org.id);
+          } catch {}
           void logSecurityEvent({
             type: 'payment_status_change',
             outcome: 'success',
@@ -2253,7 +2257,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           order: result.order,
           activated: result.activated,
           message: result.message,
-          organization: session.org,
+          organization: entitlementSummary ? { ...session.org, entitlementSummary } : session.org,
         });
       } catch (err: any) {
         sendJson(res, 500, { error: 'Payment verification could not be completed at this time.' });

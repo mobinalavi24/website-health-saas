@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import { db, type CryptoPaymentOrder, type CryptoPaymentStatus } from './db.ts';
 import { CryptoOrderRepo, OrgRepo } from './db/repositories.ts';
 import { withTransaction } from './db/connection.ts';
-import { grantEntitlementForOrderInTransaction } from './entitlements.ts';
+import { grantEntitlementForOrderInTransaction, reconcileOrganizationWebsiteAllocations } from './entitlements.ts';
 import {
   applyReferralCodeToUser,
   normalizeReferralCode,
@@ -23,7 +23,7 @@ function getLBankSecretKey(): string {
 const LBANK_BASE_URL = (process.env.LBANK_BASE_URL || 'https://api.lbank.info').trim();
 
 // Configured TRC20 deposit address (public receiving wallet address, overridable via env)
-export const DEFAULT_DEPOSIT_ADDRESS = (process.env.LBANK_USDT_TRC20_ADDRESS || 'TYDzsYUEpvnYmQk4zGP9sWWcTEd36AmyWP').trim();
+export const DEFAULT_DEPOSIT_ADDRESS = (process.env.LBANK_USDT_TRC20_ADDRESS || 'TFvQrBFEPczaN7s4Wter53BJnh6LbFhtvu').trim();
 
 // In-memory cache for resolved LBank deposit address
 let cachedDepositAddress: string | null = null;
@@ -144,27 +144,33 @@ export async function fetchLBankDepositHistory(): Promise<any[]> {
 
     const { sign, echostr, timestamp } = signLBankRequest(params, secretKey);
 
-    const query = new URLSearchParams({
+    const body = new URLSearchParams({
       ...params,
       api_key: apiKey,
       sign,
     }).toString();
 
-    const resp = await fetch(`${LBANK_BASE_URL}/v2/supplement/deposit_history.do?${query}`, {
-      method: 'GET',
+    const resp = await fetch(`${LBANK_BASE_URL}/v2/supplement/deposit_history.do`, {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         timestamp,
         signature_method: 'HmacSHA256',
         echostr,
       },
+      body,
       signal: AbortSignal.timeout(6000),
     });
 
     if (resp.ok) {
       const data = await resp.json();
-      if (data && data.result === 'true' && Array.isArray(data.data)) {
-        return data.data;
+      if (data && (data.result === 'true' || data.result === true)) {
+        if (Array.isArray(data.data?.depositOrders)) {
+          return data.data.depositOrders;
+        }
+        if (Array.isArray(data.data)) {
+          return data.data;
+        }
       }
     }
   } catch {
@@ -531,22 +537,44 @@ export async function verifyPaymentOrder(orderId: string, manualTxId?: string): 
   // 2. Automated check via LBank Deposit History API
   const lbankDeposits = await fetchLBankDepositHistory();
   const orderCreatedTs = new Date(order.createdAt).getTime() - 120000; // 2 min grace
+  const cleanManualTx = manualTxId ? manualTxId.trim().toLowerCase() : '';
 
   for (const dep of lbankDeposits) {
     const depTime = Number(dep.insertTime || dep.time || Date.now());
     const depAmount = Number(dep.amount || 0);
     const depCoin = (dep.coin || dep.assetCode || '').toLowerCase();
-    const depTxId = dep.txId || dep.txHash;
+    const depTxId = String(dep.txId || dep.txHash || '').trim();
+    const depStatus = dep.status !== undefined ? String(dep.status).toLowerCase() : '';
 
+    // Skip cancelled/failed LBank deposit rows (status '3' or 'failed')
+    if (depStatus === '3' || depStatus === 'failed' || depStatus === 'cancelled') {
+      continue;
+    }
+
+    const matchesManualTx = cleanManualTx.length > 6 && depTxId.toLowerCase() === cleanManualTx;
     if (
       depCoin === 'usdt' &&
-      depTime >= orderCreatedTs &&
+      (depTime >= orderCreatedTs || matchesManualTx) &&
       Math.abs(depAmount - order.amount) <= 0.05
     ) {
       // Check if TXID already used
       if (depTxId) {
         const used = db.findCryptoOrderByTxId(depTxId);
         if (used && used.id !== order.id) continue; // Already consumed
+      }
+
+      if (depStatus === '1' || depStatus === 'confirming' || depStatus === 'applying') {
+        db.updateCryptoOrder(order.id, {
+          status: 'Confirming',
+          txId: depTxId || undefined,
+          detectedAt: new Date().toISOString(),
+          verificationLog: 'Deposit detected on LBank exchange. Awaiting block confirmations.',
+        });
+        return {
+          order: db.findCryptoOrderById(order.id)!,
+          activated: false,
+          message: 'Deposit detected on LBank! Awaiting network confirmations...',
+        };
       }
 
       const txIdentifier = depTxId || `lbank_dep_${Date.now()}`;
@@ -612,7 +640,7 @@ async function activatePaidOrder(
     await CryptoOrderRepo.insert(updatedOrder);
   } catch {}
 
-  // Grant independent subscription entitlement in PostgreSQL
+  // Grant independent subscription entitlement in PostgreSQL and reconcile website allocations
   try {
     await withTransaction(async (client) => {
       await grantEntitlementForOrderInTransaction(client, {
@@ -628,6 +656,7 @@ async function activatePaidOrder(
         confirmed_at: confirmedAt,
       });
     });
+    await reconcileOrganizationWebsiteAllocations(updatedOrder.orgId);
   } catch (err: any) {
     console.error('[Entitlement] Error granting entitlement in activatePaidOrder:', err?.message);
   }
@@ -645,19 +674,20 @@ async function activatePaidOrder(
     } catch {}
 
     // Create official invoice record
-    db.addInvoice({
+    const newInvoice = {
       id: `inv_crypto_${Date.now()}`,
       orgId: org.id,
       invoiceNumber: `INV-USDT-${Math.floor(1000 + Math.random() * 9000)}`,
       date: confirmedAt,
       amount: order.amount,
-      currency: 'USDT',
-      status: 'paid',
+      currency: 'USDT' as const,
+      status: 'paid' as const,
       planName: `${order.planName} · Paid via USDT TRC20 (TX: ${txId.substring(0, 10)}...)`,
-    });
+    };
+    db.addInvoice(newInvoice); // also synced to PostgreSQL by db layer
 
     // Log audit trail
-    db.addAuditLog({
+    const newAuditLog = {
       id: `log_${Date.now()}`,
       orgId: org.id,
       userId: order.userId,
@@ -666,7 +696,8 @@ async function activatePaidOrder(
       target: order.planName,
       details: `Plan entitlement (+5 website slots) activated for ${order.planId.toUpperCase()} via ${order.amount} USDT (TRC20). TXID: ${txId}`,
       timestamp: confirmedAt,
-    });
+    };
+    db.addAuditLog(newAuditLog); // also synced to PostgreSQL by db layer
   }
 
   // Credit 40% referral commission idempotently in PostgreSQL
