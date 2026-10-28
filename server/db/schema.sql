@@ -346,14 +346,25 @@ CREATE TABLE IF NOT EXISTS subscription_entitlements (
   billing_interval TEXT NOT NULL DEFAULT 'monthly',
   website_capacity INTEGER NOT NULL DEFAULT 5,
   order_id TEXT UNIQUE,
+  source TEXT NOT NULL DEFAULT 'paid_purchase',
+  granted_by_admin_id TEXT,
+  granted_by_admin_email TEXT,
+  grant_reason TEXT,
   status TEXT NOT NULL DEFAULT 'active',
   purchased_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   starts_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ NOT NULL,
   revoked_at TIMESTAMPTZ,
   revoked_reason TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE subscription_entitlements ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'paid_purchase';
+ALTER TABLE subscription_entitlements ADD COLUMN IF NOT EXISTS granted_by_admin_id TEXT;
+ALTER TABLE subscription_entitlements ADD COLUMN IF NOT EXISTS granted_by_admin_email TEXT;
+ALTER TABLE subscription_entitlements ADD COLUMN IF NOT EXISTS grant_reason TEXT;
+ALTER TABLE subscription_entitlements ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 -- Indexes for performance and query patterns
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);

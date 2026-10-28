@@ -171,9 +171,17 @@ export const WebsiteRepo = {
       `INSERT INTO websites (
          id, org_id, client_id, name, url, domain, status, interval_minutes,
          last_checked_at, last_response_time_ms, health_score, uptime_24h, uptime_7d, uptime_30d,
-         verification, tags, group_name, enabled_checks, notification_settings, last_scan_result, created_at
+         verification, tags, group_name, enabled_checks, notification_settings, last_scan_result,
+         entitlement_id, subscription_expires_at, expired_at, scheduled_deletion_at, access_status,
+         last_whois_result, created_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+       VALUES (
+         $1, $2, $3, $4, $5, $6, $7, $8,
+         $9, $10, $11, $12, $13, $14,
+         $15, $16, $17, $18, $19, $20,
+         $21, $22, $23, $24, $25,
+         $26, $27
+       )
        ON CONFLICT (id) DO UPDATE SET
          org_id = EXCLUDED.org_id,
          client_id = EXCLUDED.client_id,
@@ -193,7 +201,13 @@ export const WebsiteRepo = {
          group_name = EXCLUDED.group_name,
          enabled_checks = EXCLUDED.enabled_checks,
          notification_settings = EXCLUDED.notification_settings,
-         last_scan_result = EXCLUDED.last_scan_result`,
+         last_scan_result = EXCLUDED.last_scan_result,
+         entitlement_id = EXCLUDED.entitlement_id,
+         subscription_expires_at = EXCLUDED.subscription_expires_at,
+         expired_at = EXCLUDED.expired_at,
+         scheduled_deletion_at = EXCLUDED.scheduled_deletion_at,
+         access_status = EXCLUDED.access_status,
+         last_whois_result = EXCLUDED.last_whois_result`,
       [
         site.id,
         site.orgId,
@@ -215,6 +229,12 @@ export const WebsiteRepo = {
         JSON.stringify(site.enabledChecks || {}),
         JSON.stringify(site.notificationSettings || {}),
         site.lastScanResult ? JSON.stringify(site.lastScanResult) : null,
+        site.entitlementId || null,
+        site.subscriptionExpiresAt ? new Date(site.subscriptionExpiresAt).toISOString() : null,
+        site.expiredAt ? new Date(site.expiredAt).toISOString() : null,
+        site.scheduledDeletionAt ? new Date(site.scheduledDeletionAt).toISOString() : null,
+        site.accessStatus || 'active',
+        site.lastWhoisResult ? JSON.stringify(site.lastWhoisResult) : null,
         site.createdAt ? new Date(site.createdAt).toISOString() : new Date().toISOString(),
       ]
     );

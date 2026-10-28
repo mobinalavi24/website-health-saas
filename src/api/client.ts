@@ -24,6 +24,9 @@ import type {
   WithdrawalRequestRecord,
   AdminReferralOverview,
   OrganizationEntitlementSummary,
+  SubscriptionEntitlement,
+  AdminUserDirectoryEntry,
+  AdminUserManagementDetails,
 } from '../types.ts';
 
 const LEGACY_TOKEN_KEY = 'pv_auth_token';
@@ -637,8 +640,128 @@ export const apiClient = {
     return this.request('/api/admin/overview');
   },
 
-  async getAdminUsers(): Promise<any[]> {
-    return this.request('/api/admin/users');
+  async getAdminUsers(params?: {
+    search?: string;
+    exact?: boolean;
+    role?: string;
+    status?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<AdminUserDirectoryEntry[]> {
+    const qs = new URLSearchParams();
+    if (params?.search) qs.set('search', params.search);
+    if (params?.exact) qs.set('exact', 'true');
+    if (params?.role && params.role !== 'all') qs.set('role', params.role);
+    if (params?.status && params.status !== 'all') qs.set('status', params.status);
+    if (params?.page) qs.set('page', String(params.page));
+    if (params?.pageSize) qs.set('pageSize', String(params.pageSize));
+    const queryStr = qs.toString();
+    return this.request(`/api/admin/users${queryStr ? `?${queryStr}` : ''}`);
+  },
+
+  async getAdminUserDetails(userId: string): Promise<AdminUserManagementDetails> {
+    return this.request<AdminUserManagementDetails>(
+      `/api/admin/users/${encodeURIComponent(userId)}/details`
+    );
+  },
+
+  async adminChangeUserPassword(
+    userId: string,
+    payload: {
+      newPassword: string;
+      confirmPassword?: string;
+      confirm: boolean;
+      reason?: string;
+    }
+  ): Promise<{
+    success: boolean;
+    userId: string;
+    email: string;
+    sessionsRevoked: number;
+    message: string;
+  }> {
+    return this.request(`/api/admin/users/${encodeURIComponent(userId)}/password`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async adminGrantUserTrial(
+    userId: string,
+    payload: {
+      durationHours?: number;
+      durationDays?: number;
+      websiteCapacity?: number;
+      reason?: string;
+      allowDuplicate?: boolean;
+      confirm: boolean;
+    }
+  ): Promise<{
+    success: boolean;
+    entitlement: SubscriptionEntitlement;
+    summary: OrganizationEntitlementSummary;
+    trialStatus: AdminUserManagementDetails['trialStatus'];
+    message: string;
+  }> {
+    return this.request(`/api/admin/users/${encodeURIComponent(userId)}/grant-trial`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async adminGrantUserSubscription(
+    userId: string,
+    payload: {
+      duration: '1_month' | '1_year' | 'monthly' | 'annual';
+      planId?: 'pro' | 'agency' | 'enterprise';
+      websiteCapacity?: number;
+      reason?: string;
+      confirm: boolean;
+    }
+  ): Promise<{
+    success: boolean;
+    entitlement: SubscriptionEntitlement;
+    summary: OrganizationEntitlementSummary;
+    message: string;
+  }> {
+    return this.request(`/api/admin/users/${encodeURIComponent(userId)}/grant-subscription`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async adminSetEntitlementRemainingDays(
+    entitlementId: string,
+    payload: {
+      remainingDays: number;
+      reason?: string;
+      userId?: string;
+      confirm: boolean;
+    }
+  ): Promise<{
+    success: boolean;
+    entitlement: SubscriptionEntitlement;
+    previousExpiresAt: string;
+    previousDaysRemaining: number;
+    newExpiresAt: string;
+    newDaysRemaining: number;
+    summary: OrganizationEntitlementSummary;
+    message: string;
+  }> {
+    const endpoint = payload.userId
+      ? `/api/admin/users/${encodeURIComponent(payload.userId)}/entitlements/${encodeURIComponent(entitlementId)}/remaining-days`
+      : `/api/admin/entitlements/${encodeURIComponent(entitlementId)}/remaining-days`;
+    return this.request(endpoint, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async adminUnlockUserAccount(userId: string): Promise<{ success: boolean; message: string }> {
+    return this.request(`/api/admin/users/${encodeURIComponent(userId)}/unlock`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
   },
 
   async triggerWorkerTick(): Promise<any> {

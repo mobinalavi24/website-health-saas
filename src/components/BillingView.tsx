@@ -348,60 +348,142 @@ export const BillingView: React.FC<BillingViewProps> = ({
             <table className="w-full text-left text-xs">
               <thead className="text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
                 <tr>
-                  <th className="py-2">Entitlement ID</th>
-                  <th className="py-2">Plan Package</th>
-                  <th className="py-2">Capacity Granted</th>
-                  <th className="py-2">Start Date</th>
-                  <th className="py-2">Expiration Date</th>
-                  <th className="py-2">Remaining</th>
-                  <th className="py-2 text-right">Status</th>
+                  <th className="py-2.5 pr-3">Plan & ID</th>
+                  <th className="py-2.5 px-2">Source</th>
+                  <th className="py-2.5 px-2">Purchase / Grant</th>
+                  <th className="py-2.5 px-2">Start Date</th>
+                  <th className="py-2.5 px-2">Exact Expiration</th>
+                  <th className="py-2.5 px-2">Remaining Time</th>
+                  <th className="py-2.5 px-2">Capacity</th>
+                  <th className="py-2.5 px-2">Allocated / Available</th>
+                  <th className="py-2.5 pl-2 text-right">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-mono">
-                {allEntitlements.map((ent) => (
-                  <tr key={ent.id} className="text-slate-300">
-                    <td className="py-3 font-semibold text-white text-[11px]">{ent.id}</td>
-                    <td className="py-3 font-sans">
-                      {ent.planName} ({ent.billingInterval})
-                    </td>
-                    <td className="py-3 font-bold text-[#E6A05A]">
-                      +{ent.websiteCapacity} Websites
-                    </td>
-                    <td className="py-3">
-                      {new Date(ent.startsAt).toLocaleDateString()}
-                    </td>
-                    <td className="py-3">
-                      {new Date(ent.expiresAt).toLocaleDateString()}
-                    </td>
-                    <td className="py-3">
-                      {ent.isActive ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-400">
-                          <Clock className="h-3 w-3" />
-                          {ent.daysRemaining}d left
+                {allEntitlements.map((ent) => {
+                  const usedCount = ent.allocatedWebsitesCount ?? ent.allocatedWebsites?.length ?? 0;
+                  const availCount =
+                    ent.availableCapacity ??
+                    (ent.isActive ? Math.max(0, ent.websiteCapacity - usedCount) : 0);
+                  const sourceLabel =
+                    ent.source === 'admin_grant'
+                      ? 'Admin Grant'
+                      : ent.source === 'trial'
+                      ? 'Trial'
+                      : 'Paid Purchase';
+                  const sourceStyle =
+                    ent.source === 'admin_grant'
+                      ? 'text-purple-300 bg-purple-500/10 border-purple-500/30'
+                      : ent.source === 'trial'
+                      ? 'text-sky-300 bg-sky-500/10 border-sky-500/30'
+                      : 'text-[#E6A05A] bg-[#E6A05A]/10 border-[#E6A05A]/30';
+                  const remText =
+                    ent.remainingTimeFormatted ||
+                    (ent.isActive
+                      ? `${ent.daysRemaining} ${ent.daysRemaining === 1 ? 'day' : 'days'} remaining`
+                      : 'Expired');
+
+                  return (
+                    <tr key={ent.id} className="text-slate-300 align-top">
+                      <td className="py-3 pr-3 font-sans">
+                        <div className="font-semibold text-white text-xs">
+                          {ent.planName}
+                        </div>
+                        <div className="font-mono text-[10px] text-slate-500 mt-0.5">
+                          {ent.id}
+                        </div>
+                      </td>
+                      <td className="py-3 px-2 font-sans">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-semibold ${sourceStyle}`}
+                        >
+                          {sourceLabel}
                         </span>
-                      ) : (
-                        <span className="text-slate-500">0d</span>
-                      )}
-                    </td>
-                    <td className="py-3 text-right font-sans">
-                      <span
-                        className={`text-[10px] uppercase px-2 py-0.5 rounded font-semibold ${
-                          ent.isActive
-                            ? 'text-emerald-400 bg-emerald-500/10'
-                            : 'text-slate-400 bg-slate-800'
-                        }`}
-                      >
-                        {ent.isActive ? 'ACTIVE' : 'EXPIRED'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="py-3 px-2 text-[11px] text-slate-300">
+                        {new Date(ent.purchasedAt || ent.startsAt).toLocaleDateString()}
+                      </td>
+                      <td className="py-3 px-2 text-[11px] text-slate-300">
+                        {new Date(ent.startsAt).toLocaleDateString()}
+                      </td>
+                      <td className="py-3 px-2 text-[11px] text-slate-200">
+                        <div>{new Date(ent.expiresAt).toLocaleDateString()}</div>
+                        <div className="text-[10px] text-slate-500">
+                          {new Date(ent.expiresAt).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </div>
+                      </td>
+                      <td className="py-3 px-2 font-sans">
+                        {ent.isActive ? (
+                          <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold text-xs">
+                            <Clock className="h-3.5 w-3.5 shrink-0" />
+                            <span>{remText}</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-rose-400 font-semibold text-xs">
+                            <Clock className="h-3.5 w-3.5 shrink-0" />
+                            <span>Expired</span>
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-2 font-bold text-[#E6A05A] font-sans">
+                        {ent.websiteCapacity}{' '}
+                        {ent.websiteCapacity === 1 ? 'website' : 'websites'}
+                      </td>
+                      <td className="py-3 px-2 font-sans">
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="font-semibold text-white">
+                            {usedCount} / {ent.websiteCapacity} used
+                          </span>
+                          <span className="text-slate-600">•</span>
+                          <span
+                            className={`font-semibold ${
+                              availCount > 0 ? 'text-emerald-400' : 'text-slate-500'
+                            }`}
+                          >
+                            {availCount} available
+                          </span>
+                        </div>
+                        {ent.allocatedWebsites && ent.allocatedWebsites.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {ent.allocatedWebsites.map((w) => (
+                              <span
+                                key={w.id}
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono border ${
+                                  w.accessStatus === 'expired_grace_period'
+                                    ? 'bg-rose-950/40 border-rose-800/60 text-rose-300'
+                                    : 'bg-slate-800/80 border-slate-700 text-slate-300'
+                                }`}
+                                title={`${w.name} (${w.url})`}
+                              >
+                                {w.domain}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3 pl-2 text-right font-sans">
+                        <span
+                          className={`text-[10px] uppercase px-2 py-0.5 rounded font-semibold ${
+                            ent.isActive
+                              ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/30'
+                              : 'text-rose-300 bg-rose-500/10 border border-rose-500/30'
+                          }`}
+                        >
+                          {ent.status ? ent.status.toUpperCase() : ent.isActive ? 'ACTIVE' : 'EXPIRED'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         ) : (
           <p className="text-xs text-slate-400">
-            No paid Pro subscription entitlements active yet. Purchase a Pro plan below to unlock +5 website monitoring slots per package.
+            No subscription entitlements active yet. Purchase a Pro plan below to unlock +5 website monitoring slots per package.
           </p>
         )}
       </div>

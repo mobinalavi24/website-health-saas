@@ -37,7 +37,20 @@ export interface User {
   createdAt: string;
 }
 
-export type EntitlementStatus = 'active' | 'expired' | 'revoked' | 'cancelled';
+export type EntitlementStatus = 'scheduled' | 'active' | 'expired' | 'revoked' | 'cancelled';
+export type EntitlementSource = 'paid_purchase' | 'trial' | 'admin_grant';
+
+export interface AllocatedWebsiteInfo {
+  id: string;
+  name: string;
+  domain: string;
+  url: string;
+  status: string;
+  accessStatus: string;
+  createdAt: string;
+  subscriptionExpiresAt?: string | null;
+  scheduledDeletionAt?: string | null;
+}
 
 export interface SubscriptionEntitlement {
   id: string;
@@ -48,6 +61,10 @@ export interface SubscriptionEntitlement {
   billingInterval: 'monthly' | 'annual';
   websiteCapacity: number;
   orderId: string | null;
+  source?: EntitlementSource;
+  grantedByAdminId?: string | null;
+  grantedByAdminEmail?: string | null;
+  grantReason?: string | null;
   status: EntitlementStatus;
   purchasedAt: string;
   startsAt: string;
@@ -55,9 +72,81 @@ export interface SubscriptionEntitlement {
   revokedAt?: string | null;
   revokedReason?: string | null;
   createdAt: string;
+  updatedAt?: string;
   daysRemaining: number;
   remainingMs: number;
+  remainingTimeFormatted?: string;
   isActive: boolean;
+  allocatedWebsitesCount?: number;
+  availableCapacity?: number;
+  allocatedWebsites?: AllocatedWebsiteInfo[];
+}
+
+export interface AdminUserDirectoryEntry extends User {
+  orgName?: string;
+  planId?: string;
+  trialStatus?: {
+    isTrial: boolean;
+    trialStartedAt?: string;
+    trialEndsAt?: string;
+    trialUsed: boolean;
+    isExpired: boolean;
+    remainingMs: number;
+  };
+  entitlementSummary?: OrganizationEntitlementSummary;
+  websitesCount?: number;
+  activeWebsitesCount?: number;
+  expiredWebsitesCount?: number;
+  referralCount?: number;
+  convertedReferralCount?: number;
+  totalCommissionsEarned?: number;
+  availableReferralBalance?: number;
+  referredByEmail?: string | null;
+}
+
+export interface AdminUserManagementDetails {
+  user: User & {
+    referredByEmail?: string | null;
+    referredByName?: string | null;
+  };
+  organization: Organization | null;
+  trialStatus: {
+    isTrial: boolean;
+    trialStartedAt?: string;
+    trialEndsAt?: string;
+    trialUsed: boolean;
+    isExpired: boolean;
+    remainingMs: number;
+  };
+  entitlementSummary: OrganizationEntitlementSummary;
+  websites: Website[];
+  referrals: {
+    referralCode: string;
+    referralLink: string;
+    referredByUserId?: string | null;
+    referredByEmail?: string | null;
+    referredByName?: string | null;
+    referredByCode?: string | null;
+    referredAt?: string | null;
+    totalReferredUsers: number;
+    convertedReferredUsers: number;
+    totalQualifyingPurchases: number;
+    totalCommissionEarned: number;
+    availableReferralBalance: number;
+    reservedForPendingWithdrawals: number;
+    totalWithdrawnAmount: number;
+    referredUsers: Array<{
+      userId: string;
+      email: string;
+      name: string;
+      joinedAt: string;
+      status: 'converted' | 'registered';
+      purchasesCount: number;
+      totalCommissionGenerated: number;
+    }>;
+    commissions: ReferralCommissionRecord[];
+  };
+  auditLogs: AuditLog[];
 }
 
 export interface OrganizationEntitlementSummary {

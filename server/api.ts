@@ -12,6 +12,7 @@ import { monitorEngine } from './monitor.ts';
 import { createCryptoPaymentOrder, verifyPaymentOrder, testLBankConnection } from './lbank.ts';
 import { approvePaymentOrder, rejectPaymentOrder, cancelPaymentOrder } from './paymentApproval.ts';
 import { UserRepo, OrgRepo } from './db/repositories.ts';
+import { query } from './db/connection.ts';
 import {
   generateUniqueReferralCodeForUser,
   ensureUserReferralCode,
@@ -92,6 +93,9 @@ import {
   allocateEntitlementForNewWebsite,
   verifyWebsiteAccessAndEntitlement,
   sanitizeWebsiteForList,
+  adminGrantTrialEntitlement,
+  adminGrantSubscriptionEntitlement,
+  adminSetEntitlementRemainingDays,
 } from './entitlements.ts';
 import {
   performWhoisLookup,
@@ -2692,23 +2696,683 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       return true;
     }
 
-    if (path === '/api/admin/users' && method === 'GET') {
+    if ((path === '/api/admin/users' || path === '/api/admin/users/directory') && method === 'GET') {
       const session = await resolveSession(req);
-      if (!session || session.user.role !== 'super_admin') {
-        sendJson(res, 403, { error: 'Super Admin privilege required' });
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
         return true;
       }
-      sendJson(res, 200, db.getUsers().map((u) => ({
-        id: u.id,
-        email: u.email,
-        name: u.name,
-        role: u.role,
-        orgId: u.orgId,
-        referralCode: u.referralCode,
-        referredByUserId: u.referredByUserId,
-        referredByCode: u.referredByCode,
-        createdAt: u.createdAt,
-      })));
+      if (!isAdminRole(session.user.role)) {
+        void logSecurityEvent({
+          type: 'forbidden_access',
+          outcome: 'blocked',
+          userId: session.user.id,
+          actorRole: session.user.role,
+          req,
+          details: { path },
+        });
+        sendJson(res, 403, { error: 'Administrator privilege required' });
+        return true;
+      }
+
+      await db.ensureSchema();
+      await backfillSubscriptionEntitlements().catch(() => {});
+
+      const rawSearch = (
+        parsedUrl.searchParams.get('search') ||
+        parsedUrl.searchParams.get('email') ||
+        parsedUrl.searchParams.get('q') ||
+        ''
+      )
+        .trim()
+        .toLowerCase();
+      const exactOnly = parsedUrl.searchParams.get('exact') === 'true';
+      const roleFilter = (parsedUrl.searchParams.get('role') || '').trim().toLowerCase();
+      const statusFilter = (parsedUrl.searchParams.get('status') || '').trim().toLowerCase();
+
+      const allUsers = db.getUsers();
+      const allSites = db.getWebsites();
+      const commRes = await query(
+        'SELECT referrer_user_id, referred_user_id, commission_amount_cents FROM referral_commissions'
+      ).catch(() => ({ rows: [] as any[] }));
+      const allCommissions = commRes.rows;
+      const userById = new Map(allUsers.map((u) => [u.id, u]));
+
+      // Filter by email (exact or partial, case-insensitive) and role first
+      let matchedUsers = allUsers.filter((u) => {
+        const emailLower = (u.email || '').trim().toLowerCase();
+        if (rawSearch) {
+          if (exactOnly) {
+            if (emailLower !== rawSearch) return false;
+          } else {
+            if (!emailLower.includes(rawSearch)) return false;
+          }
+        }
+        if (roleFilter && roleFilter !== 'all' && u.role !== roleFilter) {
+          return false;
+        }
+        return true;
+      });
+
+      // Rank exact email match first, then prefix match, then newest createdAt
+      matchedUsers.sort((a, b) => {
+        if (rawSearch) {
+          const aEmail = a.email.toLowerCase();
+          const bEmail = b.email.toLowerCase();
+          if (aEmail === rawSearch && bEmail !== rawSearch) return -1;
+          if (bEmail === rawSearch && aEmail !== rawSearch) return 1;
+          if (aEmail.startsWith(rawSearch) && !bEmail.startsWith(rawSearch)) return -1;
+          if (bEmail.startsWith(rawSearch) && !aEmail.startsWith(rawSearch)) return 1;
+        }
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+
+      const enrichedUsers = [];
+      for (const u of matchedUsers) {
+        const org = db.findOrgById(u.orgId);
+        const entitlementSummary = await getOrganizationEntitlementSummary(u.orgId);
+        const trialStatus = org
+          ? getAccountTrialStatus(org)
+          : {
+              isTrial: false,
+              trialUsed: false,
+              isExpired: true,
+              remainingMs: 0,
+            };
+
+        if (statusFilter && statusFilter !== 'all') {
+          if (statusFilter === 'active_paid' && !entitlementSummary.hasActivePaidEntitlement) continue;
+          if (
+            statusFilter === 'active_trial' &&
+            (entitlementSummary.hasActivePaidEntitlement || trialStatus.isExpired)
+          ) {
+            continue;
+          }
+          if (
+            statusFilter === 'expired' &&
+            (entitlementSummary.hasActivePaidEntitlement ||
+              entitlementSummary.activeEntitlementCount > 0 ||
+              !trialStatus.isExpired)
+          ) {
+            continue;
+          }
+        }
+
+        const userSites = allSites.filter((w) => w.orgId === u.orgId);
+        const activeWebsitesCount = userSites.filter(
+          (w) => w.accessStatus !== 'expired_grace_period' && !w.isSubscriptionExpired
+        ).length;
+        const expiredWebsitesCount = userSites.length - activeWebsitesCount;
+
+        const referredUsers = allUsers.filter((cand) => cand.referredByUserId === u.id);
+        const userCommissions = allCommissions.filter(
+          (c: any) => String(c.referrer_user_id) === u.id
+        );
+        const convertedSet = new Set(
+          userCommissions.map((c: any) => String(c.referred_user_id))
+        );
+        const totalCommissionsEarned = Number(
+          (
+            userCommissions.reduce(
+              (s: number, c: any) => s + Number(c.commission_amount_cents || 0),
+              0
+            ) / 100
+          ).toFixed(2)
+        );
+        const referrer = u.referredByUserId ? userById.get(u.referredByUserId) : undefined;
+
+        // Explicitly omit passwordHash and any sensitive tokens
+        enrichedUsers.push({
+          id: u.id,
+          email: u.email,
+          name: u.name,
+          role: u.role,
+          orgId: u.orgId,
+          orgName: org?.name || `${u.name}'s Workspace`,
+          planId: org?.planId || 'free',
+          emailVerified: Boolean(u.emailVerified),
+          referralCode: u.referralCode,
+          referredByUserId: u.referredByUserId,
+          referredByCode: u.referredByCode,
+          referredByEmail: referrer?.email || null,
+          referredAt: u.referredAt,
+          createdAt: u.createdAt,
+          trialStatus,
+          entitlementSummary,
+          websitesCount: userSites.length,
+          activeWebsitesCount,
+          expiredWebsitesCount,
+          referralCount: referredUsers.length,
+          convertedReferralCount: convertedSet.size,
+          totalCommissionsEarned,
+        });
+      }
+
+      const pageParam = Number(parsedUrl.searchParams.get('page'));
+      const pageSizeParam = Number(parsedUrl.searchParams.get('pageSize') || parsedUrl.searchParams.get('limit'));
+      const wantsPaginatedEnvelope =
+        path === '/api/admin/users/directory' ||
+        parsedUrl.searchParams.get('paginated') === 'true';
+
+      if (wantsPaginatedEnvelope) {
+        const page = Number.isFinite(pageParam) && pageParam > 0 ? Math.floor(pageParam) : 1;
+        const pageSize =
+          Number.isFinite(pageSizeParam) && pageSizeParam > 0
+            ? Math.min(200, Math.floor(pageSizeParam))
+            : 25;
+        const total = enrichedUsers.length;
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        const pagedUsers = enrichedUsers.slice((page - 1) * pageSize, page * pageSize);
+        sendJson(res, 200, {
+          users: pagedUsers,
+          total,
+          page,
+          pageSize,
+          totalPages,
+        });
+        return true;
+      }
+
+      if (Number.isFinite(pageParam) && pageParam > 0 && Number.isFinite(pageSizeParam) && pageSizeParam > 0) {
+        const page = Math.floor(pageParam);
+        const pageSize = Math.min(200, Math.floor(pageSizeParam));
+        sendJson(res, 200, enrichedUsers.slice((page - 1) * pageSize, page * pageSize));
+        return true;
+      }
+
+      sendJson(res, 200, enrichedUsers);
+      return true;
+    }
+
+    // Admin User Management Details (Subscriptions, Trial, Referrals, Websites, Audit Logs)
+    if (
+      path.match(/^\/api\/admin\/users\/[^/]+(\/details)?$/) &&
+      method === 'GET' &&
+      path !== '/api/admin/users/directory'
+    ) {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      if (!isAdminRole(session.user.role)) {
+        void logSecurityEvent({
+          type: 'forbidden_access',
+          outcome: 'blocked',
+          userId: session.user.id,
+          actorRole: session.user.role,
+          req,
+          details: { path },
+        });
+        sendJson(res, 403, { error: 'Administrator privilege required' });
+        return true;
+      }
+
+      const targetId = decodeURIComponent(
+        path.replace('/api/admin/users/', '').replace(/\/details$/, '').trim()
+      );
+      const targetUser = db.findUserById(targetId) || db.findUserByEmail(targetId);
+      if (!targetUser) {
+        sendJson(res, 404, { error: 'User not found' });
+        return true;
+      }
+
+      await db.ensureSchema();
+      await backfillSubscriptionEntitlements().catch(() => {});
+      const org = db.findOrgById(targetUser.orgId) || null;
+      const entitlementSummary = await getOrganizationEntitlementSummary(targetUser.orgId);
+      const refreshedOrg = db.findOrgById(targetUser.orgId) || org;
+      const trialStatus = refreshedOrg
+        ? getAccountTrialStatus(refreshedOrg)
+        : {
+            isTrial: false,
+            trialUsed: false,
+            isExpired: true,
+            remainingMs: 0,
+          };
+
+      const websites = db
+        .getWebsites()
+        .filter((w) => w.orgId === targetUser.orgId)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      const referralSummary = await getUserReferralSummary(targetUser.id, getPublicOrigin(req));
+      const referrer = targetUser.referredByUserId
+        ? db.findUserById(targetUser.referredByUserId)
+        : undefined;
+
+      const auditLogs = db
+        .getAuditLogs()
+        .filter(
+          (l) =>
+            l.orgId === targetUser.orgId ||
+            l.target === targetUser.email ||
+            l.target === targetUser.id ||
+            l.userId === targetUser.id
+        )
+        .slice(0, 50);
+
+      sendJson(res, 200, {
+        user: {
+          id: targetUser.id,
+          email: targetUser.email,
+          name: targetUser.name,
+          role: targetUser.role,
+          orgId: targetUser.orgId,
+          emailVerified: Boolean(targetUser.emailVerified),
+          referralCode: referralSummary.referralCode,
+          referredByUserId: targetUser.referredByUserId || null,
+          referredByCode: targetUser.referredByCode || null,
+          referredByEmail: referrer?.email || null,
+          referredByName: referrer?.name || null,
+          referredAt: targetUser.referredAt || null,
+          createdAt: targetUser.createdAt,
+        },
+        organization: refreshedOrg
+          ? {
+              ...refreshedOrg,
+              entitlementSummary,
+            }
+          : null,
+        trialStatus,
+        entitlementSummary,
+        websites,
+        referrals: {
+          referralCode: referralSummary.referralCode,
+          referralLink: referralSummary.referralUrl,
+          referredByUserId: targetUser.referredByUserId || null,
+          referredByEmail: referrer?.email || null,
+          referredByName: referrer?.name || null,
+          referredByCode: targetUser.referredByCode || null,
+          referredAt: targetUser.referredAt || null,
+          totalReferredUsers: referralSummary.referredUsers.length,
+          convertedReferredUsers: referralSummary.referredUsers.filter((r) => r.purchasesCount > 0)
+            .length,
+          totalQualifyingPurchases: referralSummary.totalEligiblePurchases,
+          totalCommissionEarned: referralSummary.totalCommissionsEarned,
+          availableReferralBalance: referralSummary.availableBalance,
+          reservedForPendingWithdrawals: referralSummary.reservedBalance,
+          totalWithdrawnAmount: referralSummary.withdrawnBalance,
+          referredUsers: referralSummary.referredUsers.map((r) => ({
+            ...r,
+            status: r.purchasesCount > 0 ? 'converted' : 'registered',
+          })),
+          commissions: referralSummary.commissions,
+        },
+        auditLogs,
+      });
+      return true;
+    }
+
+    // 1.B.1 Admin Action: Change User Account Password
+    if (
+      path.startsWith('/api/admin/users/') &&
+      path.endsWith('/password') &&
+      (method === 'POST' || method === 'PATCH')
+    ) {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      if (!isAdminRole(session.user.role)) {
+        void logSecurityEvent({
+          type: 'forbidden_access',
+          outcome: 'blocked',
+          userId: session.user.id,
+          actorRole: session.user.role,
+          req,
+          details: { path, action: 'admin_change_user_password' },
+        });
+        sendJson(res, 403, { error: 'Administrator privilege required to change user passwords.' });
+        return true;
+      }
+
+      const targetId = decodeURIComponent(
+        path.replace('/api/admin/users/', '').replace(/\/password$/, '').trim()
+      );
+      const targetUser = db.findUserById(targetId) || db.findUserByEmail(targetId);
+      if (!targetUser) {
+        sendJson(res, 404, { error: 'User not found' });
+        return true;
+      }
+
+      const body = await readJsonBody(req);
+      const newPassword = typeof body?.newPassword === 'string' ? body.newPassword : typeof body?.password === 'string' ? body.password : '';
+      const confirmPassword = typeof body?.confirmPassword === 'string' ? body.confirmPassword : undefined;
+      const confirmed = body?.confirm === true || body?.confirmed === true;
+      const reason = typeof body?.reason === 'string' ? body.reason.trim().slice(0, 300) : 'Administrative password reset';
+
+      if (!confirmed) {
+        sendJson(res, 400, { error: 'Explicit confirmation (confirm: true) is required before changing a user password.' });
+        return true;
+      }
+      if (!newPassword) {
+        sendJson(res, 400, { error: 'New password is required.' });
+        return true;
+      }
+      if (confirmPassword !== undefined && confirmPassword !== newPassword) {
+        sendJson(res, 400, { error: 'New password and password confirmation do not match.' });
+        return true;
+      }
+
+      const policyError = validatePasswordPolicy(newPassword);
+      if (policyError) {
+        sendJson(res, 400, { error: policyError });
+        return true;
+      }
+
+      const hashed = await hashPasswordAsync(newPassword);
+      await db.setUserPasswordHash(targetUser.id, hashed);
+      const sessionsRevoked = await revokeAllUserSessions(targetUser.id, 'admin_password_reset');
+      await adminUnlockAccount(targetUser, session.user, req).catch(() => {});
+
+      const nowIso = new Date().toISOString();
+      db.addAuditLog({
+        id: `aud_pw_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+        orgId: targetUser.orgId,
+        userId: session.user.id,
+        userEmail: session.user.email,
+        action: 'ADMIN_CHANGE_USER_PASSWORD',
+        target: targetUser.email,
+        details: `Admin ${session.user.email} (${session.user.id}) changed password for ${targetUser.email} (${targetUser.id}) and revoked ${sessionsRevoked} active session(s). Reason: ${reason}`,
+        timestamp: nowIso,
+      });
+
+      await logSecurityEvent({
+        type: 'password_changed',
+        outcome: 'success',
+        userId: targetUser.id,
+        accountHint: maskEmail(targetUser.email),
+        actorRole: session.user.role,
+        req,
+        details: {
+          changedByAdminId: session.user.id,
+          changedByAdminEmail: maskEmail(session.user.email),
+          sessionsRevoked,
+          reason,
+        },
+        awaitWrite: true,
+      });
+
+      sendJson(res, 200, {
+        success: true,
+        userId: targetUser.id,
+        email: targetUser.email,
+        sessionsRevoked,
+        message: `Password for ${targetUser.email} has been securely updated and ${sessionsRevoked} active session(s) were invalidated.`,
+      });
+      return true;
+    }
+
+    // 1.B.2 Admin Action: Grant Trial Access Again
+    if (
+      path.startsWith('/api/admin/users/') &&
+      (path.endsWith('/grant-trial') || path.endsWith('/trial')) &&
+      method === 'POST'
+    ) {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      if (!isAdminRole(session.user.role)) {
+        void logSecurityEvent({
+          type: 'forbidden_access',
+          outcome: 'blocked',
+          userId: session.user.id,
+          actorRole: session.user.role,
+          req,
+          details: { path, action: 'admin_grant_trial' },
+        });
+        sendJson(res, 403, { error: 'Administrator privilege required to grant trial access.' });
+        return true;
+      }
+
+      const targetId = decodeURIComponent(
+        path
+          .replace('/api/admin/users/', '')
+          .replace(/\/(grant-trial|trial)$/, '')
+          .trim()
+      );
+      const body = await readJsonBody(req);
+      if (body?.confirm !== true && body?.confirmed !== true) {
+        sendJson(res, 400, {
+          error: 'Explicit confirmation (confirm: true) is required to grant trial access.',
+        });
+        return true;
+      }
+
+      try {
+        const result = await adminGrantTrialEntitlement(
+          targetId,
+          {
+            id: session.user.id,
+            email: session.user.email,
+            role: session.user.role,
+          },
+          {
+            durationHours: body?.durationHours !== undefined ? Number(body.durationHours) : undefined,
+            durationDays: body?.durationDays !== undefined ? Number(body.durationDays) : undefined,
+            websiteCapacity: body?.websiteCapacity !== undefined ? Number(body.websiteCapacity) : undefined,
+            reason: typeof body?.reason === 'string' ? body.reason : undefined,
+            allowDuplicate: Boolean(body?.allowDuplicate),
+          }
+        );
+
+        void logSecurityEvent({
+          type: 'admin_action',
+          outcome: 'success',
+          userId: session.user.id,
+          actorRole: session.user.role,
+          req,
+          details: {
+            action: 'admin_grant_trial',
+            targetUserId: targetId,
+            entitlementId: result.entitlement.id,
+            expiresAt: result.entitlement.expiresAt,
+          },
+        });
+
+        sendJson(res, 200, {
+          success: true,
+          ...result,
+          message: `Trial access granted until ${new Date(result.entitlement.expiresAt).toLocaleString()}.`,
+        });
+      } catch (err: any) {
+        const status = Number(err?.statusCode) || 400;
+        sendJson(res, status, {
+          error: err?.message || 'Failed to grant trial access.',
+          code: err?.code,
+          activeTrialExpiresAt: err?.activeTrialExpiresAt,
+        });
+      }
+      return true;
+    }
+
+    // 1.B.3 Admin Action: Grant 1-Month or 1-Year Subscription Access
+    if (
+      path.startsWith('/api/admin/users/') &&
+      (path.endsWith('/grant-subscription') || path.endsWith('/subscriptions')) &&
+      method === 'POST'
+    ) {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      if (!isAdminRole(session.user.role)) {
+        void logSecurityEvent({
+          type: 'forbidden_access',
+          outcome: 'blocked',
+          userId: session.user.id,
+          actorRole: session.user.role,
+          req,
+          details: { path, action: 'admin_grant_subscription' },
+        });
+        sendJson(res, 403, { error: 'Administrator privilege required to grant subscriptions.' });
+        return true;
+      }
+
+      const targetId = decodeURIComponent(
+        path
+          .replace('/api/admin/users/', '')
+          .replace(/\/(grant-subscription|subscriptions)$/, '')
+          .trim()
+      );
+      const body = await readJsonBody(req);
+      if (body?.confirm !== true && body?.confirmed !== true) {
+        sendJson(res, 400, {
+          error: 'Explicit confirmation (confirm: true) is required to grant a subscription.',
+        });
+        return true;
+      }
+
+      try {
+        const result = await adminGrantSubscriptionEntitlement(
+          targetId,
+          {
+            id: session.user.id,
+            email: session.user.email,
+            role: session.user.role,
+          },
+          {
+            duration: body?.duration || body?.billingInterval,
+            planId: body?.planId,
+            websiteCapacity: body?.websiteCapacity !== undefined ? Number(body.websiteCapacity) : undefined,
+            reason: typeof body?.reason === 'string' ? body.reason : undefined,
+            startsAt: typeof body?.startsAt === 'string' ? body.startsAt : undefined,
+          }
+        );
+
+        void logSecurityEvent({
+          type: 'admin_action',
+          outcome: 'success',
+          userId: session.user.id,
+          actorRole: session.user.role,
+          req,
+          details: {
+            action: 'admin_grant_subscription',
+            targetUserId: targetId,
+            entitlementId: result.entitlement.id,
+            duration: body?.duration || body?.billingInterval,
+            websiteCapacity: result.entitlement.websiteCapacity,
+            expiresAt: result.entitlement.expiresAt,
+          },
+        });
+
+        sendJson(res, 201, {
+          success: true,
+          ...result,
+          message: `Granted ${result.entitlement.planName} (${result.entitlement.websiteCapacity} websites) expiring on ${new Date(result.entitlement.expiresAt).toLocaleDateString()}.`,
+        });
+      } catch (err: any) {
+        const status = Number(err?.statusCode) || 400;
+        sendJson(res, status, {
+          error: err?.message || 'Failed to grant subscription entitlement.',
+        });
+      }
+      return true;
+    }
+
+    // 1.B.6 Admin Action: Set Custom Remaining Subscription Days on an Entitlement
+    if (
+      (path.match(/^\/api\/admin\/entitlements\/[^/]+\/remaining-days$/) ||
+        path.match(/^\/api\/admin\/users\/[^/]+\/entitlements\/[^/]+\/remaining-days$/)) &&
+      (method === 'PATCH' || method === 'POST')
+    ) {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+      if (!isAdminRole(session.user.role)) {
+        void logSecurityEvent({
+          type: 'forbidden_access',
+          outcome: 'blocked',
+          userId: session.user.id,
+          actorRole: session.user.role,
+          req,
+          details: { path, action: 'admin_set_remaining_days' },
+        });
+        sendJson(res, 403, {
+          error: 'Administrator privilege required to modify subscription remaining days.',
+        });
+        return true;
+      }
+
+      let targetUserId: string | undefined;
+      let entitlementId = '';
+      if (path.startsWith('/api/admin/users/')) {
+        const parts = path.split('/');
+        // ['', 'api', 'admin', 'users', ':userId', 'entitlements', ':entitlementId', 'remaining-days']
+        targetUserId = decodeURIComponent(parts[4] || '');
+        entitlementId = decodeURIComponent(parts[6] || '');
+      } else {
+        entitlementId = decodeURIComponent(
+          path
+            .replace('/api/admin/entitlements/', '')
+            .replace(/\/remaining-days$/, '')
+            .trim()
+        );
+      }
+
+      const body = await readJsonBody(req);
+      if (body?.confirm !== true && body?.confirmed !== true) {
+        sendJson(res, 400, {
+          error: 'Explicit confirmation (confirm: true) is required to update remaining subscription days.',
+        });
+        return true;
+      }
+
+      const rawDays = body?.remainingDays !== undefined ? body.remainingDays : body?.days;
+      if (rawDays === undefined || rawDays === null || rawDays === '') {
+        sendJson(res, 400, { error: 'remainingDays is required.' });
+        return true;
+      }
+
+      try {
+        const result = await adminSetEntitlementRemainingDays(
+          entitlementId,
+          {
+            id: session.user.id,
+            email: session.user.email,
+            role: session.user.role,
+          },
+          {
+            remainingDays: Number(rawDays),
+            reason: typeof body?.reason === 'string' ? body.reason : undefined,
+            targetUserId,
+          }
+        );
+
+        void logSecurityEvent({
+          type: 'admin_action',
+          outcome: 'success',
+          userId: session.user.id,
+          actorRole: session.user.role,
+          req,
+          details: {
+            action: 'admin_set_entitlement_remaining_days',
+            entitlementId,
+            previousDaysRemaining: result.previousDaysRemaining,
+            newDaysRemaining: result.newDaysRemaining,
+            previousExpiresAt: result.previousExpiresAt,
+            newExpiresAt: result.newExpiresAt,
+          },
+        });
+
+        sendJson(res, 200, {
+          success: true,
+          ...result,
+          message: `Updated entitlement ${entitlementId} remaining days from ${result.previousDaysRemaining}d to ${result.newDaysRemaining}d.`,
+        });
+      } catch (err: any) {
+        const status = Number(err?.statusCode) || 400;
+        sendJson(res, status, {
+          error: err?.message || 'Failed to update remaining subscription days.',
+        });
+      }
       return true;
     }
 
