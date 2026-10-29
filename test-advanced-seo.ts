@@ -34,7 +34,7 @@ console.log('Test 1: Title Analysis');
   assert.equal(short.exists, true);
   assert.equal(short.severity, 'warning');
 
-  const good = analyzeTitle('<html><head><title>PulseVanguard - Modern Website Health & SEO Monitoring Platform</title></head></html>');
+  const good = analyzeTitle('<html><head><title>PulseVanguarde - Modern Website Health & SEO Monitoring Platform</title></head></html>');
   assert.equal(good.exists, true);
   assert.equal(good.severity, 'good');
 
@@ -55,7 +55,7 @@ console.log('Test 2: Meta Description Analysis');
   assert.equal(short.severity, 'warning');
 
   const optimal = analyzeMetaDescription(
-    '<html><head><meta name="description" content="PulseVanguard monitors your website uptime, SSL certificates, DNS health, and search engine optimization signals in real time." /></head></html>'
+    '<html><head><meta name="description" content="PulseVanguarde monitors your website uptime, SSL certificates, DNS health, and search engine optimization signals in real time." /></head></html>'
   );
   assert.equal(optimal.exists, true);
   assert.equal(optimal.severity, 'good');
@@ -123,7 +123,7 @@ console.log('Test 5: Structured Data (Single, Array, @graph, Disclaimer)');
         {
           "@context": "https://schema.org",
           "@type": "Organization",
-          "name": "PulseVanguard",
+          "name": "PulseVanguarde",
           "url": "https://pulsevanguard.com"
         }
       </script>
@@ -131,7 +131,7 @@ console.log('Test 5: Structured Data (Single, Array, @graph, Disclaimer)');
         {
           "@context": "https://schema.org",
           "@graph": [
-            { "@type": "WebSite", "name": "PulseVanguard" },
+            { "@type": "WebSite", "name": "PulseVanguarde" },
             { "@type": "Article", "headline": "SEO Guide" }
           ]
         }
@@ -389,17 +389,17 @@ console.log('Test 12: Dashboard UI Data Contracts Verification');
       <!DOCTYPE html>
       <html lang="en">
         <head>
-          <title>PulseVanguard - Enterprise Monitoring</title>
-          <meta name="description" content="PulseVanguard provides real-time website monitoring and comprehensive SEO analysis." />
+          <title>PulseVanguarde - Enterprise Monitoring</title>
+          <meta name="description" content="PulseVanguarde provides real-time website monitoring and comprehensive SEO analysis." />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <link rel="canonical" href="https://pulsevanguard.com/dashboard" />
-          <meta property="og:title" content="PulseVanguard" />
+          <meta property="og:title" content="PulseVanguarde" />
           <meta property="og:description" content="Website Health Monitoring" />
           <meta property="og:image" content="https://pulsevanguard.com/og.png" />
           <meta name="twitter:card" content="summary_large_image" />
-          <meta name="twitter:title" content="PulseVanguard Twitter" />
+          <meta name="twitter:title" content="PulseVanguarde Twitter" />
           <script type="application/ld+json">
-            { "@context": "https://schema.org", "@type": "SoftwareApplication", "name": "PulseVanguard" }
+            { "@context": "https://schema.org", "@type": "SoftwareApplication", "name": "PulseVanguarde" }
           </script>
         </head>
         <body>

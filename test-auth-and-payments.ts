@@ -8,7 +8,7 @@ import { applyAuthCleanupMigration, runMigration } from './server/db/migrate.ts'
 import { query } from './server/db/connection.ts';
 import { createSession as createDbSession, findSessionByToken, deleteSessionByToken } from './server/db/sessionRepo.ts';
 
-console.log('=== STARTING PULSEVANGUARD AUTH & PAYMENT APPROVAL TEST SUITE ===');
+console.log('=== STARTING PULSEVANGUARDE AUTH & PAYMENT APPROVAL TEST SUITE ===');
 
 class MockRequest extends IncomingMessage {
   private bodyData: string;

@@ -96,7 +96,7 @@ export async function getPool(): Promise<pg.Pool> {
       name: 'version',
       args: [],
       returns: memDb.public.getType('text' as any) || undefined,
-      implementation: () => 'PostgreSQL 16.0 (PulseVanguard Dev/Test In-Memory Engine)',
+      implementation: () => 'PostgreSQL 16.0 (PulseVanguarde Dev/Test In-Memory Engine)',
     });
 
     const adapter = memDb.adapters.createPg();

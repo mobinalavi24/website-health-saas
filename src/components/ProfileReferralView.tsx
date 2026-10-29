@@ -346,7 +346,7 @@ export const ProfileReferralView: React.FC<ProfileReferralViewProps> = ({
         {summary?.canApplyReferralCode && (
           <div className="pt-4 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="text-xs text-slate-400">
-              Were you invited by another PulseVanguard user? Enter their referral code before your first purchase:
+              Were you invited by another PulseVanguarde user? Enter their referral code before your first purchase:
             </div>
             <form onSubmit={handleApplyReferral} className="flex items-center gap-2">
               <input

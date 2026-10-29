@@ -234,7 +234,7 @@ export async function fetchTronBlockchainTransfers(depositAddress: string): Prom
     try {
       const tronScanUrl = `https://apilist.tronscanapi.com/api/transfer/trc20?address=${depositAddress}&trc20Id=${TRON_USDT_CONTRACT}&direction=2&limit=20`;
       const resp = await fetch(tronScanUrl, {
-        headers: { 'User-Agent': 'Mozilla/5.0 PulseVanguard-CryptoValidator' },
+        headers: { 'User-Agent': 'Mozilla/5.0 PulseVanguarde-CryptoValidator' },
         signal: AbortSignal.timeout(6000),
       });
       if (resp.ok) {
@@ -298,7 +298,7 @@ export async function inspectTronTransaction(txId: string, expectedAddress: stri
 
     // Fallback: query TronScan transaction detail API which decodes TRC20 contract & base58 addresses
     const resp = await fetch(`https://apilist.tronscanapi.com/api/transaction-info?hash=${cleanHash}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 PulseVanguard-CryptoValidator' },
+      headers: { 'User-Agent': 'Mozilla/5.0 PulseVanguarde-CryptoValidator' },
       signal: AbortSignal.timeout(6000),
     });
     if (resp.ok) {

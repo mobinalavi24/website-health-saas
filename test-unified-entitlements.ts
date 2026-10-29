@@ -8,7 +8,7 @@ import { query } from './server/db/connection.ts';
 import { getOrganizationEntitlementSummary } from './server/entitlements.ts';
 
 async function runTests() {
-  console.log('=== Starting PulseVanguard Unified Navigation, Crypto-Only UI & Entitlements Verification ===');
+  console.log('=== Starting PulseVanguarde Unified Navigation, Crypto-Only UI & Entitlements Verification ===');
 
   await db.ensureSchema();
 

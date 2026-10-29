@@ -363,7 +363,7 @@ async function queryConfiguredApiProvider(
     let url = '';
     const headers: Record<string, string> = {
       Accept: 'application/json',
-      'User-Agent': 'PulseVanguard-Monitor/1.0 (+https://pulsevanguard.com; whois-audit)',
+      'User-Agent': 'PulseVanguarde-Monitor/1.0 (+https://pulsevanguard.com; whois-audit)',
     };
 
     if (provider === 'custom') {
@@ -1339,7 +1339,7 @@ async function queryAuthoritativeRdapAndWhois(domain: string): Promise<WhoisLook
         method: 'GET',
         headers: {
           Accept: 'application/rdap+json, application/json',
-          'User-Agent': 'PulseVanguard-Monitor/1.0 (+https://pulsevanguard.com; whois-rdap)',
+          'User-Agent': 'PulseVanguarde-Monitor/1.0 (+https://pulsevanguard.com; whois-rdap)',
         },
         signal: controller.signal,
       });

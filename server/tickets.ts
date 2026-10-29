@@ -117,7 +117,7 @@ export async function dispatchSupportEmailNotification(params: {
 }): Promise<EmailDispatchResult> {
   const logId = `eml_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
   const createdAt = new Date().toISOString();
-  const fromAddress = process.env.SUPPORT_EMAIL_FROM || process.env.EMAIL_FROM || 'PulseVanguard Support <support@pulsevanguard.com>';
+  const fromAddress = process.env.SUPPORT_EMAIL_FROM || process.env.EMAIL_FROM || 'PulseVanguarde Support <support@pulsevanguard.com>';
 
   const resendApiKey = (process.env.RESEND_API_KEY || '').trim();
   const sendgridApiKey = (process.env.SENDGRID_API_KEY || '').trim();
@@ -533,9 +533,9 @@ export async function createSupportTicket(
 
   // Send admin notification email to mobinalavi7491@gmail.com
   const adminTicketLink = `${originUrl.replace(/\/+$/, '')}/?view=reports&ticketId=${encodeURIComponent(newTicket.id)}`;
-  const emailSubject = `[PulseVanguard Support] New Ticket #${newTicket.id} — ${newTicket.subject}`;
+  const emailSubject = `[PulseVanguarde Support] New Ticket #${newTicket.id} — ${newTicket.subject}`;
   const textBody = [
-    `New Support Ticket Submitted on PulseVanguard`,
+    `New Support Ticket Submitted on PulseVanguarde`,
     `---------------------------------------------`,
     `Ticket ID: ${newTicket.id}`,
     `Customer Name: ${newTicket.name}`,
@@ -726,7 +726,7 @@ export async function replyToSupportTicket(
   const canonicalUser = db.findUserById(sessionUser.id) || sessionUser;
   const senderName =
     senderRole === 'admin'
-      ? `${canonicalUser.name || 'PulseVanguard Support'} (Admin)`
+      ? `${canonicalUser.name || 'PulseVanguarde Support'} (Admin)`
       : canonicalUser.name || ticket.name;
   const senderEmail = canonicalUser.email.trim().toLowerCase();
 
@@ -832,7 +832,7 @@ export async function replyToSupportTicket(
 
   if (senderRole === 'admin') {
     const customerTicketLink = `${originUrl.replace(/\/+$/, '')}/?view=reports&ticketId=${encodeURIComponent(ticket.id)}`;
-    const emailSubject = `Re: [PulseVanguard Support] Ticket #${ticket.id} — ${ticket.subject}`;
+    const emailSubject = `Re: [PulseVanguarde Support] Ticket #${ticket.id} — ${ticket.subject}`;
     const textBody = [
       `Hello ${ticket.name},`,
       ``,
@@ -843,7 +843,7 @@ export async function replyToSupportTicket(
       `---------------------------`,
       ``,
       `Current Ticket Status: ${nextStatus.toUpperCase()}`,
-      `View the full conversation and reply inside PulseVanguard:`,
+      `View the full conversation and reply inside PulseVanguarde:`,
       customerTicketLink,
     ].join('\n');
 
@@ -856,7 +856,7 @@ export async function replyToSupportTicket(
         <p><strong>Ticket Status:</strong> ${nextStatus}</p>
         <p style="margin-top: 20px;">
           <a href="${customerTicketLink}" style="background: #E6A05A; color: #0B1120; padding: 10px 16px; border-radius: 6px; text-decoration: none; font-weight: bold;">
-            View Conversation in PulseVanguard
+            View Conversation in PulseVanguarde
           </a>
         </p>
       </div>

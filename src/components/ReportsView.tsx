@@ -183,7 +183,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         <div className="space-y-2">
           <h1 className="text-xl font-bold text-white">Authentication Required</h1>
           <p className="text-xs text-slate-400 leading-relaxed">
-            You must be signed in to your PulseVanguard account before creating or viewing support tickets in the Reports center.
+            You must be signed in to your PulseVanguarde account before creating or viewing support tickets in the Reports center.
           </p>
         </div>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
@@ -1079,7 +1079,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                                 : 'bg-slate-800 text-slate-200 border border-slate-700'
                             }`}
                           >
-                            {isMsgAdmin ? 'PulseVanguard Support' : 'You'}
+                            {isMsgAdmin ? 'PulseVanguarde Support' : 'You'}
                           </span>
                           <span className="font-semibold text-white">{msg.sender}</span>
                         </div>

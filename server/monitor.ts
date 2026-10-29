@@ -130,7 +130,7 @@ export class ContinuousMonitoringEngine {
       const resp = await safeFetch(website.url, {
         method: 'GET',
         headers: {
-          'User-Agent': 'PulseVanguard-Monitor/1.0 (+https://pulsevanguard.com/bot; continuous health check)',
+          'User-Agent': 'PulseVanguarde-Monitor/1.0 (+https://pulsevanguard.com/bot; continuous health check)',
         },
         timeoutMs: 6000,
         maxBytes: 64 * 1024,
@@ -148,7 +148,7 @@ export class ContinuousMonitoringEngine {
         await new Promise((r) => setTimeout(r, 1500));
         const retryResp = await safeFetch(website.url, {
           method: 'GET',
-          headers: { 'User-Agent': 'PulseVanguard-Monitor/1.0 (retry)' },
+          headers: { 'User-Agent': 'PulseVanguarde-Monitor/1.0 (retry)' },
           timeoutMs: 4000,
           maxBytes: 16 * 1024,
         }).catch(() => null);

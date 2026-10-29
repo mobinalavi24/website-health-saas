@@ -56,7 +56,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <Activity className="h-4 w-4" />
           </div>
           <span className="text-lg font-bold tracking-tight text-white group-hover:text-[#E6A05A] transition-colors">
-            PulseVanguard
+            PulseVanguarde
           </span>
         </button>
 

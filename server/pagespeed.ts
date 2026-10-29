@@ -333,7 +333,7 @@ async function runSingleStrategyAttempt(
         method: 'GET',
         headers: {
           Accept: 'application/json',
-          'User-Agent': 'PulseVanguard-Monitor/1.0 (+https://pulsevanguard.com; pagespeed-audit)',
+          'User-Agent': 'PulseVanguarde-Monitor/1.0 (+https://pulsevanguard.com; pagespeed-audit)',
         },
         signal: controller.signal,
       });

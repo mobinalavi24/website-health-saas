@@ -265,7 +265,7 @@ async function sendSecurityEmail(to: string, subject: string, text: string): Pro
   const resendApiKey = (process.env.RESEND_API_KEY || '').trim();
   const sendgridApiKey = (process.env.SENDGRID_API_KEY || '').trim();
   const webhook = (process.env.SUPPORT_EMAIL_WEBHOOK_URL || process.env.EMAIL_WEBHOOK_URL || '').trim();
-  const from = process.env.SUPPORT_EMAIL_FROM || process.env.EMAIL_FROM || 'PulseVanguard Security <support@pulsevanguard.com>';
+  const from = process.env.SUPPORT_EMAIL_FROM || process.env.EMAIL_FROM || 'PulseVanguarde Security <support@pulsevanguard.com>';
   try {
     if (resendApiKey) {
       const r = await fetch('https://api.resend.com/emails', {
@@ -310,7 +310,7 @@ async function sendLockoutNotice(email: string | undefined, userId: string | und
   const base = publicAppUrl();
   await sendSecurityEmail(
     email,
-    'PulseVanguard: your account was temporarily locked',
+    'PulseVanguarde: your account was temporarily locked',
     `We detected more than ${MAX_FAILED_LOGINS} failed sign-in attempts on your account, so it has been locked for up to 24 hours.\n\n` +
       `If this was you, or you want to regain access immediately, use "Forgot password" on the sign-in screen${base ? ` (${base})` : ''} to reset your password; completing the reset unlocks the account.\n\n` +
       `If this was not you, resetting your password is strongly recommended.`
@@ -365,7 +365,7 @@ export async function requestPasswordReset(emailRaw: unknown, req: IncomingMessa
   const link = base ? `${base}/#reset=${token}` : '';
   const delivered = await sendSecurityEmail(
     user.email,
-    'PulseVanguard password reset',
+    'PulseVanguarde password reset',
     `A password reset was requested for your account.\n\n` +
       (link ? `Open this link within 60 minutes to choose a new password:\n${link}\n\n` : `Reset token: ${token}\n\n`) +
       `If you did not request this, you can ignore this email. Completing a reset also unlocks a locked account.`

@@ -72,7 +72,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
             <div className="space-y-1.5">
               <h3 className="text-sm font-bold text-white">Sign In Required</h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Please sign in to your PulseVanguard account to create and track support tickets in the Reports center.
+                Please sign in to your PulseVanguarde account to create and track support tickets in the Reports center.
               </p>
             </div>
             <div className="flex items-center justify-center gap-2.5 pt-1">

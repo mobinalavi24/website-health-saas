@@ -54,7 +54,7 @@ async function runTests() {
   const originalDbJson = fs.readFileSync(DB_JSON_PATH, 'utf8');
 
   try {
-    console.log('=== PulseVanguard Support Ticketing & Section Removal Verification ===');
+    console.log('=== PulseVanguarde Support Ticketing & Section Removal Verification ===');
     await runMigration();
 
     // 1. Verify UI removal of Instant Scanner & Agency & Clients

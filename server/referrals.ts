@@ -505,7 +505,7 @@ export async function validateReferralCodeForRegistration(
   if (!/^[A-Z0-9_-]{4,24}$/.test(code)) {
     return {
       valid: false,
-      error: 'Invalid referral code format. Please enter a valid PulseVanguard referral code.',
+      error: 'Invalid referral code format. Please enter a valid PulseVanguarde referral code.',
     };
   }
 

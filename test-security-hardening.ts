@@ -39,7 +39,7 @@ async function callApi(options: {
 
   const reqHeaders: Record<string, string> = {
     host: 'localhost:3000',
-    'user-agent': 'PulseVanguard-SecurityTest/1.0',
+    'user-agent': 'PulseVanguarde-SecurityTest/1.0',
     ...(options.headers || {}),
   };
   if (payload && !reqHeaders['content-type']) {
@@ -130,7 +130,7 @@ function extractCookiesFromHeaders(headers: Record<string, string | string[]>): 
 }
 
 async function runSecurityHardeningTests() {
-  console.log('=== Starting PulseVanguard Comprehensive Security & Authentication Audit Tests ===');
+  console.log('=== Starting PulseVanguarde Comprehensive Security & Authentication Audit Tests ===');
   process.env.SECURITY_EXPOSE_RESET_TOKEN_FOR_TESTS = 'true';
 
   await runMigration();

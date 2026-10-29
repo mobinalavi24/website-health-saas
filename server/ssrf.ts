@@ -255,7 +255,7 @@ export interface SafeFetchOptions {
   followRedirects?: boolean;
 }
 
-const DEFAULT_UA = 'PulseVanguard-Monitor/1.0 (+https://pulsevanguard.com/bot; website health check)';
+const DEFAULT_UA = 'PulseVanguarde-Monitor/1.0 (+https://pulsevanguard.com/bot; website health check)';
 
 function decodeBody(res: http.IncomingMessage, maxBytes: number, deadline: number): Promise<string> {
   return new Promise((resolve, reject) => {

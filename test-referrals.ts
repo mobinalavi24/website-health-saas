@@ -13,7 +13,7 @@ import {
   getUserReferralSummary,
 } from './server/referrals.ts';
 
-console.log('=== STARTING PULSEVANGUARD REFERRAL, COMMISSION WALLET & WITHDRAWAL TEST SUITE ===');
+console.log('=== STARTING PULSEVANGUARDE REFERRAL, COMMISSION WALLET & WITHDRAWAL TEST SUITE ===');
 
 class MockRequest extends IncomingMessage {
   private bodyData: string;

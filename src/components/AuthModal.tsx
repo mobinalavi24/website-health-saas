@@ -109,7 +109,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#E6A05A]/10 text-[#E6A05A]">
               <Activity className="h-4 w-4" />
             </div>
-            <span className="text-base font-bold text-white">PulseVanguard</span>
+            <span className="text-base font-bold text-white">PulseVanguarde</span>
           </div>
           <button onClick={onClose} className="p-1 text-slate-400 hover:text-white rounded-lg">
             <X className="h-4 w-4" />

@@ -45,10 +45,10 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
     },
     {
       q: 'Do you require hosting, cPanel, SSH, or server passwords?',
-      a: 'Never. PulseVanguard operates 100% through public DNS, TLS handshakes on port 443, and standard HTTP/HTTPS endpoints. You do not need to provide server credentials, database passwords, or FTP access.',
+      a: 'Never. PulseVanguarde operates 100% through public DNS, TLS handshakes on port 443, and standard HTTP/HTTPS endpoints. You do not need to provide server credentials, database passwords, or FTP access.',
     },
     {
-      q: 'How does PulseVanguard eliminate false downtime alerts?',
+      q: 'How does PulseVanguarde eliminate false downtime alerts?',
       a: 'When an endpoint fails a check, our monitoring engine immediately runs a secondary confirmation retry. Only when multiple probing requests confirm the failure is an incident logged and an alert dispatched.',
     },
     {
@@ -298,7 +298,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
       <section id="how-it-works" className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 space-y-12">
         <div className="text-center space-y-3 max-w-2xl mx-auto">
           <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
-            How PulseVanguard Works
+            How PulseVanguarde Works
           </h2>
           <p className="text-sm text-slate-400">
             A non-intrusive mechanism-to-outcome architecture designed for speed, security, and developer trust.
@@ -492,7 +492,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
           {/* Testimonial 1 */}
           <div className="p-6 rounded-2xl border border-slate-800 bg-[#0F172A] space-y-4">
             <p className="text-xs text-slate-300 leading-relaxed italic">
-              "We manage 45 client eCommerce portals. PulseVanguard caught a critical SSL expiration 12 days before customer checkout was disrupted. The white-label executive PDF reports save us 10+ engineering hours every month."
+              "We manage 45 client eCommerce portals. PulseVanguarde caught a critical SSL expiration 12 days before customer checkout was disrupted. The white-label executive PDF reports save us 10+ engineering hours every month."
             </p>
             <div className="flex items-center gap-3 pt-2 border-t border-slate-800">
               <img

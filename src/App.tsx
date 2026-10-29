@@ -310,7 +310,7 @@ export default function App() {
             <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-8 max-w-3xl mx-auto space-y-6">
               <h1 className="text-2xl font-bold text-white">Security & Trust Architecture</h1>
               <p className="text-xs text-slate-300 leading-relaxed">
-                PulseVanguard was architected from day one to operate without privileged server credentials. Our external probing cluster queries public DNS zones, negotiates TLS port 443 handshakes, and analyzes public HTTP responses.
+                PulseVanguarde was architected from day one to operate without privileged server credentials. Our external probing cluster queries public DNS zones, negotiates TLS port 443 handshakes, and analyzes public HTTP responses.
               </p>
               <div className="space-y-3 text-xs text-slate-300">
                 <div className="p-4 rounded-lg bg-slate-900 border border-slate-800">

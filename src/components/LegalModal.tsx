@@ -38,7 +38,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({
             <>
               <h3 className="text-sm font-semibold text-white">1. Zero Server Credential Requirement</h3>
               <p>
-                PulseVanguard conducts all website availability, performance, and security evaluations strictly via external, publicly accessible network protocols (HTTP/HTTPS, TLS handshake, and public DNS queries). We never request or store hosting passwords, cPanel credentials, SSH keys, or FTP logins.
+                PulseVanguarde conducts all website availability, performance, and security evaluations strictly via external, publicly accessible network protocols (HTTP/HTTPS, TLS handshake, and public DNS queries). We never request or store hosting passwords, cPanel credentials, SSH keys, or FTP logins.
               </p>
 
               <h3 className="text-sm font-semibold text-white">2. Server-Side Request Forgery (SSRF) Safeguards</h3>
@@ -67,7 +67,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({
 
               <h3 className="text-sm font-semibold text-white">3. No Advertising Trackers</h3>
               <p>
-                PulseVanguard never sells customer or telemetry data to third-party ad networks or brokers.
+                PulseVanguarde never sells customer or telemetry data to third-party ad networks or brokers.
               </p>
             </>
           )}
@@ -76,7 +76,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({
             <>
               <h3 className="text-sm font-semibold text-white">1. Acceptable Use Policy</h3>
               <p>
-                PulseVanguard is provided for legitimate website monitoring, uptime verification, and diagnostic auditing. Scanning internal corporate networks or abusing the scanner for denial-of-service testing is strictly prohibited.
+                PulseVanguarde is provided for legitimate website monitoring, uptime verification, and diagnostic auditing. Scanning internal corporate networks or abusing the scanner for denial-of-service testing is strictly prohibited.
               </p>
 
               <h3 className="text-sm font-semibold text-white">2. Service Level Agreement (SLA)</h3>

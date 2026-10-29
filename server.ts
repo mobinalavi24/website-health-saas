@@ -27,11 +27,11 @@ async function startServer() {
   // 1. Initialize PostgreSQL schema and apply database migrations
   try {
     const migrationResult = await runMigration();
-    console.log('[PulseVanguard] PostgreSQL migration ready:', migrationResult.details.join('; ') || 'Up to date');
+    console.log('[PulseVanguarde] PostgreSQL migration ready:', migrationResult.details.join('; ') || 'Up to date');
     await db.initFromPostgres();
-    console.log('[PulseVanguard] PostgreSQL repositories synchronized.');
+    console.log('[PulseVanguarde] PostgreSQL repositories synchronized.');
   } catch (dbErr: any) {
-    console.error('[PulseVanguard] PostgreSQL startup warning:', dbErr.message);
+    console.error('[PulseVanguarde] PostgreSQL startup warning:', dbErr.message);
     if (isProd) {
       throw dbErr;
     }
@@ -44,9 +44,9 @@ async function startServer() {
   const { getPageSpeedApiKey } = await import('./server/pagespeed.ts');
   const psKeyStatus = getPageSpeedApiKey();
   if (psKeyStatus.key) {
-    console.log('[PulseVanguard] Google PageSpeed Insights API key active and ready.');
+    console.log('[PulseVanguarde] Google PageSpeed Insights API key active and ready.');
   } else {
-    console.warn(`[PulseVanguard PageSpeed Notice]: ${psKeyStatus.diagnosticError}`);
+    console.warn(`[PulseVanguarde PageSpeed Notice]: ${psKeyStatus.diagnosticError}`);
   }
   const pruneTimer = setInterval(() => {
     pruneSecurityData().catch(() => {});
@@ -115,11 +115,11 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[PulseVanguard] Server running on http://0.0.0.0:${PORT} (mode: ${isProd ? 'production' : 'development'})`);
+    console.log(`[PulseVanguarde] Server running on http://0.0.0.0:${PORT} (mode: ${isProd ? 'production' : 'development'})`);
   });
 }
 
 startServer().catch((err) => {
-  console.error('[PulseVanguard] Failed to start server:', err?.message || err);
+  console.error('[PulseVanguarde] Failed to start server:', err?.message || err);
   process.exit(1);
 });

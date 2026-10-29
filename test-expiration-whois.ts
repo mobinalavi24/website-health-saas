@@ -19,7 +19,7 @@ import { OrgRepo, UserRepo } from './server/db/repositories.ts';
 import { query } from './server/db/connection.ts';
 
 async function runTests() {
-  console.log('=== Starting PulseVanguard Acceptance Suite: Subscription Expiration, Super Admin & WHOIS ===');
+  console.log('=== Starting PulseVanguarde Acceptance Suite: Subscription Expiration, Super Admin & WHOIS ===');
   await db.ensureSchema();
 
   // Start ephemeral HTTP server to test real API routes & HTTP status codes

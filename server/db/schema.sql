@@ -1,4 +1,4 @@
--- PulseVanguard Production-Grade PostgreSQL Schema
+-- PulseVanguarde Production-Grade PostgreSQL Schema
 -- Normalized relational schema preserving all existing entities, types, and constraints
 
 CREATE TABLE IF NOT EXISTS organizations (

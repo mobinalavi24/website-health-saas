@@ -234,7 +234,7 @@ export const AgencyWorkspaceView: React.FC<AgencyWorkspaceViewProps> = ({
             <div>
               <h2 className="text-base font-semibold text-white">White-Label Report Branding</h2>
               <p className="text-xs text-slate-400">
-                Replace PulseVanguard branding with your own agency identity on all exportable PDF and public web reports.
+                Replace PulseVanguarde branding with your own agency identity on all exportable PDF and public web reports.
               </p>
             </div>
           </div>

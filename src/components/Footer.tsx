@@ -22,7 +22,7 @@ export const Footer: React.FC<FooterProps> = ({
                 <Activity className="h-3.5 w-3.5" />
               </div>
               <span className="text-base font-bold tracking-tight text-white">
-                PulseVanguard
+                PulseVanguarde
               </span>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
@@ -115,7 +115,7 @@ export const Footer: React.FC<FooterProps> = ({
 
         <div className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
           <div>
-            © {new Date().getFullYear()} PulseVanguard Systems Inc. All rights reserved.
+            © {new Date().getFullYear()} PulseVanguarde Systems Inc. All rights reserved.
           </div>
           <div className="flex items-center gap-4">
             <span>ISO/IEC 27001 Methodology Aligned</span>
