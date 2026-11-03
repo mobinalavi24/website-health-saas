@@ -1046,17 +1046,17 @@ export const AdminView: React.FC<AdminViewProps> = ({ onNavigate }) => {
 
       {/* Per-User Account Management Modal */}
       {selectedUserId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="w-full max-w-5xl rounded-2xl border border-slate-700 bg-[#0B1120] shadow-2xl overflow-hidden my-8">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-2.5 sm:p-4 overflow-y-auto">
+          <div className="w-full max-w-5xl rounded-2xl border border-slate-700 bg-[#0B1120] shadow-2xl overflow-hidden my-4 sm:my-8">
             {/* Modal Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 bg-[#0F172A] border-b border-slate-800">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 sm:px-6 py-4 bg-[#0F172A] border-b border-slate-800">
               <div>
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <h3 className="text-base sm:text-lg font-bold text-white">
                     {userDetails?.user.name || 'User Account Management'}
                   </h3>
                   {userDetails?.user.email && (
-                    <span className="font-mono text-xs px-2.5 py-0.5 rounded bg-slate-800 text-[#E6A05A] border border-slate-700">
+                    <span className="font-mono text-xs px-2.5 py-0.5 rounded bg-slate-800 text-[#E6A05A] border border-slate-700 break-all">
                       {userDetails.user.email}
                     </span>
                   )}
@@ -1098,11 +1098,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ onNavigate }) => {
             </div>
 
             {/* Modal Navigation Tabs */}
-            <div className="flex flex-wrap items-center gap-2 px-6 py-3 bg-slate-900/70 border-b border-slate-800">
+            <div className="flex flex-wrap items-center gap-2 px-4 sm:px-6 py-3 bg-slate-900/70 border-b border-slate-800">
               <button
                 type="button"
                 onClick={() => setActiveModalTab('subscriptions')}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                   activeModalTab === 'subscriptions'
                     ? 'bg-[#E6A05A] text-[#0B1120]'
                     : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
@@ -1115,7 +1115,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onNavigate }) => {
               <button
                 type="button"
                 onClick={() => setActiveModalTab('trial')}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                   activeModalTab === 'trial'
                     ? 'bg-[#E6A05A] text-[#0B1120]'
                     : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
@@ -1128,7 +1128,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onNavigate }) => {
               <button
                 type="button"
                 onClick={() => setActiveModalTab('password')}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                   activeModalTab === 'password'
                     ? 'bg-[#E6A05A] text-[#0B1120]'
                     : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
@@ -1141,7 +1141,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onNavigate }) => {
               <button
                 type="button"
                 onClick={() => setActiveModalTab('referrals')}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                   activeModalTab === 'referrals'
                     ? 'bg-[#E6A05A] text-[#0B1120]'
                     : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
@@ -1155,7 +1155,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onNavigate }) => {
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 max-h-[75vh] overflow-y-auto space-y-6">
+            <div className="p-4 sm:p-6 max-h-[75vh] overflow-y-auto space-y-6">
               {modalActionBanner && (
                 <div
                   className={`p-3.5 rounded-xl border text-xs flex items-start justify-between gap-3 ${

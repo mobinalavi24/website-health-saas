@@ -9,7 +9,7 @@ import { performPageSpeedAnalysis } from './pagespeed.ts';
 import type { CombinedPageSpeedResult } from './pagespeedTypes.ts';
 import { getAccountTrialStatus, TRIAL_EXPIRED_RESPONSE } from './trial.ts';
 import { monitorEngine } from './monitor.ts';
-import { createCryptoPaymentOrder, verifyPaymentOrder, testLBankConnection } from './lbank.ts';
+import { createCryptoPaymentOrder, verifyPaymentOrder, testLBankConnection, getSupportedCryptoPaymentOptions } from './lbank.ts';
 import { approvePaymentOrder, rejectPaymentOrder, cancelPaymentOrder } from './paymentApproval.ts';
 import { UserRepo, OrgRepo } from './db/repositories.ts';
 import { query } from './db/connection.ts';
@@ -2108,7 +2108,29 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       return true;
     }
 
-    // --- CRYPTO PAYMENT SYSTEM (USDT TRC20 / LBank Integration) ---
+    // --- CRYPTO PAYMENT SYSTEM (USDT TRC20 & GRAM TONCOIN / LBank Integration) ---
+    if (path === '/api/crypto/payment-options' && method === 'GET') {
+      const session = await resolveSession(req);
+      if (!session) {
+        sendJson(res, 401, { error: 'Unauthenticated' });
+        return true;
+      }
+
+      const rawPlanId = parsedUrl.searchParams.get('planId') || 'pro';
+      const planId: 'pro' | 'agency' | 'enterprise' =
+        rawPlanId === 'agency' || rawPlanId === 'enterprise' ? rawPlanId : 'pro';
+      const interval: 'monthly' | 'annual' =
+        parsedUrl.searchParams.get('interval') === 'annual' ? 'annual' : 'monthly';
+
+      try {
+        const optionsResponse = await getSupportedCryptoPaymentOptions(planId, interval);
+        sendJson(res, 200, optionsResponse);
+      } catch (err: any) {
+        sendJson(res, 500, { error: err?.message || 'Failed to load supported payment options' });
+      }
+      return true;
+    }
+
     if (path === '/api/crypto/create-order' && method === 'POST') {
       const session = await resolveSession(req);
       if (!session) {
@@ -2127,6 +2149,11 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
       const planId = body.planId || 'pro';
       const billingInterval = body.interval === 'annual' ? 'annual' : 'monthly';
       const referralCode = body.referralCode || body.ref || undefined;
+      const rawCurrency = typeof body.currency === 'string' ? body.currency.trim().toUpperCase() : 'USDT';
+      if (rawCurrency !== 'USDT' && rawCurrency !== 'GRAM') {
+        sendJson(res, 400, { error: `Unsupported payment currency "${body.currency}". Please select USDT or GRAM.` });
+        return true;
+      }
 
       try {
         const order = await createCryptoPaymentOrder({
@@ -2135,6 +2162,7 @@ export async function handleApiRoute(req: IncomingMessage, res: ServerResponse):
           userEmail: session.user.email,
           planId,
           billingInterval,
+          currency: rawCurrency,
           referralCode,
         });
 

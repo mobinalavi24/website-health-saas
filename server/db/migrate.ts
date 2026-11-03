@@ -82,6 +82,9 @@ export async function applyPaymentApprovalSchemaMigration(): Promise<void> {
     'ALTER TABLE crypto_orders ADD COLUMN IF NOT EXISTS rejected_by TEXT',
     'ALTER TABLE crypto_orders ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ',
     'ALTER TABLE crypto_orders ADD COLUMN IF NOT EXISTS rejection_reason TEXT',
+    'ALTER TABLE crypto_orders ADD COLUMN IF NOT EXISTS base_amount_usdt NUMERIC(12, 2)',
+    'ALTER TABLE crypto_orders ADD COLUMN IF NOT EXISTS exchange_rate NUMERIC(18, 6)',
+    'ALTER TABLE crypto_orders ALTER COLUMN amount TYPE NUMERIC(18, 6)',
   ];
 
   for (const st of statements) {

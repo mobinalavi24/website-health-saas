@@ -11,6 +11,8 @@ import type {
   SubscriptionPlan,
   Invoice,
   CryptoPaymentOrder,
+  CryptoPaymentCurrency,
+  CryptoPaymentOptionsResponse,
   LBankConnectionTestResult,
   ApiKey,
   SupportTicket,
@@ -348,15 +350,25 @@ export const apiClient = {
     return this.request<Invoice[]>('/api/billing/invoices');
   },
 
-  // Crypto Payments (USDT TRC20)
+  // Crypto Payments (USDT TRC20 & GRAM TONCOIN)
+  async getCryptoPaymentOptions(
+    planId: string = 'pro',
+    interval: 'monthly' | 'annual' = 'monthly'
+  ): Promise<CryptoPaymentOptionsResponse> {
+    return this.request<CryptoPaymentOptionsResponse>(
+      `/api/crypto/payment-options?planId=${encodeURIComponent(planId)}&interval=${encodeURIComponent(interval)}`
+    );
+  },
+
   async createCryptoOrder(
     planId: string,
     interval: 'monthly' | 'annual',
-    referralCode?: string
+    referralCode?: string,
+    currency: CryptoPaymentCurrency = 'USDT'
   ): Promise<{ success: boolean; order: CryptoPaymentOrder }> {
     return this.request<{ success: boolean; order: CryptoPaymentOrder }>('/api/crypto/create-order', {
       method: 'POST',
-      body: JSON.stringify({ planId, interval, referralCode }),
+      body: JSON.stringify({ planId, interval, referralCode, currency }),
     });
   },
 

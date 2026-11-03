@@ -111,7 +111,7 @@ export const MyCryptoPaymentsView: React.FC<MyCryptoPaymentsViewProps> = ({
 
   const totalPaidUsdt = orders
     .filter((o) => o.status === 'Paid')
-    .reduce((sum, o) => sum + o.amount, 0);
+    .reduce((sum, o) => sum + (o.baseAmountUsdt ?? (o.currency === 'GRAM' ? 5 : o.amount)), 0);
 
   return (
     <div className="space-y-6">
@@ -122,16 +122,16 @@ export const MyCryptoPaymentsView: React.FC<MyCryptoPaymentsViewProps> = ({
             <div className="p-2 rounded-xl bg-[#E6A05A]/10 border border-[#E6A05A]/30 text-[#E6A05A]">
               <QrCode className="h-5 w-5" />
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
               My Crypto Payments
             </h1>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Personal overview of your cryptocurrency orders, real-time TRON confirmations, and LBank settlement receipts.
+            Personal overview of your USDT (TRC20) & GRAM (TONCOIN) cryptocurrency orders, real-time blockchain confirmations, and LBank settlement receipts.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
           <button
             onClick={handleRefresh}
             disabled={refreshing}
@@ -154,30 +154,30 @@ export const MyCryptoPaymentsView: React.FC<MyCryptoPaymentsViewProps> = ({
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-4 space-y-1">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+        <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-3.5 sm:p-4 space-y-1">
           <span className="text-[11px] font-medium text-slate-400">Total Orders</span>
-          <div className="text-2xl font-bold font-mono text-white">{orders.length}</div>
+          <div className="text-xl sm:text-2xl font-bold font-mono text-white">{orders.length}</div>
         </div>
 
-        <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-4 space-y-1">
-          <span className="text-[11px] font-medium text-slate-400">Paid USDT Total</span>
-          <div className="text-2xl font-bold font-mono text-emerald-400">
+        <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-3.5 sm:p-4 space-y-1">
+          <span className="text-[11px] font-medium text-slate-400">Paid Value (USDT Eq.)</span>
+          <div className="text-xl sm:text-2xl font-bold font-mono text-emerald-400">
             {totalPaidUsdt} <span className="text-xs text-white">USDT</span>
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-4 space-y-1">
+        <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-3.5 sm:p-4 space-y-1">
           <span className="text-[11px] font-medium text-slate-400">Pending / Confirming</span>
-          <div className="text-2xl font-bold font-mono text-amber-400">
+          <div className="text-xl sm:text-2xl font-bold font-mono text-amber-400">
             {orders.filter((o) => o.status === 'Pending' || o.status === 'Confirming').length}
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-4 space-y-1">
-          <span className="text-[11px] font-medium text-slate-400">Payment Network</span>
-          <div className="text-sm font-bold font-mono text-[#E6A05A] pt-1">
-            TRON (TRC20)
+        <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-3.5 sm:p-4 space-y-1">
+          <span className="text-[11px] font-medium text-slate-400">Supported Networks</span>
+          <div className="text-xs sm:text-sm font-bold font-mono text-[#E6A05A] pt-1">
+            TRC20 · TONCOIN
           </div>
         </div>
       </div>
@@ -272,13 +272,26 @@ export const MyCryptoPaymentsView: React.FC<MyCryptoPaymentsViewProps> = ({
                       </td>
 
                       {/* Amount */}
-                      <td className="py-3.5 px-4 text-right font-bold text-[#E6A05A] text-sm tabular-nums">
-                        {ord.amount} <span className="text-[10px] text-white">USDT</span>
+                      <td className="py-3.5 px-4 text-right font-bold text-[#E6A05A] text-sm tabular-nums whitespace-nowrap">
+                        <div>
+                          {ord.amount} <span className="text-[10px] text-white">{ord.currency || 'USDT'}</span>
+                        </div>
+                        {ord.currency === 'GRAM' && ord.baseAmountUsdt && (
+                          <div className="text-[10px] font-normal text-slate-400">
+                            ≈ {ord.baseAmountUsdt} USDT
+                          </div>
+                        )}
                       </td>
 
                       {/* Network */}
                       <td className="py-3.5 px-4 font-sans">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono border ${
+                            ord.currency === 'GRAM'
+                              ? 'bg-sky-500/10 text-sky-300 border-sky-500/20'
+                              : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                          }`}
+                        >
                           {ord.network || 'TRON (TRC20)'}
                         </span>
                       </td>

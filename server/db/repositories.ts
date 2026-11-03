@@ -409,12 +409,13 @@ export const CryptoOrderRepo = {
     await query(
       `INSERT INTO crypto_orders (
          id, org_id, user_id, user_email, plan_id, plan_name, billing_interval,
-         currency, network, amount, deposit_address, qr_data_url, status, tx_id,
+         currency, network, amount, base_amount_usdt, exchange_rate,
+         deposit_address, qr_data_url, status, tx_id,
          detected_at, confirmed_at, expires_at, verification_log,
          approved_by, approved_at, rejected_by, rejected_at, rejection_reason,
          referral_code, referrer_user_id, created_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
        ON CONFLICT (id) DO UPDATE SET
          status = EXCLUDED.status,
          tx_id = EXCLUDED.tx_id,
@@ -425,6 +426,8 @@ export const CryptoOrderRepo = {
          rejected_by = EXCLUDED.rejected_by,
          rejected_at = EXCLUDED.rejected_at,
          rejection_reason = EXCLUDED.rejection_reason,
+         base_amount_usdt = COALESCE(crypto_orders.base_amount_usdt, EXCLUDED.base_amount_usdt),
+         exchange_rate = COALESCE(crypto_orders.exchange_rate, EXCLUDED.exchange_rate),
          referral_code = COALESCE(crypto_orders.referral_code, EXCLUDED.referral_code),
          referrer_user_id = COALESCE(crypto_orders.referrer_user_id, EXCLUDED.referrer_user_id)`,
       [
@@ -438,6 +441,8 @@ export const CryptoOrderRepo = {
         ord.currency,
         ord.network,
         ord.amount,
+        ord.baseAmountUsdt ?? (ord.currency === 'USDT' ? ord.amount : null),
+        ord.exchangeRateUsdt ?? (ord.currency === 'USDT' ? 1 : null),
         ord.depositAddress,
         ord.qrDataUrl || null,
         ord.status,
@@ -793,6 +798,19 @@ function mapAlertRow(row: any): AlertNotification {
 }
 
 export function mapCryptoOrderRow(row: any): CryptoPaymentOrder {
+  const parsedAmount = parseFloat(row.amount);
+  const parsedBaseUsdt =
+    row.base_amount_usdt !== undefined && row.base_amount_usdt !== null
+      ? parseFloat(row.base_amount_usdt)
+      : row.currency === 'USDT'
+      ? parsedAmount
+      : undefined;
+  const parsedRate =
+    row.exchange_rate !== undefined && row.exchange_rate !== null
+      ? parseFloat(row.exchange_rate)
+      : row.currency === 'USDT'
+      ? 1
+      : undefined;
   return {
     id: row.id,
     orgId: row.org_id,
@@ -803,7 +821,9 @@ export function mapCryptoOrderRow(row: any): CryptoPaymentOrder {
     billingInterval: row.billing_interval,
     currency: row.currency,
     network: row.network,
-    amount: parseFloat(row.amount),
+    amount: parsedAmount,
+    baseAmountUsdt: parsedBaseUsdt,
+    exchangeRateUsdt: parsedRate,
     depositAddress: row.deposit_address,
     qrDataUrl: row.qr_data_url || undefined,
     status: row.status,

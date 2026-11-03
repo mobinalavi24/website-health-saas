@@ -49,6 +49,11 @@ export const BillingView: React.FC<BillingViewProps> = ({
   const [loading, setLoading] = useState(false);
   const [actionSuccessToast, setActionSuccessToast] = useState<string | null>(null);
   const [cryptoModalOrder, setCryptoModalOrder] = useState<CryptoPaymentOrder | null>(null);
+  const [cryptoCheckoutConfig, setCryptoCheckoutConfig] = useState<{
+    planId: 'pro' | 'agency' | 'enterprise';
+    interval: 'monthly' | 'annual';
+    referralCode?: string;
+  } | null>(null);
   const [testingLBank, setTestingLBank] = useState(false);
   const [lbankTestResult, setLbankTestResult] = useState<LBankConnectionTestResult | null>(null);
   const [showTestModal, setShowTestModal] = useState(false);
@@ -164,33 +169,24 @@ export const BillingView: React.FC<BillingViewProps> = ({
       return;
     }
 
-    // Cryptocurrency Payment Flow (USDT TRC20 / LBank)
+    // Cryptocurrency Payment Flow (4-Step Currency Selection: USDT TRC20 or GRAM TONCOIN)
     // Multiple independent Pro purchases are supported at any time.
-    setLoading(true);
     setReferralError(null);
-    try {
-      const pendingRef =
-        !referralAppliedCode && checkoutReferralCode.trim()
-          ? checkoutReferralCode.trim().toUpperCase()
-          : undefined;
-      const res = await apiClient.createCryptoOrder(planId, interval, pendingRef);
-      if (res.success && res.order) {
-        if (pendingRef) {
-          setReferralAppliedCode(pendingRef);
-        }
-        setCryptoModalOrder(res.order);
-      }
-    } catch (err: any) {
-      setReferralError(err.message || null);
-      alert(`Error creating crypto payment order: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
+    const pendingRef =
+      !referralAppliedCode && checkoutReferralCode.trim()
+        ? checkoutReferralCode.trim().toUpperCase()
+        : undefined;
+    setCryptoModalOrder(null);
+    setCryptoCheckoutConfig({
+      planId: (planId as 'pro' | 'agency' | 'enterprise') || 'pro',
+      interval,
+      referralCode: pendingRef,
+    });
   };
 
   const handleCryptoSuccess = async (order: CryptoPaymentOrder) => {
     setActionSuccessToast(
-      `Payment of ${order.amount} USDT verified! Added +5 websites capacity via independent subscription entitlement.`
+      `Payment of ${order.amount} ${order.currency || 'USDT'} verified! Added +5 websites capacity via independent subscription entitlement.`
     );
     setTimeout(() => setActionSuccessToast(null), 6000);
     await loadBillingData();
@@ -220,36 +216,38 @@ export const BillingView: React.FC<BillingViewProps> = ({
         </div>
 
         {/* Cadence & LBank Verification Controls */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
           {/* Monthly / Annual toggle */}
           <div className="flex items-center p-1 bg-slate-900 border border-slate-800 rounded-lg text-xs">
             <button
               onClick={() => setInterval('monthly')}
-              className={`px-3 py-1 rounded transition-colors cursor-pointer ${
+              className={`px-2.5 sm:px-3 py-1 rounded transition-colors cursor-pointer ${
                 interval === 'monthly'
                   ? 'bg-slate-800 text-white font-medium shadow-sm'
                   : 'text-slate-400'
               }`}
             >
-              Monthly (30 Days)
+              Monthly (30d)
             </button>
             <button
               onClick={() => setInterval('annual')}
-              className={`px-3 py-1 rounded transition-colors flex items-center gap-1.5 cursor-pointer ${
+              className={`px-2.5 sm:px-3 py-1 rounded transition-colors flex items-center gap-1.5 cursor-pointer ${
                 interval === 'annual'
                   ? 'bg-slate-800 text-[#E6A05A] font-medium shadow-sm'
                   : 'text-slate-400'
               }`}
             >
-              <span>Annual (365 Days)</span>
+              <span>Annual (365d)</span>
               <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-1 py-0.2 rounded">
                 2 Mo Free
               </span>
             </button>
           </div>
 
-          <div className="hidden sm:flex items-center px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs font-mono text-[#E6A05A] font-semibold">
-            USDT (TRC20)
+          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs font-mono text-[#E6A05A] font-semibold">
+            <span>USDT (TRC20)</span>
+            <span className="text-slate-600">·</span>
+            <span className="text-sky-300">GRAM (TONCOIN)</span>
           </div>
 
           {/* LBank API Test Button */}
@@ -679,11 +677,9 @@ export const BillingView: React.FC<BillingViewProps> = ({
                   >
                     <QrCode className="h-4 w-4" />
                     <span>
-                      {loading
-                        ? 'Creating Order...'
-                        : hasActivePro
-                        ? `Buy Additional +5 Websites (${price} USDT)`
-                        : `Pay ${price} USDT (TRC20)`}
+                      {hasActivePro
+                        ? `Buy Additional +5 Websites (${price} USDT / GRAM)`
+                        : `Subscribe with USDT or GRAM (${price} USDT)`}
                     </span>
                   </button>
                 )}
@@ -691,8 +687,8 @@ export const BillingView: React.FC<BillingViewProps> = ({
                   <p className="text-[11px] text-center text-slate-400 mt-2 font-mono flex items-center justify-center gap-1">
                     <span>
                       {hasActivePro
-                        ? 'Stackable: adds +5 websites with its own expiration date'
-                        : 'Instant automatic activation via LBank USDT TRC20'}
+                        ? 'Stackable: adds +5 websites · Pay with USDT (TRC20) or GRAM'
+                        : 'Select USDT (TRC20) or GRAM (TONCOIN) in the next step'}
                     </span>
                   </p>
                 )}
@@ -702,30 +698,31 @@ export const BillingView: React.FC<BillingViewProps> = ({
         })}
       </div>
 
-      {/* Crypto Orders (USDT TRC20) History */}
+      {/* Crypto Orders (USDT & GRAM) History */}
       {cryptoOrders.length > 0 && (
-        <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-6 space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div className="rounded-xl border border-slate-800 bg-[#0F172A] p-4 sm:p-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800">
             <div className="flex items-center gap-2">
               <QrCode className="h-4 w-4 text-[#E6A05A]" />
               <h2 className="text-sm font-semibold text-white">
-                USDT (TRC20) Cryptocurrency Orders
+                Cryptocurrency Orders (USDT & GRAM)
               </h2>
             </div>
-            <span className="text-xs text-slate-400 font-mono">TRON Network / LBank Gateway</span>
+            <span className="text-xs text-slate-400 font-mono">LBank Official Gateway</span>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800 pb-2">
                 <tr>
-                  <th className="py-2">Order ID</th>
-                  <th className="py-2">Date</th>
-                  <th className="py-2">Plan</th>
-                  <th className="py-2 text-right">Amount</th>
-                  <th className="py-2 text-center">Status</th>
-                  <th className="py-2">TXID / Details</th>
-                  <th className="py-2 text-right">Action</th>
+                  <th className="py-2 pr-3">Order ID</th>
+                  <th className="py-2 px-2">Date</th>
+                  <th className="py-2 px-2">Plan</th>
+                  <th className="py-2 px-2">Network</th>
+                  <th className="py-2 px-2 text-right">Amount</th>
+                  <th className="py-2 px-2 text-center">Status</th>
+                  <th className="py-2 px-2">TXID / Details</th>
+                  <th className="py-2 pl-2 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-mono">
@@ -733,11 +730,22 @@ export const BillingView: React.FC<BillingViewProps> = ({
                   const isPending = ord.status === 'Pending' || ord.status === 'Confirming';
                   return (
                     <tr key={ord.id} className="text-slate-300">
-                      <td className="py-3 font-semibold text-white text-[11px]">{ord.id}</td>
-                      <td className="py-3">{new Date(ord.createdAt).toLocaleDateString()}</td>
-                      <td className="py-3 font-sans text-xs">{ord.planName}</td>
-                      <td className="py-3 text-right font-bold text-[#E6A05A] tabular-nums">
-                        {ord.amount} USDT
+                      <td className="py-3 pr-3 font-semibold text-white text-[11px]">{ord.id}</td>
+                      <td className="py-3 px-2 whitespace-nowrap">{new Date(ord.createdAt).toLocaleDateString()}</td>
+                      <td className="py-3 px-2 font-sans text-xs">{ord.planName}</td>
+                      <td className="py-3 px-2 font-sans">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono border ${
+                            ord.currency === 'GRAM'
+                              ? 'bg-sky-500/10 text-sky-300 border-sky-500/30'
+                              : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                          }`}
+                        >
+                          {ord.network || 'TRON (TRC20)'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2 text-right font-bold text-[#E6A05A] tabular-nums whitespace-nowrap">
+                        {ord.amount} {ord.currency || 'USDT'}
                       </td>
                       <td className="py-3 text-center font-sans">
                         <span
@@ -848,11 +856,22 @@ export const BillingView: React.FC<BillingViewProps> = ({
         )}
       </div>
 
-      {/* Crypto Payment Modal */}
-      {cryptoModalOrder && (
+      {/* Crypto Payment Modal (Supports 4-Step New Checkout & Existing Order Resume) */}
+      {(cryptoModalOrder || cryptoCheckoutConfig) && (
         <CryptoPaymentModal
           order={cryptoModalOrder}
-          onClose={() => setCryptoModalOrder(null)}
+          checkoutConfig={cryptoCheckoutConfig}
+          onClose={() => {
+            setCryptoModalOrder(null);
+            setCryptoCheckoutConfig(null);
+          }}
+          onOrderCreated={(newOrder) => {
+            setCryptoModalOrder(newOrder);
+            setCryptoOrders((prev) => [newOrder, ...prev.filter((o) => o.id !== newOrder.id)]);
+            if (cryptoCheckoutConfig?.referralCode) {
+              setReferralAppliedCode(cryptoCheckoutConfig.referralCode);
+            }
+          }}
           onPaymentSuccess={handleCryptoSuccess}
         />
       )}

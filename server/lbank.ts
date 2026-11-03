@@ -25,8 +25,37 @@ const LBANK_BASE_URL = (process.env.LBANK_BASE_URL || 'https://api.lbank.info').
 // Configured TRC20 deposit address (public receiving wallet address, overridable via env)
 export const DEFAULT_DEPOSIT_ADDRESS = (process.env.LBANK_USDT_TRC20_ADDRESS || 'TFvQrBFEPczaN7s4Wter53BJnh6LbFhtvu').trim();
 
-// In-memory cache for resolved LBank deposit address
+// In-memory cache for resolved LBank deposit addresses and GRAM exchange rate
 let cachedDepositAddress: string | null = null;
+let cachedGramDepositAddress: string | null = null;
+let cachedGramRate: { price: number; fetchedAt: number } | null = null;
+
+export interface SupportedCryptoPaymentOption {
+  currency: 'USDT' | 'GRAM';
+  name: string;
+  symbol: 'USDT' | 'GRAM';
+  network: string;
+  networkCode: string;
+  available: boolean;
+  unavailableReason?: string;
+  baseAmountUsdt: number;
+  requiredAmount: number;
+  exchangeRateUsdt: number;
+  amountDecimals: number;
+  depositAddressPreview?: string;
+  verificationMode: 'automatic_and_onchain' | 'automatic_and_manual';
+  description: string;
+}
+
+export interface CryptoPaymentOptionsResponse {
+  planId: 'pro' | 'agency' | 'enterprise';
+  planName: string;
+  billingInterval: 'monthly' | 'annual';
+  baseAmountUsdt: number;
+  websiteSlotsAdded: number;
+  options: SupportedCryptoPaymentOption[];
+  updatedAt: string;
+}
 
 /**
  * Generate 30-40 char random alphanumeric echostr required by LBank API
@@ -130,16 +159,230 @@ export async function getLBankDepositAddress(): Promise<string> {
 }
 
 /**
- * Query LBank Deposit History for recent USDT deposits
+ * Fetch LBank GRAM (TONCOIN network) deposit address using Read-Only API or configured LBANK_GRAM_ADDRESS.
+ * Never invents a wallet address — returns null if neither configured nor retrievable from LBank.
  */
-export async function fetchLBankDepositHistory(): Promise<any[]> {
+export async function getGramDepositAddress(): Promise<string | null> {
+  if (process.env.LBANK_GRAM_ADDRESS !== undefined) {
+    const configured = process.env.LBANK_GRAM_ADDRESS.trim();
+    if (!configured || configured.toLowerCase() === 'disabled') {
+      return null;
+    }
+    return configured;
+  }
+  if (cachedGramDepositAddress) return cachedGramDepositAddress;
+
+  const apiKey = getLBankApiKey();
+  const secretKey = getLBankSecretKey();
+  if (!apiKey || !secretKey) {
+    return null;
+  }
+
+  try {
+    const params: Record<string, string> = {
+      coin: 'gram',
+      networkName: 'toncoin',
+    };
+
+    const { sign, echostr, timestamp } = signLBankRequest(params, secretKey);
+
+    const body = new URLSearchParams({
+      ...params,
+      api_key: apiKey,
+      sign,
+    }).toString();
+
+    const resp = await fetch(`${LBANK_BASE_URL}/v2/supplement/get_deposit_address.do`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        timestamp,
+        signature_method: 'HmacSHA256',
+        echostr,
+      },
+      body,
+      signal: AbortSignal.timeout(6000),
+    });
+
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data && (data.result === 'true' || data.result === true) && data.data && data.data.address) {
+        const addr = String(data.data.address).trim();
+        if (addr.length >= 30) {
+          cachedGramDepositAddress = addr;
+          return addr;
+        }
+      }
+    }
+  } catch {
+    // Do not invent a fallback address if LBank cannot be reached and LBANK_GRAM_ADDRESS is not set
+  }
+
+  return null;
+}
+
+/**
+ * Fetch live GRAM/USDT exchange rate from LBank public ticker API (`symbol=gram_usdt`).
+ * Supports explicit LBANK_GRAM_USDT_RATE override for deterministic testing.
+ * Returns null if no live or valid rate is available.
+ */
+export async function fetchGramUsdtExchangeRate(): Promise<number | null> {
+  if (process.env.LBANK_GRAM_USDT_RATE !== undefined) {
+    const rawOverride = process.env.LBANK_GRAM_USDT_RATE.trim();
+    if (!rawOverride || rawOverride.toLowerCase() === 'unavailable') {
+      return null;
+    }
+    const parsedOverride = Number(rawOverride);
+    if (Number.isFinite(parsedOverride) && parsedOverride > 0) {
+      return parsedOverride;
+    }
+    return null;
+  }
+
+  const now = Date.now();
+  if (cachedGramRate && now - cachedGramRate.fetchedAt < 60_000) {
+    return cachedGramRate.price;
+  }
+
+  // 1. Primary LBank supplement ticker endpoint
+  try {
+    const resp = await fetch(`${LBANK_BASE_URL}/v2/supplement/ticker/price.do?symbol=gram_usdt`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (resp.ok) {
+      const json = await resp.json();
+      const row = Array.isArray(json?.data) ? json.data[0] : json?.data;
+      const price = Number(row?.price);
+      if (Number.isFinite(price) && price > 0) {
+        cachedGramRate = { price, fetchedAt: now };
+        return price;
+      }
+    }
+  } catch {
+    // Try fallback endpoint
+  }
+
+  // 2. Secondary LBank 24hr ticker endpoint
+  try {
+    const resp = await fetch(`${LBANK_BASE_URL}/v2/ticker/24hr.do?symbol=gram_usdt`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (resp.ok) {
+      const json = await resp.json();
+      const row = Array.isArray(json?.data) ? json.data[0] : json?.data;
+      const price = Number(row?.ticker?.latest);
+      if (Number.isFinite(price) && price > 0) {
+        cachedGramRate = { price, fetchedAt: now };
+        return price;
+      }
+    }
+  } catch {
+    // Ignore
+  }
+
+  // Allow recent cached rate up to 5 minutes old before rejecting
+  if (cachedGramRate && now - cachedGramRate.fetchedAt < 5 * 60_000) {
+    return cachedGramRate.price;
+  }
+
+  return null;
+}
+
+/**
+ * Build supported cryptocurrency payment options for a plan and billing interval.
+ * Never marks GRAM as available unless both its receiving address and live exchange rate are verified.
+ */
+export async function getSupportedCryptoPaymentOptions(
+  planId: 'pro' | 'agency' | 'enterprise' = 'pro',
+  billingInterval: 'monthly' | 'annual' = 'monthly'
+): Promise<CryptoPaymentOptionsResponse> {
+  const plan = db.getPlans().find((p) => p.id === planId) || db.getPlans().find((p) => p.id === 'pro')!;
+  const pricingTier = plan.pricing.USDT || plan.pricing.USD || { monthly: 5, annual: 50 };
+  const baseAmountUsdt = billingInterval === 'annual' ? pricingTier.annual : pricingTier.monthly;
+
+  const [usdtAddress, gramAddress, gramRate] = await Promise.all([
+    getLBankDepositAddress().catch(() => DEFAULT_DEPOSIT_ADDRESS),
+    getGramDepositAddress().catch(() => null),
+    fetchGramUsdtExchangeRate().catch(() => null),
+  ]);
+
+  const usdtAvailable = Boolean(usdtAddress && usdtAddress.length >= 20);
+  const gramAvailable = Boolean(gramAddress && gramAddress.length >= 30 && gramRate && gramRate > 0);
+  const gramRequiredAmount =
+    gramRate && gramRate > 0 ? Number((baseAmountUsdt / gramRate).toFixed(4)) : 0;
+
+  let gramUnavailableReason: string | undefined;
+  if (!gramAvailable) {
+    if (!gramAddress) {
+      gramUnavailableReason = 'GRAM receiving wallet address is not configured on the payment server.';
+    } else if (!gramRate || gramRate <= 0) {
+      gramUnavailableReason = 'Live GRAM/USDT exchange rate is temporarily unavailable from LBank.';
+    }
+  }
+
+  const options: SupportedCryptoPaymentOption[] = [
+    {
+      currency: 'USDT',
+      name: 'Tether USD',
+      symbol: 'USDT',
+      network: 'TRON (TRC20)',
+      networkCode: 'TRC20',
+      available: usdtAvailable,
+      unavailableReason: usdtAvailable ? undefined : 'USDT TRC20 deposit address is not configured.',
+      baseAmountUsdt,
+      requiredAmount: baseAmountUsdt,
+      exchangeRateUsdt: 1,
+      amountDecimals: 2,
+      depositAddressPreview: usdtAvailable
+        ? `${usdtAddress.substring(0, 6)}...${usdtAddress.substring(usdtAddress.length - 6)}`
+        : undefined,
+      verificationMode: 'automatic_and_onchain',
+      description: 'Instant automated verification via TRON (TRC20) blockchain & LBank API.',
+    },
+    {
+      currency: 'GRAM',
+      name: 'Gram',
+      symbol: 'GRAM',
+      network: 'TONCOIN (LBank GRAM)',
+      networkCode: 'TONCOIN',
+      available: gramAvailable,
+      unavailableReason: gramUnavailableReason,
+      baseAmountUsdt,
+      requiredAmount: gramRequiredAmount,
+      exchangeRateUsdt: gramRate && gramRate > 0 ? gramRate : 0,
+      amountDecimals: 4,
+      depositAddressPreview:
+        gramAvailable && gramAddress
+          ? `${gramAddress.substring(0, 6)}...${gramAddress.substring(gramAddress.length - 6)}`
+          : undefined,
+      verificationMode: 'automatic_and_manual',
+      description:
+        'Live rate conversion via LBank (GRAM/USDT) on TONCOIN network with LBank & on-chain verification.',
+    },
+  ];
+
+  return {
+    planId: plan.id as 'pro' | 'agency' | 'enterprise',
+    planName: `${plan.name} (${billingInterval === 'annual' ? 'Annual' : 'Monthly'})`,
+    billingInterval,
+    baseAmountUsdt,
+    websiteSlotsAdded: plan.limits?.maxWebsites || 5,
+    options,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Query LBank Deposit History for recent USDT or GRAM deposits
+ */
+export async function fetchLBankDepositHistory(coin: 'usdt' | 'gram' = 'usdt'): Promise<any[]> {
   const apiKey = getLBankApiKey();
   const secretKey = getLBankSecretKey();
   if (!apiKey || !secretKey) return [];
 
   try {
     const params: Record<string, string> = {
-      coin: 'usdt',
+      coin: coin.toLowerCase(),
     };
 
     const { sign, echostr, timestamp } = signLBankRequest(params, secretKey);
@@ -346,7 +589,126 @@ export async function inspectTronTransaction(txId: string, expectedAddress: stri
 }
 
 /**
- * Generate a complete payment order for a selected plan
+ * Query TonAPI for incoming GRAM / TON transfers to the LBank GRAM (TONCOIN) deposit address.
+ */
+export async function fetchGramBlockchainTransfers(depositAddress: string): Promise<Array<{
+  txId: string;
+  from: string;
+  to: string;
+  amountGram: number;
+  timestamp: number;
+  confirmed: boolean;
+}>> {
+  const transfers: Array<{
+    txId: string;
+    from: string;
+    to: string;
+    amountGram: number;
+    timestamp: number;
+    confirmed: boolean;
+  }> = [];
+
+  try {
+    const resp = await fetch(`https://tonapi.io/v2/accounts/${encodeURIComponent(depositAddress)}/events?limit=25`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (resp.ok) {
+      const json = await resp.json();
+      const events = Array.isArray(json?.events) ? json.events : [];
+      for (const ev of events) {
+        const eventId = String(ev.event_id || '').trim();
+        const tsMs = Number(ev.timestamp || 0) * 1000;
+        const inProgress = Boolean(ev.in_progress);
+        const actions = Array.isArray(ev.actions) ? ev.actions : [];
+        for (const act of actions) {
+          if (act.status && String(act.status).toLowerCase() !== 'ok') continue;
+          if (act.type === 'JettonTransfer' && act.JettonTransfer) {
+            const jt = act.JettonTransfer;
+            const symbol = String(jt.jetton?.symbol || '').toUpperCase();
+            if (symbol === 'GRAM') {
+              const decimals = Number(jt.jetton?.decimals ?? 9);
+              const rawAmt = Number(jt.amount || 0);
+              const amountGram = rawAmt / Math.pow(10, decimals);
+              if (Number.isFinite(amountGram) && amountGram > 0) {
+                transfers.push({
+                  txId: eventId,
+                  from: String(jt.sender?.address || ''),
+                  to: depositAddress,
+                  amountGram,
+                  timestamp: tsMs,
+                  confirmed: !inProgress,
+                });
+              }
+            }
+          } else if (act.type === 'TonTransfer' && act.TonTransfer) {
+            const tt = act.TonTransfer;
+            const rawAmt = Number(tt.amount || 0);
+            const amountGram = rawAmt / 1e9;
+            if (Number.isFinite(amountGram) && amountGram > 0) {
+              transfers.push({
+                txId: eventId,
+                from: String(tt.sender?.address || ''),
+                to: depositAddress,
+                amountGram,
+                timestamp: tsMs,
+                confirmed: !inProgress,
+              });
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore transient TonAPI errors
+  }
+
+  return transfers;
+}
+
+/**
+ * Inspect a TON / GRAM transaction hash or event ID against the expected deposit address.
+ */
+export async function inspectGramTransaction(txId: string, expectedAddress: string): Promise<{
+  valid: boolean;
+  amountGram: number;
+  to: string;
+  timestamp?: number;
+  confirmed: boolean;
+  error?: string;
+}> {
+  const cleanHash = (txId || '').trim();
+  if (cleanHash.length < 16) {
+    return { valid: false, amountGram: 0, to: '', confirmed: false, error: 'Invalid transaction hash or event ID format.' };
+  }
+
+  try {
+    const transfers = await fetchGramBlockchainTransfers(expectedAddress);
+    const matched = transfers.find((t) => t.txId && t.txId.toLowerCase() === cleanHash.toLowerCase());
+    if (matched && matched.amountGram > 0) {
+      return {
+        valid: true,
+        amountGram: matched.amountGram,
+        to: expectedAddress,
+        timestamp: matched.timestamp,
+        confirmed: matched.confirmed,
+      };
+    }
+  } catch (err: any) {
+    return { valid: false, amountGram: 0, to: '', confirmed: false, error: err?.message };
+  }
+
+  return {
+    valid: false,
+    amountGram: 0,
+    to: '',
+    confirmed: false,
+    error: 'Transaction not yet confirmed automatically on TONCOIN/LBank ledger.',
+  };
+}
+
+/**
+ * Generate a complete payment order for a selected plan and cryptocurrency (USDT or GRAM)
  */
 export async function createCryptoPaymentOrder(params: {
   orgId: string;
@@ -354,17 +716,27 @@ export async function createCryptoPaymentOrder(params: {
   userEmail: string;
   planId: 'pro' | 'agency' | 'enterprise';
   billingInterval: 'monthly' | 'annual';
+  currency?: 'USDT' | 'GRAM';
   referralCode?: string;
 }): Promise<CryptoPaymentOrder> {
   const plan = db.getPlans().find((p) => p.id === params.planId);
   if (!plan) throw new Error('Invalid plan selected');
 
+  const selectedCurrency: 'USDT' | 'GRAM' =
+    typeof params.currency === 'string' && params.currency.toUpperCase() === 'GRAM'
+      ? 'GRAM'
+      : typeof params.currency === 'string' && params.currency.toUpperCase() !== 'USDT'
+      ? (() => {
+          throw new Error(`Unsupported payment currency "${params.currency}". Supported currencies: USDT, GRAM.`);
+        })()
+      : 'USDT';
+
   const pricingTier = plan.pricing.USDT || plan.pricing.USD || { monthly: 5, annual: 50 };
-  const amount = params.billingInterval === 'annual'
+  const baseAmountUsdt = params.billingInterval === 'annual'
     ? pricingTier.annual
     : pricingTier.monthly;
 
-  if (amount <= 0) {
+  if (baseAmountUsdt <= 0) {
     throw new Error('Selected plan is free and does not require cryptocurrency payment.');
   }
 
@@ -379,14 +751,49 @@ export async function createCryptoPaymentOrder(params: {
     }
   }
 
-  const depositAddress = await getLBankDepositAddress();
-  const orderId = `ord_usdt_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+  let depositAddress = '';
+  let network = 'TRON (TRC20)';
+  let amount = baseAmountUsdt;
+  let exchangeRateUsdt = 1;
+  let paymentUri = '';
 
-  // Generate QR code data URL (encodes TRON URI / address with USDT info)
-  const tronUri = `tron:${depositAddress}?amount=${amount}&token=USDT`;
+  if (selectedCurrency === 'GRAM') {
+    const [gramAddr, gramRate] = await Promise.all([
+      getGramDepositAddress(),
+      fetchGramUsdtExchangeRate(),
+    ]);
+    if (!gramAddr || gramAddr.length < 30) {
+      throw new Error('GRAM payment option is currently unavailable: receiving wallet address is not configured.');
+    }
+    if (!gramRate || !Number.isFinite(gramRate) || gramRate <= 0) {
+      throw new Error('GRAM payment option is currently unavailable: live GRAM/USDT exchange rate could not be retrieved.');
+    }
+    depositAddress = gramAddr;
+    network = 'TONCOIN (LBank GRAM)';
+    exchangeRateUsdt = gramRate;
+    amount = Number((baseAmountUsdt / gramRate).toFixed(4));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error('Failed to calculate a valid GRAM payment amount.');
+    }
+    paymentUri = `ton://transfer/${depositAddress}?amount=${Math.round(amount * 1e9)}`;
+  } else {
+    depositAddress = await getLBankDepositAddress();
+    if (!depositAddress || depositAddress.length < 20) {
+      throw new Error('USDT (TRC20) deposit address is not configured.');
+    }
+    network = 'TRON (TRC20)';
+    exchangeRateUsdt = 1;
+    amount = baseAmountUsdt;
+    paymentUri = `tron:${depositAddress}?amount=${amount}&token=USDT`;
+  }
+
+  const orderPrefix = selectedCurrency === 'GRAM' ? 'ord_gram' : 'ord_usdt';
+  const orderId = `${orderPrefix}_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+
+  // Generate QR code data URL matching selected currency, network, receiving address, and amount
   let qrDataUrl = '';
   try {
-    qrDataUrl = await QRCode.toDataURL(tronUri, {
+    qrDataUrl = await QRCode.toDataURL(paymentUri, {
       errorCorrectionLevel: 'M',
       margin: 2,
       width: 280,
@@ -407,9 +814,11 @@ export async function createCryptoPaymentOrder(params: {
     planId: params.planId,
     planName: `${plan.name} (${params.billingInterval === 'annual' ? 'Annual' : 'Monthly'})`,
     billingInterval: params.billingInterval,
-    currency: 'USDT',
-    network: 'TRON (TRC20)',
+    currency: selectedCurrency,
+    network,
     amount,
+    baseAmountUsdt,
+    exchangeRateUsdt,
     depositAddress,
     qrDataUrl,
     status: 'Pending',
@@ -429,7 +838,7 @@ export async function createCryptoPaymentOrder(params: {
 }
 
 /**
- * Verify payment order automatically using LBank API and TRON blockchain
+ * Verify payment order automatically using LBank API and TRON / TONCOIN blockchain
  * Prevents double-spending, duplicate plan activations, and validates exact amounts
  */
 export async function verifyPaymentOrder(orderId: string, manualTxId?: string): Promise<{
@@ -464,17 +873,20 @@ export async function verifyPaymentOrder(orderId: string, manualTxId?: string): 
   const org = db.getOrganizations().find((o) => o.id === order.orgId);
   if (!org) throw new Error('Organization not found for order');
 
-  // 1. If user provided a specific TXID, verify it directly
-  if (manualTxId && manualTxId.trim().length > 10) {
-    const cleanTxId = manualTxId.trim();
+  const isGramOrder = order.currency === 'GRAM';
+  const orderCreatedTs = new Date(order.createdAt).getTime() - 120000; // 2 min grace
+  const cleanManualTx = manualTxId ? manualTxId.trim() : '';
+  // Allow 1% or 0.05 tolerance for GRAM (4 decimals) and 0.05 for USDT
+  const amountTolerance = isGramOrder ? Math.max(0.05, order.amount * 0.015) : 0.05;
 
-    // Prevent duplicate TXID reuse across different orders!
-    const existingOrderWithTx = db.findCryptoOrderByTxId(cleanTxId);
+  // Prevent duplicate TXID reuse across different orders!
+  if (cleanManualTx.length > 6) {
+    const existingOrderWithTx = db.findCryptoOrderByTxId(cleanManualTx);
     if (existingOrderWithTx && existingOrderWithTx.id !== order.id) {
       db.updateCryptoOrder(order.id, {
         status: 'Manual Review',
-        txId: cleanTxId,
-        verificationLog: `Rejected: TXID ${cleanTxId} has already been claimed by order ${existingOrderWithTx.id}.`,
+        txId: cleanManualTx,
+        verificationLog: `Rejected: TXID ${cleanManualTx} has already been claimed by order ${existingOrderWithTx.id}.`,
       });
       return {
         order: db.findCryptoOrderById(order.id)!,
@@ -482,15 +894,164 @@ export async function verifyPaymentOrder(orderId: string, manualTxId?: string): 
         message: 'Security Alert: This transaction hash has already been credited to another order. Flagged for Manual Review.',
       };
     }
+  }
 
-    const txInspection = await inspectTronTransaction(cleanTxId, order.depositAddress);
-    const orderCreatedTs = new Date(order.createdAt).getTime() - 120000;
+  // --- BRANCH A: GRAM (TONCOIN / LBank GRAM) VERIFICATION ---
+  if (isGramOrder) {
+    // 1. Check LBank Official Deposit History for GRAM (`coin: 'gram'`)
+    const lbankGramDeposits = await fetchLBankDepositHistory('gram');
+    for (const dep of lbankGramDeposits) {
+      const depTime = Number(dep.insertTime || dep.time || Date.now());
+      const depAmount = Number(dep.amount || 0);
+      const depCoin = (dep.coin || dep.assetCode || '').toLowerCase();
+      const depTxId = String(dep.txId || dep.txHash || '').trim();
+      const depStatus = dep.status !== undefined ? String(dep.status).toLowerCase() : '';
+
+      if (depStatus === '3' || depStatus === 'failed' || depStatus === 'cancelled') {
+        continue;
+      }
+
+      const matchesManualTx = cleanManualTx.length > 6 && depTxId.toLowerCase() === cleanManualTx.toLowerCase();
+      if (
+        depCoin === 'gram' &&
+        (depTime >= orderCreatedTs || matchesManualTx) &&
+        Math.abs(depAmount - order.amount) <= amountTolerance
+      ) {
+        if (depTxId) {
+          const used = db.findCryptoOrderByTxId(depTxId);
+          if (used && used.id !== order.id) continue;
+        }
+
+        if (depStatus === '1' || depStatus === 'confirming' || depStatus === 'applying') {
+          db.updateCryptoOrder(order.id, {
+            status: 'Confirming',
+            txId: depTxId || cleanManualTx || undefined,
+            detectedAt: new Date().toISOString(),
+            verificationLog: 'GRAM deposit detected on LBank exchange. Awaiting block confirmations.',
+          });
+          return {
+            order: db.findCryptoOrderById(order.id)!,
+            activated: false,
+            message: 'GRAM deposit detected on LBank! Awaiting network confirmations...',
+          };
+        }
+
+        const txIdentifier = depTxId || cleanManualTx || `lbank_gram_${Date.now()}`;
+        return await activatePaidOrder(order, txIdentifier, 'Verified via LBank Official GRAM Deposit History API');
+      }
+    }
+
+    // 2. Check TONCOIN / GRAM blockchain events on the deposit address
+    if (cleanManualTx.length >= 16) {
+      const gramTx = await inspectGramTransaction(cleanManualTx, order.depositAddress);
+      if (gramTx.valid && gramTx.amountGram > 0) {
+        if (gramTx.timestamp && gramTx.timestamp < orderCreatedTs) {
+          db.updateCryptoOrder(order.id, {
+            status: 'Manual Review',
+            txId: cleanManualTx,
+            verificationLog: `Timestamp precedes order creation (${new Date(gramTx.timestamp).toISOString()} < ${order.createdAt}).`,
+          });
+          return {
+            order: db.findCryptoOrderById(order.id)!,
+            activated: false,
+            message: 'Transaction timestamp predates this payment order. Flagged for Manual Review.',
+          };
+        }
+
+        if (Math.abs(gramTx.amountGram - order.amount) > amountTolerance) {
+          db.updateCryptoOrder(order.id, {
+            status: 'Manual Review',
+            txId: cleanManualTx,
+            verificationLog: `Amount mismatch: Received ${gramTx.amountGram} GRAM, expected ${order.amount} GRAM.`,
+          });
+          return {
+            order: db.findCryptoOrderById(order.id)!,
+            activated: false,
+            message: `Amount mismatch: Detected ${gramTx.amountGram} GRAM, but order requires ${order.amount} GRAM. Flagged for Manual Review.`,
+          };
+        }
+
+        if (!gramTx.confirmed) {
+          db.updateCryptoOrder(order.id, {
+            status: 'Confirming',
+            txId: cleanManualTx,
+            detectedAt: new Date().toISOString(),
+            verificationLog: 'GRAM transaction detected on TONCOIN network. Awaiting block confirmations.',
+          });
+          return {
+            order: db.findCryptoOrderById(order.id)!,
+            activated: false,
+            message: 'GRAM deposit detected on TONCOIN network! Awaiting confirmations...',
+          };
+        }
+
+        return await activatePaidOrder(order, cleanManualTx, 'Verified via TONCOIN/GRAM blockchain transfer inspection');
+      }
+
+      // If user submitted a manual TXID for GRAM that has not yet appeared in LBank/TonAPI indexers,
+      // record the TXID and place the order in Manual Review for administrator verification without fake activation.
+      db.updateCryptoOrder(order.id, {
+        status: 'Manual Review',
+        txId: cleanManualTx,
+        detectedAt: order.detectedAt || new Date().toISOString(),
+        verificationLog: `Customer submitted GRAM TXID (${cleanManualTx}) on TONCOIN (LBank GRAM). Pending automated LBank settlement or Administrator approval.`,
+      });
+      try {
+        const updated = db.findCryptoOrderById(order.id);
+        if (updated) await CryptoOrderRepo.insert(updated);
+      } catch {}
+      return {
+        order: db.findCryptoOrderById(order.id)!,
+        activated: false,
+        message:
+          'Your GRAM transaction ID has been recorded and queued for LBank settlement / Administrator verification. Your subscription will activate automatically as soon as confirmed.',
+      };
+    }
+
+    const gramTransfers = await fetchGramBlockchainTransfers(order.depositAddress);
+    for (const transfer of gramTransfers) {
+      if (
+        transfer.timestamp >= orderCreatedTs &&
+        Math.abs(transfer.amountGram - order.amount) <= amountTolerance
+      ) {
+        const alreadyClaimed = db.findCryptoOrderByTxId(transfer.txId);
+        if (alreadyClaimed && alreadyClaimed.id !== order.id) continue;
+
+        if (!transfer.confirmed) {
+          db.updateCryptoOrder(order.id, {
+            status: 'Confirming',
+            txId: transfer.txId,
+            detectedAt: new Date().toISOString(),
+            verificationLog: 'GRAM transfer detected on TONCOIN network. Awaiting confirmations.',
+          });
+          return {
+            order: db.findCryptoOrderById(order.id)!,
+            activated: false,
+            message: 'GRAM deposit detected on TONCOIN blockchain! Awaiting confirmations...',
+          };
+        }
+
+        return await activatePaidOrder(order, transfer.txId, 'Verified via TONCOIN/GRAM Blockchain Transfer');
+      }
+    }
+
+    return {
+      order: db.findCryptoOrderById(order.id) || order,
+      activated: false,
+      message: `No matching GRAM deposit detected yet. Please send ${order.amount} GRAM via ${order.network} to the address provided, or paste your TXID to submit for verification.`,
+    };
+  }
+
+  // --- BRANCH B: USDT (TRON TRC20) VERIFICATION ---
+  // 1. If user provided a specific TXID, verify it directly
+  if (cleanManualTx.length > 10) {
+    const txInspection = await inspectTronTransaction(cleanManualTx, order.depositAddress);
 
     if (txInspection.valid && txInspection.amountUsdt > 0 && txInspection.to === order.depositAddress) {
       if (txInspection.timestamp && txInspection.timestamp < orderCreatedTs) {
         db.updateCryptoOrder(order.id, {
           status: 'Manual Review',
-          txId: cleanTxId,
+          txId: cleanManualTx,
           verificationLog: `Timestamp precedes order creation (${new Date(txInspection.timestamp).toISOString()} < ${order.createdAt}).`,
         });
         return {
@@ -505,7 +1066,7 @@ export async function verifyPaymentOrder(orderId: string, manualTxId?: string): 
       if (amountDiff > 0.05) {
         db.updateCryptoOrder(order.id, {
           status: 'Manual Review',
-          txId: cleanTxId,
+          txId: cleanManualTx,
           verificationLog: `Amount mismatch: Received ${txInspection.amountUsdt} USDT, expected ${order.amount} USDT.`,
         });
         return {
@@ -518,7 +1079,7 @@ export async function verifyPaymentOrder(orderId: string, manualTxId?: string): 
       if (!txInspection.confirmed) {
         db.updateCryptoOrder(order.id, {
           status: 'Confirming',
-          txId: cleanTxId,
+          txId: cleanManualTx,
           detectedAt: new Date().toISOString(),
           verificationLog: 'Transaction detected on TRON network. Awaiting block confirmations.',
         });
@@ -530,14 +1091,13 @@ export async function verifyPaymentOrder(orderId: string, manualTxId?: string): 
       }
 
       // Valid on-chain payment confirmed!
-      return await activatePaidOrder(order, cleanTxId, 'Verified via TRON blockchain transaction inspection');
+      return await activatePaidOrder(order, cleanManualTx, 'Verified via TRON blockchain transaction inspection');
     }
   }
 
   // 2. Automated check via LBank Deposit History API
-  const lbankDeposits = await fetchLBankDepositHistory();
-  const orderCreatedTs = new Date(order.createdAt).getTime() - 120000; // 2 min grace
-  const cleanManualTx = manualTxId ? manualTxId.trim().toLowerCase() : '';
+  const lbankDeposits = await fetchLBankDepositHistory('usdt');
+  const cleanManualTxLower = cleanManualTx.toLowerCase();
 
   for (const dep of lbankDeposits) {
     const depTime = Number(dep.insertTime || dep.time || Date.now());
@@ -551,7 +1111,7 @@ export async function verifyPaymentOrder(orderId: string, manualTxId?: string): 
       continue;
     }
 
-    const matchesManualTx = cleanManualTx.length > 6 && depTxId.toLowerCase() === cleanManualTx;
+    const matchesManualTx = cleanManualTxLower.length > 6 && depTxId.toLowerCase() === cleanManualTxLower;
     if (
       depCoin === 'usdt' &&
       (depTime >= orderCreatedTs || matchesManualTx) &&
@@ -663,6 +1223,8 @@ async function activatePaidOrder(
 
   // Activate organization plan
   const org = db.getOrganizations().find((o) => o.id === order.orgId);
+  const paidCurrency = order.currency || 'USDT';
+  const paidNetwork = order.network || (paidCurrency === 'GRAM' ? 'TONCOIN (LBank GRAM)' : 'TRON (TRC20)');
   if (org) {
     org.planId = order.planId;
     org.billingInterval = order.billingInterval;
@@ -677,12 +1239,12 @@ async function activatePaidOrder(
     const newInvoice = {
       id: `inv_crypto_${Date.now()}`,
       orgId: org.id,
-      invoiceNumber: `INV-USDT-${Math.floor(1000 + Math.random() * 9000)}`,
+      invoiceNumber: `INV-${paidCurrency}-${Math.floor(1000 + Math.random() * 9000)}`,
       date: confirmedAt,
       amount: order.amount,
-      currency: 'USDT' as const,
+      currency: paidCurrency,
       status: 'paid' as const,
-      planName: `${order.planName} · Paid via USDT TRC20 (TX: ${txId.substring(0, 10)}...)`,
+      planName: `${order.planName} · Paid via ${paidCurrency} (${paidNetwork}) (TX: ${txId.substring(0, 10)}...)`,
     };
     db.addInvoice(newInvoice); // also synced to PostgreSQL by db layer
 
@@ -694,7 +1256,7 @@ async function activatePaidOrder(
       userEmail: order.userEmail,
       action: 'CRYPTO_SUBSCRIPTION_ACTIVATED',
       target: order.planName,
-      details: `Plan entitlement (+5 website slots) activated for ${order.planId.toUpperCase()} via ${order.amount} USDT (TRC20). TXID: ${txId}`,
+      details: `Plan entitlement (+5 website slots) activated for ${order.planId.toUpperCase()} via ${order.amount} ${paidCurrency} (${paidNetwork}). TXID: ${txId}`,
       timestamp: confirmedAt,
     };
     db.addAuditLog(newAuditLog); // also synced to PostgreSQL by db layer
@@ -710,7 +1272,7 @@ async function activatePaidOrder(
   return {
     order: updatedOrder,
     activated: true,
-    message: `Payment of ${order.amount} USDT successfully confirmed! Your ${order.planName} entitlement (+5 website slots) has been activated.`,
+    message: `Payment of ${order.amount} ${paidCurrency} successfully confirmed! Your ${order.planName} entitlement (+5 website slots) has been activated.`,
   };
 }
 

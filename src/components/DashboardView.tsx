@@ -294,12 +294,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* Filter and Search Bar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         {/* Interactive segmented controls for filtering */}
-        <div className="flex items-center gap-1 p-1 bg-slate-900 border border-slate-800 rounded-lg">
+        <div className="flex items-center gap-1 p-1 bg-slate-900 border border-slate-800 rounded-lg overflow-x-auto">
           {(['ALL', 'ONLINE', 'DEGRADED', 'OFFLINE'] as const).map((st) => (
             <button
               key={st}
               onClick={() => setStatusFilter(st)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+              className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
                 statusFilter === st
                   ? 'bg-slate-800 text-white shadow-sm'
                   : 'text-slate-400 hover:text-white'
@@ -311,7 +311,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Search input */}
-        <div className="relative max-w-xs w-full">
+        <div className="relative sm:max-w-xs w-full">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
           <input
             type="text"

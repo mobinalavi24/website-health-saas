@@ -158,7 +158,11 @@ export const AdminCryptoTransactionsView: React.FC = () => {
     const failedOrExpiredTransactions = orders.filter((o) => o.status === 'Failed' || o.status === 'Expired' || o.status === 'Cancelled').length;
     const totalConfirmedUsdt = orders
       .filter((o) => o.status === 'Paid')
-      .reduce((sum, o) => sum + (Number(o.amount) || 0), 0);
+      .reduce(
+        (sum, o) =>
+          sum + (Number(o.baseAmountUsdt ?? (o.currency === 'GRAM' ? 5 : o.amount)) || 0),
+        0
+      );
 
     return {
       totalTransactions,
@@ -392,7 +396,7 @@ export const AdminCryptoTransactionsView: React.FC = () => {
             <DollarSign className="h-3.5 w-3.5 text-[#E6A05A]" />
           </div>
           <div className="mt-2 text-2xl font-black text-white">
-            ${stats.totalConfirmedUsdt.toFixed(2)}
+            {stats.totalConfirmedUsdt.toFixed(2)}
             <span className="text-xs font-normal text-slate-400 ml-1">USDT</span>
           </div>
           <div className="mt-1 text-[11px] text-[#E6A05A]/80">
@@ -471,7 +475,7 @@ export const AdminCryptoTransactionsView: React.FC = () => {
           </div>
 
           <div className="text-[11px] text-slate-400">
-            Settlement Network: <span className="text-emerald-400 font-mono font-medium">TRON TRC20 (USDT)</span>
+            Settlement Networks: <span className="text-emerald-400 font-mono font-medium">TRON TRC20 (USDT)</span> · <span className="text-sky-300 font-mono font-medium">TONCOIN (GRAM)</span>
           </div>
         </div>
 
@@ -560,8 +564,13 @@ export const AdminCryptoTransactionsView: React.FC = () => {
                             {order.planName || order.planId}
                           </div>
                           <div className="text-emerald-400 font-bold font-mono text-sm">
-                            {order.amount} USDT
+                            {order.amount} {order.currency || 'USDT'}
                           </div>
+                          {order.currency === 'GRAM' && order.baseAmountUsdt && (
+                            <div className="text-[10px] text-slate-400 font-mono">
+                              ≈ {order.baseAmountUsdt} USDT
+                            </div>
+                          )}
                           <div className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">
                             {order.billingInterval} billing
                           </div>
@@ -571,8 +580,14 @@ export const AdminCryptoTransactionsView: React.FC = () => {
                       {/* Network & Deposit Address */}
                       <td className="py-3.5 px-4 align-top">
                         <div className="space-y-1">
-                          <div className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                            TRON (TRC20)
+                          <div
+                            className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded border ${
+                              order.currency === 'GRAM'
+                                ? 'text-sky-300 bg-sky-500/10 border-sky-500/20'
+                                : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+                            }`}
+                          >
+                            {order.network || 'TRON (TRC20)'}
                           </div>
                           <div className="flex items-center gap-1 text-[11px] font-mono text-slate-400">
                             <span className="truncate max-w-[130px]" title={order.depositAddress}>
@@ -629,12 +644,16 @@ export const AdminCryptoTransactionsView: React.FC = () => {
                               </button>
                             </div>
                             <a
-                              href={`https://tronscan.org/#/transaction/${order.txId}`}
+                              href={
+                                order.currency === 'GRAM'
+                                  ? `https://tonviewer.com/transaction/${encodeURIComponent(order.txId)}`
+                                  : `https://tronscan.org/#/transaction/${encodeURIComponent(order.txId)}`
+                              }
                               target="_blank"
                               rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-white underline cursor-pointer"
                             >
-                              TronScan <ExternalLink className="h-2.5 w-2.5" />
+                              {order.currency === 'GRAM' ? 'Tonviewer' : 'TronScan'} <ExternalLink className="h-2.5 w-2.5" />
                             </a>
                           </div>
                         ) : (
@@ -779,7 +798,15 @@ export const AdminCryptoTransactionsView: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Amount:</span>
-                <span className="font-mono text-emerald-400 font-bold">{approvingOrder.amount} USDT</span>
+                <span className="font-mono text-emerald-400 font-bold">
+                  {approvingOrder.amount} {approvingOrder.currency || 'USDT'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Network:</span>
+                <span className="font-mono text-slate-200">
+                  {approvingOrder.network || 'TRON (TRC20)'}
+                </span>
               </div>
               {approvingOrder.txId && (
                 <div className="flex justify-between text-[11px]">
@@ -869,7 +896,9 @@ export const AdminCryptoTransactionsView: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Amount:</span>
-                <span className="font-mono text-white font-bold">{rejectingOrder.amount} USDT</span>
+                <span className="font-mono text-white font-bold">
+                  {rejectingOrder.amount} {rejectingOrder.currency || 'USDT'}
+                </span>
               </div>
             </div>
 

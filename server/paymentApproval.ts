@@ -110,14 +110,16 @@ export async function approvePaymentOrder(
     });
 
     // 5. Record official invoice in PostgreSQL
+    const orderCurrency = row.currency || 'USDT';
+    const orderNetwork = row.network || (orderCurrency === 'GRAM' ? 'TONCOIN (LBank GRAM)' : 'TRON (TRC20)');
     const invId = `inv_crypto_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const invNum = `INV-USDT-${Math.floor(1000 + Math.random() * 9000)}`;
-    const invoicePlanName = `${row.plan_name} · Approved by ${adminUser.email}`;
+    const invNum = `INV-${orderCurrency}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const invoicePlanName = `${row.plan_name} · Paid via ${orderCurrency} (${orderNetwork}) · Approved by ${adminUser.email}`;
     await client.query(
       `INSERT INTO invoices (id, org_id, invoice_number, date, amount, currency, status, plan_name)
-       VALUES ($1, $2, $3, $4, $5, 'USDT', 'paid', $6)
+       VALUES ($1, $2, $3, $4, $5, $6, 'paid', $7)
        ON CONFLICT (id) DO NOTHING`,
-      [invId, row.org_id, invNum, nowIso, parseFloat(row.amount), invoicePlanName]
+      [invId, row.org_id, invNum, nowIso, parseFloat(row.amount), orderCurrency, invoicePlanName]
     );
 
     // 6. Atomically credit 40% referral commission if customer was referred
@@ -137,7 +139,7 @@ export async function approvePaymentOrder(
         adminUser.id,
         adminUser.email,
         orderId,
-        `Payment order ${orderId} (${row.amount} USDT) manually approved by ${adminUser.email}. Plan ${row.plan_id.toUpperCase()} entitlement (+${entResult.entitlement?.websiteCapacity || 5} website slots) activated for ${row.user_email}.${commResult ? ` Referral commission ${commResult.commissionAmount.toFixed(2)} USDT credited to ${commResult.referralCode}.` : ''}`,
+        `Payment order ${orderId} (${row.amount} ${orderCurrency} on ${orderNetwork}) manually approved by ${adminUser.email}. Plan ${row.plan_id.toUpperCase()} entitlement (+${entResult.entitlement?.websiteCapacity || 5} website slots) activated for ${row.user_email}.${commResult ? ` Referral commission ${commResult.commissionAmount.toFixed(2)} USDT credited to ${commResult.referralCode}.` : ''}`,
       ]
     );
 
@@ -171,7 +173,7 @@ export async function approvePaymentOrder(
         invoiceNumber: invNum,
         date: nowIso,
         amount: parseFloat(row.amount),
-        currency: 'USDT',
+        currency: orderCurrency,
         status: 'paid',
         planName: invoicePlanName,
       });
@@ -183,7 +185,7 @@ export async function approvePaymentOrder(
         userEmail: adminUser.email,
         action: 'ADMIN_PAYMENT_APPROVED',
         target: orderId,
-        details: `Payment order ${orderId} (${row.amount} USDT) manually approved by ${adminUser.email}. Plan ${row.plan_id.toUpperCase()} entitlement activated for ${row.user_email}.`,
+        details: `Payment order ${orderId} (${row.amount} ${orderCurrency} on ${orderNetwork}) manually approved by ${adminUser.email}. Plan ${row.plan_id.toUpperCase()} entitlement activated for ${row.user_email}.`,
         timestamp: nowIso,
       });
     }
@@ -193,7 +195,7 @@ export async function approvePaymentOrder(
       order: updatedOrder,
       commission: commResult,
       entitlement: entResult.entitlement,
-      message: `Payment of ${row.amount} USDT approved successfully! Plan ${row.plan_name} entitlement (+${entResult.entitlement?.websiteCapacity || 5} website slots) has been activated for ${row.user_email}.`,
+      message: `Payment of ${row.amount} ${orderCurrency} approved successfully! Plan ${row.plan_name} entitlement (+${entResult.entitlement?.websiteCapacity || 5} website slots) has been activated for ${row.user_email}.`,
     };
   });
 

@@ -339,10 +339,10 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
             Transparent Crypto-Native Pricing
           </h2>
           <p className="text-sm text-slate-400">
-            Choose monthly or annual billing in USDT (TRC20). Stack multiple Pro entitlements anytime.
+            Choose monthly or annual billing in USDT (TRC20) or GRAM (TONCOIN). Stack multiple Pro entitlements anytime.
           </p>
 
-          <div className="flex items-center justify-center gap-3 pt-2">
+          <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
             {/* Interval Toggle */}
             <div className="flex items-center p-1 bg-slate-900 border border-slate-800 rounded-lg text-xs">
               <button
@@ -367,7 +367,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
             </div>
 
             <div className="px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs font-mono text-[#E6A05A] font-semibold">
-              USDT (TRC20)
+              USDT (TRC20) · GRAM (TON)
             </div>
           </div>
         </div>
@@ -468,7 +468,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({
                     {isPro ? `Get Started with Pro (5 USDT/mo)` : 'Start 24-Hour Free Trial'}
                   </button>
                   <p className="text-[11px] text-center text-slate-500 mt-2 font-mono">
-                    {isPro ? 'Instant activation • Billed in USDT (TRC20)' : 'One-time 24-hour evaluation'}
+                    {isPro ? 'Instant activation • Pay with USDT (TRC20) or GRAM (TONCOIN)' : 'One-time 24-hour evaluation'}
                   </p>
                 </div>
               </div>

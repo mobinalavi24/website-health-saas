@@ -345,6 +345,36 @@ export interface Invoice {
 
 export type CryptoPaymentStatus = 'Pending' | 'Confirming' | 'Paid' | 'Failed' | 'Expired' | 'Manual Review' | 'Rejected' | 'Cancelled';
 
+export type CryptoPaymentCurrency = 'USDT' | 'GRAM';
+export type CryptoPaymentNetwork = 'TRON (TRC20)' | 'TONCOIN (LBank GRAM)' | string;
+
+export interface SupportedCryptoPaymentOption {
+  currency: CryptoPaymentCurrency;
+  name: string;
+  symbol: CryptoPaymentCurrency;
+  network: string;
+  networkCode: string;
+  available: boolean;
+  unavailableReason?: string;
+  baseAmountUsdt: number;
+  requiredAmount: number;
+  exchangeRateUsdt: number;
+  amountDecimals: number;
+  depositAddressPreview?: string;
+  verificationMode: 'automatic_and_onchain' | 'automatic_and_manual';
+  description: string;
+}
+
+export interface CryptoPaymentOptionsResponse {
+  planId: 'pro' | 'agency' | 'enterprise';
+  planName: string;
+  billingInterval: 'monthly' | 'annual';
+  baseAmountUsdt: number;
+  websiteSlotsAdded: number;
+  options: SupportedCryptoPaymentOption[];
+  updatedAt: string;
+}
+
 export interface CryptoPaymentOrder {
   id: string;
   orgId: string;
@@ -353,9 +383,11 @@ export interface CryptoPaymentOrder {
   planId: 'pro' | 'agency' | 'enterprise';
   planName: string;
   billingInterval: 'monthly' | 'annual';
-  currency: 'USDT';
-  network: 'TRON (TRC20)';
+  currency: CryptoPaymentCurrency;
+  network: CryptoPaymentNetwork;
   amount: number;
+  baseAmountUsdt?: number;
+  exchangeRateUsdt?: number;
   depositAddress: string;
   qrDataUrl?: string;
   status: CryptoPaymentStatus;
